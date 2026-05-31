@@ -250,3 +250,7 @@ secscan/
 - `version.py` is a pragmatic numeric comparator, not full PEP 440 / semver.
 - CVE coverage depends on the built-in product→CPE map; unknown products are
   reported as "verify manually".
+
+## License
+
+MIT — see [LICENSE](LICENSE). For authorized security testing only.
