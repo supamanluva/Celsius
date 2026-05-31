@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Byte-compile all modules (syntax check)
+        run: python -m py_compile $(git ls-files '*.py')
+
+      - name: CLI smoke test (stdlib-only core, no deps needed)
+        run: python -m secscan --version
+
+      - name: Lint (ruff, non-blocking)
+        run: |
+          pip install ruff
+          ruff check secscan/ || true
