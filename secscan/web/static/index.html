@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>secscan</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header>
+    <h1>🛡️ secscan</h1>
+    <p class="tag">service &amp; version detection · CVE lookup · web headers · code &amp; secret scan · PoC steps</p>
+  </header>
+
+  <div class="authbar" id="authbar">
+    <label>
+      <input type="checkbox" id="authorized">
+      I am <strong>authorized</strong> to test the targets I enter (I own them or have written permission).
+    </label>
+  </div>
+
+  <nav class="tabs">
+    <button class="tab active" data-tab="host">Host / Web scan</button>
+    <button class="tab" data-tab="code">Code &amp; secret scan</button>
+    <button class="tab" data-tab="history">History</button>
+  </nav>
+
+  <!-- HOST / WEB SCAN -->
+  <section id="tab-host" class="panel active">
+    <form id="scanForm" class="form">
+      <input type="text" id="target" placeholder="https://example.com  or  203.0.113.10" autocomplete="off">
+      <button type="submit" id="scanBtn">Scan</button>
+    </form>
+    <div class="opts">
+      <label><input type="checkbox" id="opt-web" checked> web headers</label>
+      <label><input type="checkbox" id="opt-cve" checked> CVE lookup</label>
+      <label><input type="checkbox" id="opt-secrets" checked> front-end secrets</label>
+      <label><input type="checkbox" id="opt-dns" checked> DNS</label>
+      <label><input type="checkbox" id="opt-tls" checked> TLS</label>
+      <label><input type="checkbox" id="opt-fingerprint" checked> fingerprint</label>
+      <label><input type="checkbox" id="opt-subdomains"> subdomains</label>
+      <label><input type="checkbox" id="opt-crawl"> crawl + JS</label>
+      <label><input type="checkbox" id="opt-apidisco"> API discovery</label>
+      <label><input type="checkbox" id="opt-ports"> nmap ports</label>
+      <label><input type="checkbox" id="opt-nuclei"> nuclei</label>
+      <label title="Confirm detected CVEs with matching nuclei templates"><input type="checkbox" id="opt-cveverify"> verify CVEs</label>
+      <label><input type="checkbox" id="opt-ai"> 🤖 AI analysis</label>
+      <select id="opt-ai-provider" title="AI provider">
+        <option value="deepseek">DeepSeek</option>
+        <option value="openai">OpenAI</option>
+        <option value="anthropic">Anthropic</option>
+        <option value="local">Local (Ollama)</option>
+        <option value="mock">Mock (offline)</option>
+      </select>
+      <input type="password" id="opt-ai-key" class="aikey" placeholder="AI API key (optional — else uses env var)" autocomplete="off">
+    </div>
+
+    <div id="scanStatus" class="status hidden"></div>
+    <pre id="scanLog" class="log hidden"></pre>
+
+    <div id="summary" class="summary hidden"></div>
+    <div id="results"></div>
+  </section>
+
+  <!-- CODE SCAN -->
+  <section id="tab-code" class="panel">
+    <form id="codeForm" class="form">
+      <input type="text" id="codePath" placeholder="/path/to/repo  (server-side path)" autocomplete="off">
+      <button type="submit" id="codeBtn">Scan path</button>
+    </form>
+    <p class="or">— or paste a snippet —</p>
+    <textarea id="codeText" placeholder="paste code/config to scan for secrets &amp; risky patterns"></textarea>
+    <button id="codeTextBtn" class="secondary">Scan pasted text</button>
+    <div id="codeStatus" class="status hidden"></div>
+    <div id="codeResults"></div>
+  </section>
+
+  <!-- HISTORY -->
+  <section id="tab-history" class="panel">
+    <div class="form">
+      <input type="text" id="historyFilter" placeholder="filter by target (optional)" autocomplete="off">
+      <button id="refreshHistory">Refresh</button>
+    </div>
+    <p class="or">Past scans are stored locally (SQLite). Click one to re-open its report.</p>
+    <div id="historyList"></div>
+  </section>
+
+  <!-- PoC modal -->
+  <div id="pocModal" class="modal hidden">
+    <div class="modal-box">
+      <button class="modal-close" id="pocClose">×</button>
+      <div id="pocContent"></div>
+    </div>
+  </div>
+
+  <footer>
+    For authorized security testing only. CVE data: NVD + MITRE. PoC steps are non-destructive.
+  </footer>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

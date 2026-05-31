@@ -1,0 +1,145 @@
+"""Shared data structures used across scanner modules and the reporter."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field, asdict
+from enum import Enum
+from typing import Any, Optional
+
+
+class Severity(str, Enum):
+    """Ordered severity buckets, aligned with CVSS qualitative ratings."""
+
+    CRITICAL = "CRITICAL"
+    HIGH = "HIGH"
+    MEDIUM = "MEDIUM"
+    LOW = "LOW"
+    INFO = "INFO"
+
+    @property
+    def rank(self) -> int:
+        order = {
+            "CRITICAL": 4,
+            "HIGH": 3,
+            "MEDIUM": 2,
+            "LOW": 1,
+            "INFO": 0,
+        }
+        return order[self.value]
+
+    @classmethod
+    def from_cvss(cls, score: Optional[float]) -> "Severity":
+        if score is None:
+            return cls.INFO
+        if score >= 9.0:
+            return cls.CRITICAL
+        if score >= 7.0:
+            return cls.HIGH
+        if score >= 4.0:
+            return cls.MEDIUM
+        if score > 0.0:
+            return cls.LOW
+        return cls.INFO
+
+
+@dataclass
+class Service:
+    """A detected service / software product with an optional version."""
+
+    name: str                      # e.g. "nginx", "OpenSSH"
+    version: Optional[str] = None  # e.g. "1.29.6"
+    port: Optional[int] = None
+    protocol: Optional[str] = None  # "tcp" / "udp"
+    product: Optional[str] = None   # vendor product string from nmap, if any
+    source: str = ""                # "http-header", "nmap", ...
+    extra: dict[str, Any] = field(default_factory=dict)
+
+    def label(self) -> str:
+        v = f" {self.version}" if self.version else ""
+        p = f" (port {self.port}/{self.protocol})" if self.port else ""
+        return f"{self.name}{v}{p}"
+
+
+@dataclass
+class CVE:
+    """A known vulnerability affecting a detected service version."""
+
+    id: str
+    severity: Severity
+    cvss: Optional[float]
+    description: str
+    url: str
+    published: Optional[str] = None
+    affects: str = ""  # which detected service this maps to
+    references: list[dict[str, Any]] = field(default_factory=list)  # PoC/exploit refs
+    verified: bool = False  # confirmed via nuclei template against the live target
+    exploitability: dict[str, Any] = field(default_factory=dict)  # M4: verdict/signals/howto
+
+    def poc_refs(self) -> list[str]:
+        """URLs of public exploits / PoCs (NVD-tagged 'Exploit' or known PoC hosts)."""
+        return [r["url"] for r in self.references if r.get("poc")]
+
+    def to_dict(self) -> dict[str, Any]:
+        d = asdict(self)
+        d["severity"] = self.severity.value
+        return d
+
+
+@dataclass
+class Finding:
+    """A non-CVE issue: a missing/weak header, a nuclei hit, a misconfig."""
+
+    title: str
+    severity: Severity
+    category: str            # "headers", "csp", "nuclei", "tls", "ai-hypothesis", ...
+    description: str = ""
+    recommendation: str = ""
+    evidence: str = ""
+    confidence: str = ""     # "high"/"medium"/"low" — used by AI hypotheses
+    exploitability: dict[str, Any] = field(default_factory=dict)  # M4: verdict/signals/howto
+
+    def to_dict(self) -> dict[str, Any]:
+        d = asdict(self)
+        d["severity"] = self.severity.value
+        return d
+
+
+@dataclass
+class ScanResult:
+    """Everything we learned about one target."""
+
+    target: str
+    url: Optional[str] = None
+    ip: Optional[str] = None
+    services: list[Service] = field(default_factory=list)
+    cves: list[CVE] = field(default_factory=list)
+    findings: list[Finding] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
+    recon: dict[str, Any] = field(default_factory=dict)  # dns/tls/tech/subdomains
+    chains: list[dict[str, Any]] = field(default_factory=list)   # M6: exploit chains
+    coverage: dict[str, Any] = field(default_factory=dict)       # M6: completeness critic
+    started_at: str = ""
+    finished_at: str = ""
+
+    def add_finding(self, f: Finding) -> None:
+        self.findings.append(f)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "target": self.target,
+            "url": self.url,
+            "ip": self.ip,
+            "services": [asdict(s) for s in self.services],
+            "cves": [c.to_dict() for c in self.cves],
+            "findings": [f.to_dict() for f in self.findings],
+            "errors": self.errors,
+            "recon": self.recon,
+            "chains": self.chains,
+            "coverage": self.coverage,
+            "started_at": self.started_at,
+            "finished_at": self.finished_at,
+        }
+
+    def all_severities_sorted(self) -> list[Severity]:
+        sev = {c.severity for c in self.cves} | {f.severity for f in self.findings}
+        return sorted(sev, key=lambda s: s.rank, reverse=True)
