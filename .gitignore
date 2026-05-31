@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Local agent / editor config
+.claude/
+.idea/
+.vscode/
+
+# secscan local data (defaults live in ~/.local/share & ~/.cache)
+*.db
+*.sqlite
+*.sqlite3
+.secscan-stop
+scope.yml          # keep scope.yml.example; never commit a real scope
+
+# Generated reports
+*.sarif
+*.report.json
+*.report.html
+report.json
+report.html
+report.md
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,0 +1,31 @@
+# secscan authorization scope.
+# Copy to scope.yml and pass with `--scope scope.yml` (CLI) to gate what may be
+# scanned and how. Without a scope file, secscan uses a permissive default that
+# allows passive + safe-active for any target (exploit mode always requires an
+# explicit entry here). The CLI authorization prompt / web checkbox still applies.
+#
+# Modes:
+#   passive      ordinary HTTP a browser would make + third-party lookups (NVD)
+#   safe-active  scanners/probes (nmap, nuclei) — benign, non-destructive
+#   exploit      lab-mode active exploitation (guardrailed; opt-in only)
+
+authorized_by: you@example.com
+authorized_at: 2026-05-31
+
+targets:
+  - host: scan.example.com        # you own this / have written permission
+    modes: [passive, safe-active]
+
+  - host: lab.local             # your isolated lab box
+    modes: [passive, safe-active, exploit]
+
+  # shorthand: a bare host string defaults to [passive, safe-active]
+  - staging.example.com
+
+# Hosts matching these globs are always refused, even if listed above.
+exclusions:
+  - "*.gov"
+  - "*.bank.se"
+
+# Global request rate cap (requests/second) applied to active checks.
+rate_limit_rps: 10
