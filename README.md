@@ -129,7 +129,7 @@ authorizes which hosts may be scanned and in which **mode**:
 
 - `passive` — ordinary HTTP + third-party lookups (NVD)
 - `safe-active` — scanners/probes (nmap, nuclei), benign & non-destructive
-- `exploit` — lab-mode active exploitation (opt-in, guardrailed; *not yet built*)
+- `exploit` — lab-mode active verification (opt-in, guardrailed; see Lab mode below)
 
 Without a scope file, the default permits passive + safe-active for any target
 you confirm; `exploit` always requires an explicit scope entry.
