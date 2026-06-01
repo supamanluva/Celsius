@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 # Start the secscan web app (detached). Configurable via env:
-#   HOST (default 127.0.0.1), PORT (default 8000)
+#   HOST (default 127.0.0.1), PORT (default 8000), RELOAD (1 = auto-reload, dev)
 # Writes a PID file and logs next to this script.
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HOST="${HOST:-127.0.0.1}"
 PORT="${PORT:-8000}"
+RELOAD_ARG=""
+[ "${RELOAD:-0}" = "1" ] && RELOAD_ARG="--reload"
 PY="$DIR/.venv/bin/python"
 PIDFILE="$DIR/.secscan-serve.pid"
 LOGFILE="$DIR/secscan-serve.log"
@@ -19,7 +21,7 @@ if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
     exit 0
 fi
 
-setsid "$PY" -m secscan serve --host "$HOST" --port "$PORT" > "$LOGFILE" 2>&1 < /dev/null &
+setsid "$PY" -m secscan serve --host "$HOST" --port "$PORT" $RELOAD_ARG > "$LOGFILE" 2>&1 < /dev/null &
 PID=$!
 echo "$PID" > "$PIDFILE"
 
