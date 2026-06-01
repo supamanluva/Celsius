@@ -41,7 +41,20 @@ _SIGS: list[tuple[str, str, str, re.Pattern]] = [
     ("Fly.io", "hosting", "any-header", re.compile(r"\bfly-request-id\b|server:\s*fly\b", re.I)),
     ("Heroku", "hosting", "any-header", re.compile(r"heroku-router|\bvegur\b|server:\s*cowboy", re.I)),
     ("GitHub Pages", "hosting", "any-header", re.compile(r"x-github-request-id|server:\s*github\.com", re.I)),
+    ("GitLab Pages", "hosting", "any-header", re.compile(r"server:\s*gitlab", re.I)),
     ("DigitalOcean App Platform", "hosting", "any-header", re.compile(r"x-do-app-origin|\bdo-app\b", re.I)),
+    ("Microsoft Azure", "hosting", "any-header", re.compile(r"x-azure-ref|x-msedge-ref|azurewebsites\.net", re.I)),
+    ("Google Cloud", "hosting", "any-header", re.compile(r"\bgoogle frontend\b|x-cloud-trace-context|\bgse\b", re.I)),
+    ("Firebase Hosting", "hosting", "any-header", re.compile(r"x-firebase|firebaseapp\.com", re.I)),
+    ("Squarespace", "hosting", "any-header", re.compile(r"\bsquarespace\b", re.I)),
+    ("Wix", "hosting", "any-header", re.compile(r"x-wix-request-id|\bpepyaka\b", re.I)),
+    ("WP Engine", "hosting", "any-header", re.compile(r"x-wpengine|wp engine", re.I)),
+    ("Kinsta", "hosting", "any-header", re.compile(r"x-kinsta", re.I)),
+    ("Pantheon", "hosting", "any-header", re.compile(r"x-pantheon|server:\s*pantheon", re.I)),
+    # CDNs
+    ("Bunny CDN", "cdn", "any-header", re.compile(r"\bbunnycdn\b", re.I)),
+    ("KeyCDN", "cdn", "any-header", re.compile(r"\bkeycdn\b", re.I)),
+    ("StackPath", "cdn", "any-header", re.compile(r"\bstackpath\b", re.I)),
     # WAFs / load balancers
     ("Cloudflare WAF", "waf", "server", re.compile(r"cloudflare", re.I)),
     ("AWS WAF/ALB", "waf", "any-header", re.compile(r"\bawselb\b|x-amz", re.I)),
@@ -54,8 +67,18 @@ _SIGS: list[tuple[str, str, str, re.Pattern]] = [
     ("Apache httpd", "server", "server", re.compile(r"apache(?:/(?P<ver>[\d.]+))?", re.I)),
     ("Microsoft-IIS", "server", "server", re.compile(r"microsoft-iis(?:/(?P<ver>[\d.]+))?", re.I)),
     ("OpenResty", "server", "server", re.compile(r"openresty(?:/(?P<ver>[\d.]+))?", re.I)),
+    ("Caddy", "server", "server", re.compile(r"\bcaddy(?:/(?P<ver>[\d.]+))?", re.I)),
+    ("LiteSpeed", "server", "server", re.compile(r"litespeed(?:/(?P<ver>[\d.]+))?", re.I)),
     ("OpenSSL", "library", "server", re.compile(r"openssl/(?P<ver>[\d.]+[a-z]?)", re.I)),
     ("Apache Tomcat", "server", "any-header", re.compile(r"tomcat(?:/(?P<ver>[\d.]+))?|apache-coyote", re.I)),
+    # Application servers (also tell us the backend language)
+    ("Gunicorn", "language", "server", re.compile(r"gunicorn(?:/(?P<ver>[\d.]+))?", re.I)),
+    ("uWSGI", "language", "server", re.compile(r"\buwsgi\b", re.I)),
+    ("Werkzeug", "language", "server", re.compile(r"werkzeug(?:/(?P<ver>[\d.]+))?", re.I)),
+    ("Puma", "language", "server", re.compile(r"\bpuma\b", re.I)),
+    ("Unicorn", "language", "server", re.compile(r"\bunicorn\b", re.I)),
+    ("Phusion Passenger", "server", "any-header", re.compile(r"phusion[ _]?passenger", re.I)),
+    ("Kestrel", "framework", "server", re.compile(r"\bkestrel\b", re.I)),
     # Languages / runtimes (incl. session-cookie tells)
     ("PHP", "language", "any-header", re.compile(r"php/?(?P<ver>[\d.]+)?", re.I)),
     ("PHP", "language", "cookie", re.compile(r"PHPSESSID", re.I)),
@@ -138,6 +161,25 @@ def infer_platform(headers: dict[str, str], body: str, techs: list[Tech]) -> dic
             os_name, os_conf = "Linux", "low"
         evidence.append("PHP signature")
 
+    # Python app servers
+    if names & {"Gunicorn", "uWSGI", "Werkzeug"}:
+        runtime = runtime or "Python (WSGI)"
+        if not os_name:
+            os_name, os_conf = "Linux", "low"
+        evidence.append("Python app server")
+
+    # Ruby app servers
+    if names & {"Puma", "Unicorn", "Phusion Passenger"}:
+        runtime = runtime or "Ruby"
+        if not os_name:
+            os_name, os_conf = "Linux", "low"
+        evidence.append("Ruby app server")
+
+    # .NET (Kestrel runs on Linux or Windows -> runtime only, no OS claim)
+    if "Kestrel" in names:
+        runtime = runtime or ".NET (Kestrel)"
+        evidence.append("Kestrel (.NET)")
+
     # Node.js
     if "Express" in names or "Next.js" in names:
         runtime = runtime or "Node.js"
@@ -153,6 +195,9 @@ def infer_platform(headers: dict[str, str], body: str, techs: list[Tech]) -> dic
         elif "nginx" in sl:
             os_name, os_conf = "Linux", "low"
             evidence.append("nginx (Linux-typical)")
+        elif "caddy" in sl or "litespeed" in sl:
+            os_name, os_conf = "Linux", "low"
+            evidence.append(f"{'Caddy' if 'caddy' in sl else 'LiteSpeed'} (Linux-typical)")
         elif runtime == "Node.js":
             os_name, os_conf = "Linux", "low"
             evidence.append("Node.js (Linux-typical in production)")

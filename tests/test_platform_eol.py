@@ -111,6 +111,29 @@ def test_paas_platforms_named_in_edge():
         assert platform["os"] == "Linux"
 
 
+def test_more_platforms_named():
+    cases = {
+        "Microsoft Azure": {"server": "nginx", "x-azure-ref": "abc"},
+        "Google Cloud": {"server": "Google Frontend", "x-cloud-trace-context": "x/1"},
+        "Wix": {"server": "Pepyaka", "x-wix-request-id": "r1"},
+        "Kinsta": {"server": "nginx", "x-kinsta-cache": "HIT"},
+        "Bunny CDN": {"server": "BunnyCDN"},
+    }
+    for expected, hdrs in cases.items():
+        _techs, platform = _platform(hdrs)
+        assert expected in platform["edge"], f"{expected} not named (got {platform['edge']})"
+
+
+def test_app_server_runtimes():
+    for hdrs, want in [
+        ({"server": "gunicorn/21.2.0"}, "Python (WSGI)"),
+        ({"server": "Puma 6.4.0"}, "Ruby"),
+        ({"server": "Kestrel"}, ".NET (Kestrel)"),
+    ]:
+        _techs, platform = _platform(hdrs)
+        assert platform["runtime"] == want, f"{hdrs} -> {platform['runtime']}, want {want}"
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     failed = 0
