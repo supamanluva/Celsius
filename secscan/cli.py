@@ -17,6 +17,7 @@ import sys
 from . import __version__
 from . import codescan, poc, report
 from .engine import ScanConfig, run_scan
+from .logsetup import setup_logging
 from .models import Severity
 
 BANNER = f"secscan {__version__} — service/version + CVE + web + code scanner"
@@ -45,6 +46,8 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--no-secrets", action="store_true", help="skip front-end secret scan")
     s.add_argument("--no-dns", action="store_true", help="skip DNS recon")
     s.add_argument("--no-tls", action="store_true", help="skip TLS/certificate analysis")
+    s.add_argument("--mail", action="store_true",
+                   help="e-postsäkerhet: SPF/DKIM/DMARC/MTA-STS/TLS-RPT/DNSSEC/BIMI (passivt)")
     s.add_argument("--no-fingerprint", action="store_true", help="skip tech fingerprinting")
     s.add_argument("--subdomains", action="store_true", help="enumerate subdomains (crt.sh)")
     s.add_argument("--subdomain-bruteforce", action="store_true", help="also resolve a wordlist")
@@ -83,6 +86,13 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--poc", action="store_true", help="print reproduction steps for findings/CVEs")
     s.add_argument("--insecure", action="store_true")
     s.add_argument("-y", "--yes", action="store_true", help="skip authorization prompt")
+    s.add_argument("-v", "--verbose", action="store_true",
+                   help="show per-step progress on stderr even when piped")
+    s.add_argument("--debug", action="store_true",
+                   help="verbose + debug detail (commands, subprocess stderr)")
+    s.add_argument("--quiet", action="store_true", help="only show errors on stderr")
+    s.add_argument("--log-file", metavar="PATH",
+                   help="write the full debug trace here (default ~/.local/share/secscan/scan.log)")
 
     # history
     h = sub.add_parser("history", help="list past scans from the local store")
@@ -103,6 +113,8 @@ def build_parser() -> argparse.ArgumentParser:
     sv = sub.add_parser("serve", help="launch the web app")
     sv.add_argument("--host", default="127.0.0.1")
     sv.add_argument("--port", type=int, default=8000)
+    sv.add_argument("--reload", action="store_true",
+                    help="auto-reload on code changes (development only)")
     return p
 
 
@@ -151,7 +163,11 @@ def _cmd_scan(args) -> int:
             print("Aborted: a meaningful lab attestation is required.", file=sys.stderr)
             return 2
 
-    log = (lambda m: print(f"[*] {m}", file=sys.stderr)) if sys.stderr.isatty() else (lambda m: None)
+    logger = setup_logging(
+        verbose=args.verbose, debug=args.debug, quiet=args.quiet, log_file=args.log_file,
+    )
+    logger.info("scan starting: target=%s", args.target)
+    log = lambda m: logger.info("%s", m)  # noqa: E731  (engine progress callback)
     config = ScanConfig(
         target=args.target, web=not args.no_web, cve=not args.no_cve,
         web_secrets=not args.no_secrets, ports=args.ports, nuclei=args.nuclei,
@@ -159,7 +175,8 @@ def _cmd_scan(args) -> int:
         os_detect=args.os_detect,
         nvd_api_key=args.nvd_api_key, insecure=args.insecure,
         exploitability=not args.no_exploitability, cve_verify=args.cve_verify,
-        dns=not args.no_dns, tls=not args.no_tls, fingerprint=not args.no_fingerprint,
+        dns=not args.no_dns, tls=not args.no_tls, mailsec=args.mail,
+        fingerprint=not args.no_fingerprint,
         subdomains=args.subdomains, subdomain_bruteforce=args.subdomain_bruteforce,
         diff=not args.no_diff,
         crawl=args.crawl, crawl_max_pages=args.crawl_max_pages,
@@ -178,6 +195,10 @@ def _cmd_scan(args) -> int:
         except Exception as e:
             print(f"[!] store unavailable ({e}); continuing without persistence", file=sys.stderr)
     result = run_scan(config, log=log, store=store)
+    for e in result.errors:
+        logger.warning("note/error: %s", e)
+    logger.info("scan finished: %d finding(s), %d CVE(s)",
+                len(result.findings), len(result.cves))
 
     report.render_terminal(result)
     if store is not None and getattr(result, "scan_id", None):
@@ -337,8 +358,10 @@ def _cmd_serve(args) -> int:
               "  python3 -m venv .venv && .venv/bin/pip install 'fastapi' 'uvicorn[standard]' python-multipart\n"
               "then run:  .venv/bin/python -m secscan serve", file=sys.stderr)
         return 1
-    print(f"[*] secscan web app on http://{args.host}:{args.port}", file=sys.stderr)
-    uvicorn.run("secscan.web.app:app", host=args.host, port=args.port, log_level="info")
+    mode = " (auto-reload)" if args.reload else ""
+    print(f"[*] secscan web app on http://{args.host}:{args.port}{mode}", file=sys.stderr)
+    uvicorn.run("secscan.web.app:app", host=args.host, port=args.port,
+                log_level="info", reload=args.reload)
     return 0
 
 

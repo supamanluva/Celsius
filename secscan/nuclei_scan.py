@@ -13,7 +13,10 @@ import subprocess
 from pathlib import Path
 from typing import Optional
 
+from .logsetup import get_logger
 from .models import Finding, Severity
+
+_log = get_logger("nuclei")
 
 # nuclei is a Go binary; people often have it only under ~/go/bin.
 _EXTRA_PATHS = [
@@ -132,12 +135,18 @@ def scan(
     if extra_args:
         cmd += extra_args
 
+    _log.debug("running: %s", " ".join(cmd))
     try:
         proc = subprocess.run(
             cmd, capture_output=True, text=True, timeout=timeout, check=False
         )
     except subprocess.TimeoutExpired:
+        _log.warning("nuclei timed out after %ss", timeout)
         return [], errors + [f"nuclei timed out after {timeout}s"]
+
+    _log.debug("nuclei exit=%s, stdout=%d bytes", proc.returncode, len(proc.stdout))
+    if proc.stderr.strip():
+        _log.debug("nuclei stderr: %s", proc.stderr.strip())
 
     findings: list[Finding] = []
     for line in proc.stdout.splitlines():

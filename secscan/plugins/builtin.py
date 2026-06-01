@@ -15,6 +15,7 @@ from ..recon import dns as dns_mod
 from ..recon import dynamic as dynamic_mod
 from ..recon import fingerprint as fp_mod
 from ..recon import jsintel as jsintel_mod
+from ..recon import mailsec as mailsec_mod
 from ..recon import sourcemaps as sm_mod
 from ..recon import subdomains as subs_mod
 from ..recon import tls as tls_mod
@@ -87,6 +88,33 @@ class DnsRecon(Plugin):
             ctx.result.findings.append(Finding(
                 title="DNS records", severity=Severity.INFO, category="dns",
                 description=summary, evidence=", ".join(dns.get("reverse", {}).values())[:160],
+            ))
+
+
+@register
+class MailSecurity(Plugin):
+    id = "mailsec"
+    title = "e-postsäkerhet (SPF/DKIM/DMARC/MTA-STS/TLS-RPT/DNSSEC/BIMI)"
+    phase = Phase.RECON
+    mode = Mode.PASSIVE       # DoH-uppslag + domänens egen MTA-STS-policy-URL
+    category = "mailsec"
+
+    def enabled(self, ctx: ScanContext) -> bool:
+        return ctx.config.mailsec and not ctx.target.is_ip
+
+    def run(self, ctx: ScanContext) -> None:
+        ctx.log("granskar e-postsäkerhet (SPF/DKIM/DMARC/MTA-STS) ...")
+        info, findings, errs = mailsec_mod.analyze(ctx.target.host)
+        ctx.result.recon["mailsec"] = info
+        ctx.result.findings.extend(findings)
+        ctx.result.errors.extend(errs)
+        if info.get("checks"):
+            ctx.result.findings.append(Finding(
+                title=f"E-postsäkerhet: betyg {info['grade']} ({info['score']}/100)",
+                severity=Severity.INFO, category="mailsec",
+                description=mailsec_mod.summarize(info),
+                evidence="MX: " + (", ".join(info.get("mx", [])) or "ingen")
+                         + (f" ({info['provider']})" if info.get("provider") else ""),
             ))
 
 

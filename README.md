@@ -14,6 +14,9 @@ code**, with a **web UI** and **text-only proof-of-concept** generation. It:
   NVD hasn't enriched yet (via the MITRE CNA records);
 - **audits web security headers** — CSP, HSTS, X-Frame-Options,
   X-Content-Type-Options, Referrer-Policy, cookie flags, version disclosure;
+- **checks email security** (`--mail`) — SPF, DKIM, DMARC, MTA-STS, TLS-RPT,
+  DNSSEC and BIMI for a domain, graded A–F, each gap reported with the exact DNS
+  record to add and which mailserver it applies to (passive: DoH lookups only);
 - **crawls & analyzes client-side code** — discovers API endpoints/routes in JS,
   detects DOM-XSS sinks, recovers **hidden original source from exposed source
   maps** (and scans it for secrets), and finds OpenAPI/Swagger + GraphQL APIs;
@@ -163,16 +166,33 @@ Lab mode is **CLI-only by design** — active exploitation is not exposed in the
 |------|---------|
 | `--no-web` | skip HTTP header/CSP analysis |
 | `--no-cve` | skip the NVD CVE lookup |
+| `--mail` | check email security (SPF/DKIM/DMARC/MTA-STS/TLS-RPT/DNSSEC/BIMI), graded A–F |
 | `--ports` | run `nmap -sV` (off by default) |
 | `--top-ports N` / `--port-range "80,443"` | port selection for nmap |
 | `--nuclei` | run nuclei templates (if installed) |
 | `--nvd-api-key KEY` | NVD API key (or `NVD_API_KEY` env) for higher rate limits |
 | `--insecure` | skip TLS certificate verification |
 | `--json FILE` / `--html FILE` | write reports |
+| `-v, --verbose` | show per-step progress on stderr even when piped |
+| `--debug` | verbose + debug detail (tool commands, nmap/nuclei stderr) |
+| `--quiet` | only show errors on stderr |
+| `--log-file PATH` | override the trace file (default `~/.local/share/secscan/scan.log`) |
 | `-y, --yes` | skip the authorization prompt |
 
 Exit code encodes the worst severity found (30 CRITICAL / 20 HIGH / 10 MEDIUM /
 0 otherwise), handy in CI gates.
+
+### Logging
+
+Every scan is always traced to a rotating log at
+`~/.local/share/secscan/scan.log` (DEBUG level, independent of whether stderr is
+a terminal) — so there is a durable record of what ran and what errored, including
+the exact `nmap`/`nuclei` command lines and their stderr at `--debug`. The console
+shows per-step progress on a TTY by default; `-v` forces it when piped, `--debug`
+adds tool detail, `--quiet` limits it to errors. Scans launched from the web app
+write to the same file. This is separate from the append-only **audit log**
+(`~/.local/share/secscan/audit.log`), which records the accountability trail of
+active probes.
 
 ## How CVE matching works (and why it's not just one API call)
 

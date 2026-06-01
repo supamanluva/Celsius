@@ -94,4 +94,31 @@ table.svc th, table.svc td { text-align: left; padding: .4rem .6rem; border-bott
 .poc-steps li { margin: .35rem 0; font-family: ui-monospace, Menlo, monospace; font-size: .82rem; }
 .poc-note { color: var(--med); font-size: .85rem; margin-top: .6rem; }
 .poc-refs a { display: block; color: var(--low); font-size: .82rem; }
+/* mail security */
+.mail-score {
+  display: flex; align-items: center; gap: 1rem; margin: 1rem 0; padding: 1rem 1.2rem;
+  background: var(--panel); border: 1px solid var(--border); border-left-width: 5px; border-radius: 8px;
+}
+.mail-score .grade { font-size: 2.4rem; font-weight: 800; line-height: 1; }
+.mail-score .score { font-size: 1.1rem; color: var(--muted); }
+.mail-score .score strong { color: var(--text); font-size: 1.4rem; }
+.mail-score .mx { margin-left: auto; color: var(--muted); font-size: .85rem; text-align: right; }
+.mail-score.grade-A { border-left-color: #2e9e44; } .mail-score.grade-A .grade { color: #56d364; }
+.mail-score.grade-B { border-left-color: #6fbf2e; } .mail-score.grade-B .grade { color: #8fd64a; }
+.mail-score.grade-C { border-left-color: var(--med); } .mail-score.grade-C .grade { color: var(--med); }
+.mail-score.grade-D { border-left-color: var(--high); } .mail-score.grade-D .grade { color: var(--high); }
+.mail-score.grade-F { border-left-color: var(--crit); } .mail-score.grade-F .grade { color: #ff5c5c; }
+.card.ms-ok { border-left-color: #2e9e44; }
+.card.ms-warn { border-left-color: var(--med); }
+.card.ms-bad { border-left-color: var(--crit); }
+.card.ms-info { border-left-color: var(--info); }
+.badge.ms-ok { background: #2e9e44; } .badge.ms-warn { background: var(--med); color: #1a1a1a; }
+.badge.ms-bad { background: var(--crit); } .badge.ms-info { background: var(--info); }
+.mailcheck .fix { font-family: ui-monospace, Menlo, monospace; font-size: .82rem; }
+.reportlink {
+  display: inline-block; background: var(--panel2); color: var(--text);
+  border: 1px solid var(--border); border-radius: 6px; padding: .3rem .7rem;
+  font-size: .82rem; font-weight: 600; text-decoration: none; margin-left: .4rem;
+}
+.reportlink:hover { border-color: var(--accent); }
 footer { color: var(--muted); font-size: .8rem; text-align: center; margin-top: 2rem; padding: 0 2rem; }
