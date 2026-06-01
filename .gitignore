@@ -24,6 +24,10 @@ env/
 .secscan-stop
 scope.yml          # keep scope.yml.example; never commit a real scope
 
+# Web server runtime (run.sh / kill.sh)
+.secscan-serve.pid
+secscan-serve.log
+
 # Generated reports
 *.sarif
 *.report.json
