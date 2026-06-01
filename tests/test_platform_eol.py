@@ -95,6 +95,22 @@ def test_nodejs_openresty_weak_linux():
     assert platform["os_confidence"] == "low"
 
 
+def test_paas_platforms_named_in_edge():
+    cases = {
+        "Vercel": {"server": "Vercel", "x-vercel-id": "iad1::abc"},
+        "Netlify": {"server": "Netlify", "x-nf-request-id": "01ABC"},
+        "Railway": {"server": "railway", "x-railway-request-id": "xyz"},
+        "Fly.io": {"server": "Fly/abc", "fly-request-id": "123"},
+        "Heroku": {"server": "Cowboy", "via": "1.1 vegur"},
+        "GitHub Pages": {"server": "GitHub.com", "x-github-request-id": "AAAA"},
+    }
+    for expected, hdrs in cases.items():
+        _techs, platform = _platform(hdrs)
+        assert expected in platform["edge"], f"{expected} not named (got {platform['edge']})"
+        # managed platforms are Linux-based -> at least a low-confidence OS
+        assert platform["os"] == "Linux"
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     failed = 0
