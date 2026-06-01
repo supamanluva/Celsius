@@ -36,10 +36,19 @@ def test_eol_flags_unsupported_versions():
 def test_eol_passes_supported_versions():
     ok_cases = [
         ("PHP", "8.3.4"), ("Microsoft-IIS", "10.0"), ("Apache httpd", "2.4.58"),
-        ("Apache Tomcat", "10.1.5"), ("OpenSSL", "3.5.0"), ("nginx", "1.27.0"),
+        ("Apache Tomcat", "10.1.5"), ("OpenSSL", "3.5.0"), ("nginx", "1.28.0"),
+        ("Caddy", "2.7.6"),
     ]
     for name, ver in ok_cases:
         assert eol.check_eol(name, ver, today=REF) is None, f"{name} {ver} should be supported"
+
+
+def test_caddy_v1_and_old_nginx_flagged():
+    caddy = eol.check_eol("Caddy", "1.0.5", today=REF)
+    assert caddy and caddy["status"] == "eol" and caddy["severity"] == "HIGH"
+    # nginx is softened to MEDIUM because distros commonly backport
+    ngx = eol.check_eol("nginx", "1.18.0", today=REF)
+    assert ngx and ngx["status"] == "eol" and ngx["severity"] == "MEDIUM"
 
 
 def test_iis_eol_names_the_windows_release():
