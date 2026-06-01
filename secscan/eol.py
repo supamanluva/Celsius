@@ -53,6 +53,15 @@ _OPENSSL_EOL = {
     "3.3": "2026-04-09", "3.4": "2026-10-22", "3.5": "2030-04-08",
 }
 
+# nginx stable branches: date each was superseded by a newer stable. Security
+# fixes land on current stable + mainline, so older branches stop getting them
+# upstream — though Linux distros frequently backport (hence MEDIUM, not HIGH).
+_NGINX_EOL = {
+    "1.14": "2019-04-23", "1.16": "2020-04-21", "1.18": "2021-05-25",
+    "1.20": "2022-05-24", "1.22": "2023-05-23", "1.24": "2024-05-29",
+    "1.26": "2025-04-23",
+}
+
 # IIS version -> (Windows Server release, that OS's EOL date).
 _IIS_WINDOWS = {
     "6.0": ("Windows Server 2003", "2015-07-14"),
@@ -65,8 +74,10 @@ _IIS_WINDOWS = {
 
 
 def _verdict(product: str, version: str, eol_iso: str, *,
-             extra: str = "", today: Optional[date] = None) -> Optional[dict]:
-    """Build a verdict if the release is EOL or nearing EOL; else None."""
+             extra: str = "", eol_severity: str = "HIGH",
+             today: Optional[date] = None) -> Optional[dict]:
+    """Build a verdict if the release is EOL or nearing EOL; else None.
+    `eol_severity` lets callers soften the rating (e.g. distro-backported servers)."""
     today = today or _today()
     try:
         eol = date.fromisoformat(eol_iso)
@@ -74,7 +85,7 @@ def _verdict(product: str, version: str, eol_iso: str, *,
         return None
     days = (eol - today).days
     if days < 0:
-        status, sev = "eol", "HIGH"
+        status, sev = "eol", eol_severity
     elif days <= 180:
         status, sev = "soon", "MEDIUM"
     else:
@@ -123,6 +134,24 @@ def check_eol(name: str, version: str, *, today: Optional[date] = None) -> Optio
         if _ver(version) < (2, 4):
             return _verdict("Apache httpd", version, "2017-12-31",
                             extra="Apache httpd 2.2 and older are end-of-life", today=today)
+        return None
+
+    if "caddy" in n:
+        if _ver(version) < (2,):
+            return _verdict("Caddy", version, "2020-05-04",
+                            extra="Caddy 1.x is end-of-life; upgrade to Caddy 2", today=today)
+        return None
+
+    if n == "nginx" or n.endswith("nginx"):
+        eol = _NGINX_EOL.get(branch)
+        # Anything older than the oldest tracked stable branch is definitely EOL.
+        if not eol and _ver(version) < (1, 14):
+            eol = "2018-01-01"
+        if eol:
+            return _verdict("nginx", version, eol, eol_severity="MEDIUM",
+                            extra="Older nginx stable branch; note many distros backport "
+                                  "security fixes — confirm with your vendor",
+                            today=today)
         return None
 
     return None

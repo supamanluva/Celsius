@@ -75,9 +75,10 @@ _SIGS: list[tuple[str, str, str, re.Pattern]] = [
     ("Gunicorn", "language", "server", re.compile(r"gunicorn(?:/(?P<ver>[\d.]+))?", re.I)),
     ("uWSGI", "language", "server", re.compile(r"\buwsgi\b", re.I)),
     ("Werkzeug", "language", "server", re.compile(r"werkzeug(?:/(?P<ver>[\d.]+))?", re.I)),
-    ("Puma", "language", "server", re.compile(r"\bpuma\b", re.I)),
-    ("Unicorn", "language", "server", re.compile(r"\bunicorn\b", re.I)),
-    ("Phusion Passenger", "server", "any-header", re.compile(r"phusion[ _]?passenger", re.I)),
+    ("Puma", "language", "server", re.compile(r"\bpuma(?:[ /](?P<ver>[\d.]+))?", re.I)),
+    ("Unicorn", "language", "server", re.compile(r"\bunicorn(?:[ /](?P<ver>[\d.]+))?", re.I)),
+    ("Phusion Passenger", "server", "any-header",
+     re.compile(r"phusion[ _]?passenger(?:/(?P<ver>[\d.]+))?", re.I)),
     ("Kestrel", "framework", "server", re.compile(r"\bkestrel\b", re.I)),
     # Languages / runtimes (incl. session-cookie tells)
     ("PHP", "language", "any-header", re.compile(r"php/?(?P<ver>[\d.]+)?", re.I)),
