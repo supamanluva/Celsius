@@ -19,14 +19,20 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Optional
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from .. import codescan, poc
+from .. import codescan, poc, report
 from ..engine import ScanConfig, run_scan
+from ..logsetup import get_logger, setup_logging
 from ..models import CVE, Finding, Severity
 from ..store import Store
+
+# Ensure scans launched from the web UI are traced to the persistent log file
+# too (the per-job in-memory log only lives as long as the process).
+setup_logging()
+_log = get_logger("web")
 
 app = FastAPI(title="secscan", version="0.3.0")
 
@@ -52,6 +58,7 @@ class ScanRequest(BaseModel):
     insecure: bool = False
     dns: bool = True
     tls: bool = True
+    mailsec: bool = False
     fingerprint: bool = True
     subdomains: bool = False
     crawl: bool = False
@@ -80,16 +87,21 @@ class PocRequest(BaseModel):
 
 def _run_job(job_id: str, config: ScanConfig) -> None:
     def log(msg: str) -> None:
+        _log.info("[job %s] %s", job_id, msg)
         with _jobs_lock:
             _jobs[job_id]["log"].append(msg)
 
+    _log.info("[job %s] scan starting: target=%s", job_id, config.target)
     try:
         result = run_scan(config, log=log, store=_store)
+        for e in result.errors:
+            _log.warning("[job %s] note/error: %s", job_id, e)
         with _jobs_lock:
             _jobs[job_id]["status"] = "done"
             _jobs[job_id]["result"] = result.to_dict()
             _jobs[job_id]["scan_id"] = getattr(result, "scan_id", None)
     except Exception as e:  # surface failures to the UI instead of 500-ing silently
+        _log.exception("[job %s] scan crashed", job_id)
         with _jobs_lock:
             _jobs[job_id]["status"] = "error"
             _jobs[job_id]["error"] = str(e)
@@ -108,7 +120,8 @@ def start_scan(req: ScanRequest) -> dict:
         target=req.target.strip(), web=req.web, cve=req.cve, web_secrets=req.web_secrets,
         ports=req.ports, nuclei=req.nuclei, top_ports=req.top_ports,
         port_range=req.port_range, insecure=req.insecure,
-        dns=req.dns, tls=req.tls, fingerprint=req.fingerprint, subdomains=req.subdomains,
+        dns=req.dns, tls=req.tls, mailsec=req.mailsec,
+        fingerprint=req.fingerprint, subdomains=req.subdomains,
         crawl=req.crawl, api_discovery=req.api_discovery, cve_verify=req.cve_verify,
         ai=req.ai, ai_provider=req.ai_provider, ai_model=req.ai_model,
         ai_api_key=req.ai_api_key, ai_redact=req.ai_redact,
@@ -141,6 +154,67 @@ def get_scan(scan_id: str) -> dict:
     if result is None:
         raise HTTPException(status_code=404, detail="Unknown scan id.")
     return result
+
+
+def _safe_name(s: str) -> str:
+    keep = "".join(ch if ch.isalnum() or ch in "-._" else "-" for ch in (s or "report"))
+    return keep.strip("-") or "report"
+
+
+@app.get("/api/scans/{scan_id}/report.html")
+def scan_report(scan_id: str) -> HTMLResponse:
+    result = _store.get_scan(scan_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Unknown scan id.")
+    fname = f"secscan-{_safe_name(result.get('target', scan_id))}.html"
+    return HTMLResponse(
+        report.html_report(result),
+        headers={"Content-Disposition": f'inline; filename="{fname}"'},
+    )
+
+
+# ---- email security -----------------------------------------------------------
+
+class MailSecRequest(BaseModel):
+    domain: str
+
+
+@app.post("/api/mailsec")
+def mailsec_check(req: MailSecRequest) -> dict:
+    from ..recon import mailsec
+    domain = (req.domain or "").strip()
+    if not domain:
+        raise HTTPException(status_code=400, detail="Ange en domän.")
+    # tolerate a pasted URL or email address
+    if "@" in domain:
+        domain = domain.split("@", 1)[1]
+    if "://" in domain:
+        domain = domain.split("://", 1)[1]
+    domain = domain.split("/")[0].strip()
+    _log.info("mailsec check: %s", domain)
+    info, findings, errors = mailsec.analyze(domain)
+    info["findings"] = [f.to_dict() for f in findings]
+    info["errors"] = errors
+    return info
+
+
+@app.get("/api/mailsec/report.html")
+def mailsec_report(domain: str = "") -> HTMLResponse:
+    from ..recon import mailsec
+    domain = (domain or "").strip()
+    if "@" in domain:
+        domain = domain.split("@", 1)[1]
+    if "://" in domain:
+        domain = domain.split("://", 1)[1]
+    domain = domain.split("/")[0].strip()
+    if not domain:
+        raise HTTPException(status_code=400, detail="Ange en domän.")
+    info, _findings, _errors = mailsec.analyze(domain)
+    fname = f"secscan-mail-{_safe_name(domain)}.html"
+    return HTMLResponse(
+        report.mailsec_html_report(info),
+        headers={"Content-Disposition": f'inline; filename="{fname}"'},
+    )
 
 
 # ---- code scan ----------------------------------------------------------------

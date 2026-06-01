@@ -21,6 +21,7 @@
 
   <nav class="tabs">
     <button class="tab active" data-tab="host">Host / Web scan</button>
+    <button class="tab" data-tab="mail">📧 Mail security</button>
     <button class="tab" data-tab="code">Code &amp; secret scan</button>
     <button class="tab" data-tab="history">History</button>
   </nav>
@@ -60,6 +61,17 @@
 
     <div id="summary" class="summary hidden"></div>
     <div id="results"></div>
+  </section>
+
+  <!-- MAIL SECURITY -->
+  <section id="tab-mail" class="panel">
+    <form id="mailForm" class="form">
+      <input type="text" id="mailDomain" placeholder="example.com  (domän, URL eller e-postadress)" autocomplete="off">
+      <button type="submit" id="mailBtn">Check</button>
+    </form>
+    <p class="or">Passiv kontroll: SPF · DKIM · DMARC · MTA-STS · TLS-RPT · DNSSEC · BIMI. Inga paket skickas till mailservern.</p>
+    <div id="mailStatus" class="status hidden"></div>
+    <div id="mailResults"></div>
   </section>
 
   <!-- CODE SCAN -->

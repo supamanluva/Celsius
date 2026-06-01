@@ -16,7 +16,10 @@ import subprocess
 import xml.etree.ElementTree as ET
 from typing import Optional
 
+from .logsetup import get_logger
 from .models import Service
+
+_log = get_logger("nmap")
 
 
 class NmapNotInstalled(RuntimeError):
@@ -75,16 +78,22 @@ def scan(
         cmd += extra_args
     cmd.append(host)
 
+    _log.debug("running: %s", " ".join(cmd))
     try:
         proc = subprocess.run(
             cmd, capture_output=True, text=True, timeout=timeout, check=False
         )
     except subprocess.TimeoutExpired:
+        _log.warning("nmap timed out after %ss scanning %s", timeout, host)
         return [], {}, [f"nmap timed out after {timeout}s scanning {host}"]
     except FileNotFoundError:
         raise NmapNotInstalled("nmap binary disappeared")
 
+    _log.debug("nmap exit=%s, stdout=%d bytes", proc.returncode, len(proc.stdout))
+    if proc.stderr.strip():
+        _log.debug("nmap stderr: %s", proc.stderr.strip())
     if proc.returncode != 0 and not proc.stdout.strip():
+        _log.warning("nmap failed (exit %s): %s", proc.returncode, proc.stderr.strip()[:300])
         return [], {}, [f"nmap failed (exit {proc.returncode}): {proc.stderr.strip()[:300]}"]
 
     try:

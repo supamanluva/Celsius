@@ -15,6 +15,66 @@ document.querySelectorAll(".tab").forEach((t) => {
   });
 });
 
+// ---- mail security -----------------------------------------------------------
+$("mailForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const domain = $("mailDomain").value.trim();
+  if (!domain) return;
+  setStatus("mailStatus", "Kontrollerar e-postsäkerhet…", false);
+  $("mailResults").innerHTML = "";
+  try {
+    const r = await fetch("/api/mailsec", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ domain }),
+    });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      throw new Error(err.detail || r.statusText);
+    }
+    renderMail(await r.json());
+  } catch (err) {
+    setStatus("mailStatus", "Fel: " + err.message, true);
+  }
+});
+
+const MAIL_STATUS = {
+  ok:   { icon: "✅", cls: "ms-ok",   label: "OK" },
+  warn: { icon: "⚠️", cls: "ms-warn", label: "Åtgärda" },
+  bad:  { icon: "❌", cls: "ms-bad",  label: "Brist" },
+  info: { icon: "ℹ️", cls: "ms-info", label: "Info" },
+};
+
+function renderMail(info) {
+  if (!info.checks || !info.checks.length) {
+    setStatus("mailStatus", "Inga DNS-svar för " + esc(info.domain || "") + ".", true);
+    return;
+  }
+  const todo = info.checks.filter((c) => c.status === "warn" || c.status === "bad").length;
+  setStatus("mailStatus",
+    `${info.domain} · betyg ${info.grade} (${info.score}/100) · ${todo} att åtgärda`, false);
+
+  const mx = (info.mx || []).join(", ") || "ingen MX";
+  const reportUrl = "/api/mailsec/report.html?domain=" + encodeURIComponent(info.domain || "");
+  let html = `<div class="mail-score grade-${(info.grade || "F")[0]}">
+      <div class="grade">${esc(info.grade)}</div>
+      <div class="score"><strong>${info.score}</strong>/100</div>
+      <div class="mx">Mailserver: ${esc(mx)}${info.provider ? " · " + esc(info.provider) : ""}
+        <br><a class="reportlink" href="${reportUrl}" target="_blank">📄 HTML-rapport</a></div>
+    </div>`;
+
+  info.checks.forEach((c) => {
+    const s = MAIL_STATUS[c.status] || MAIL_STATUS.info;
+    html += `<div class="card mailcheck ${s.cls}">
+      <div class="row"><span class="title">${s.icon} ${esc(c.label)}
+        <span class="badge ${s.cls}">${s.label}</span></span></div>
+      <div class="desc">${esc(c.detail)}</div>
+      ${c.value ? `<div class="meta">${esc(c.value)}</div>` : ""}
+      ${c.fix ? `<div class="fix">↳ ${esc(c.fix)}</div>` : ""}
+    </div>`;
+  });
+  $("mailResults").innerHTML = html;
+}
+
 // ---- authorization gate ------------------------------------------------------
 $("authorized").addEventListener("change", (e) => {
   $("authbar").classList.toggle("ok", e.target.checked);
@@ -114,7 +174,7 @@ async function pollJob(jobId) {
     } else if (job.status === "done") {
       setStatus("scanStatus", "Scan complete.", false);
       $("scanBtn").disabled = false;
-      renderResult(job.result);
+      renderResult(job.result, job.scan_id);
     } else {
       setStatus("scanStatus", "Scan failed: " + (job.error || "unknown"), true);
       $("scanBtn").disabled = false;
@@ -132,7 +192,7 @@ function setStatus(id, msg, isErr) {
   el.textContent = msg;
 }
 
-function renderResult(res) {
+function renderResult(res, scanId) {
   lastUrl = res.url || res.target;
   const counts = { CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0, INFO: 0 };
   (res.cves || []).forEach((c) => counts[c.severity]++);
@@ -141,7 +201,8 @@ function renderResult(res) {
   const sum = $("summary");
   sum.classList.remove("hidden");
   sum.innerHTML = ["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"]
-    .map((s) => `<span class="chip sev-${s}">${s} ${counts[s]}</span>`).join("");
+    .map((s) => `<span class="chip sev-${s}">${s} ${counts[s]}</span>`).join("")
+    + (scanId ? `<a class="reportlink" href="/api/scans/${encodeURIComponent(scanId)}/report.html" target="_blank">📄 HTML-rapport</a>` : "");
 
   let html = "";
 
@@ -354,7 +415,7 @@ async function openScan(scanId) {
     $("tab-host").classList.add("active");
     setStatus("scanStatus", "Loaded stored scan " + scanId, false);
     $("scanLog").classList.add("hidden");
-    renderResult(result);
+    renderResult(result, scanId);
   } catch (err) {
     alert("Could not open scan: " + err.message);
   }
