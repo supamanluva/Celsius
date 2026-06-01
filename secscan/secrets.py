@@ -76,6 +76,43 @@ def shannon_entropy(s: str) -> float:
 
 _HIGH_ENTROPY_TOKEN = re.compile(r"['\"]([A-Za-z0-9+/_\-]{24,})['\"]")
 
+# A high-entropy *token* that is really a URL/asset path, not a credential.
+# Real keys don't start with "/" and don't carry file extensions; URL slugs,
+# webpack public paths and asset URLs do.
+_PATHISH_TOKEN = re.compile(
+    r"^(?:/|https?://)"
+    r"|\.(?:js|mjs|css|map|png|jpe?g|gif|svg|webp|ico|woff2?|ttf|eot|"
+    r"json|html?|php|aspx?|xml|txt|pdf)(?:[?#]|$)",
+    re.I,
+)
+
+# The text immediately *before* a quoted token, when it's an HTML/CSS attribute
+# or CSS url(): values here (hrefs, SRI hashes, asset URLs) are never secrets.
+_BENIGN_BEFORE = re.compile(
+    r"""(?:href|src|srcset|action|integrity|xlink:href|data-[\w-]+|cite|poster)"""
+    r"""\s*=\s*["']?\s*$"""
+    r"""|url\(\s*["']?\s*$""",
+    re.I,
+)
+
+# A public verification token (e.g. <meta name="…-verification" content="TOKEN">):
+# these are public by design and must not be reported as exposed secrets.
+_VERIFICATION_BEFORE = re.compile(
+    r"""verification["'][^"'<>]*content\s*=\s*["']?\s*$""",
+    re.I,
+)
+
+
+def _is_pathish_token(tok: str) -> bool:
+    return bool(_PATHISH_TOKEN.search(tok))
+
+
+def _benign_token_context(before: str) -> bool:
+    """True if the ~90 chars preceding the token mark it as a URL/asset/verification
+    value rather than a credential."""
+    tail = before[-90:]
+    return bool(_BENIGN_BEFORE.search(tail) or _VERIFICATION_BEFORE.search(tail))
+
 
 class SecretMatch:
     __slots__ = ("rule_id", "title", "severity", "match", "redacted", "entropy")
@@ -143,6 +180,10 @@ def scan_text(text: str, *, entropy_threshold: float = 4.3) -> list[SecretMatch]
     for m in _HIGH_ENTROPY_TOKEN.finditer(text):
         tok = m.group(1)
         if tok in already or _PLACEHOLDER.search(tok):
+            continue
+        # Suppress URL/asset paths and HTML-attribute/verification values: these
+        # are high-entropy but never credentials (common false positives).
+        if _is_pathish_token(tok) or _benign_token_context(text[:m.start()]):
             continue
         ent = shannon_entropy(tok)
         if ent >= entropy_threshold and _looks_random(tok):
