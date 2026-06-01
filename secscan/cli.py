@@ -60,6 +60,8 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--nuclei-full", action="store_true", help="run the ENTIRE nuclei set (slow)")
     s.add_argument("--top-ports", type=int, default=100)
     s.add_argument("--port-range")
+    s.add_argument("--os-detect", action="store_true",
+                   help="nmap OS/device fingerprint (-O); identifies router/firewall/vendor (needs sudo/root)")
     s.add_argument("--nvd-api-key", default=os.environ.get("NVD_API_KEY"))
     s.add_argument("--scope", metavar="FILE", help="scope.yml authorizing targets/modes")
     s.add_argument("--no-active", action="store_true", help="disable safe-active checks (nmap/nuclei)")
@@ -154,6 +156,7 @@ def _cmd_scan(args) -> int:
         target=args.target, web=not args.no_web, cve=not args.no_cve,
         web_secrets=not args.no_secrets, ports=args.ports, nuclei=args.nuclei,
         nuclei_full=args.nuclei_full, top_ports=args.top_ports, port_range=args.port_range,
+        os_detect=args.os_detect,
         nvd_api_key=args.nvd_api_key, insecure=args.insecure,
         exploitability=not args.no_exploitability, cve_verify=args.cve_verify,
         dns=not args.no_dns, tls=not args.no_tls, fingerprint=not args.no_fingerprint,
