@@ -37,6 +37,7 @@ class ScanConfig:
     # port scan
     top_ports: int = 100
     port_range: Optional[str] = None
+    os_detect: bool = False           # nmap -O OS/device fingerprint (needs root)
 
     # nuclei
     nuclei_tags: Optional[str] = None       # None -> fast default groups; "" -> all

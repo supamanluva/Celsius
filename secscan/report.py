@@ -85,6 +85,18 @@ def render_terminal(result: ScanResult, stream=sys.stdout) -> None:
           + extra + "\n")
     w("\n")
 
+    # OS / device fingerprint (nmap -O)
+    os_info = (result.recon or {}).get("os")
+    if os_info:
+        w(f"{_BOLD if color else ''} OS / device fingerprint{_RESET if color else ''}\n")
+        types = ", ".join(os_info.get("device_types") or []) or "?"
+        vendors = ", ".join(os_info.get("vendors") or []) or "?"
+        w(f"   • {os_info.get('best_match')}  ({os_info.get('best_accuracy')}% match)\n")
+        w(f"     type: {types}   vendor: {vendors}\n")
+        for m in os_info.get("matches", [])[1:4]:
+            w(f"     ~ {m['name']} ({m['accuracy']}%)\n")
+        w("\n")
+
     # CVEs (highest severity first)
     w(f"{_BOLD if color else ''} Known CVEs ({len(result.cves)}){_RESET if color else ''}\n")
     if not result.cves:

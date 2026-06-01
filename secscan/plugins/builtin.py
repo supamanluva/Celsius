@@ -156,14 +156,21 @@ class PortScan(Plugin):
             ctx.result.errors.append("nmap not installed — skipped port scan")
             return
         ctx.audit.active_probe(self.id, ctx.target.host, self.mode.value,
-                               detail=f"top_ports={ctx.config.top_ports} range={ctx.config.port_range}")
+                               detail=f"top_ports={ctx.config.top_ports} range={ctx.config.port_range} "
+                                      f"os_detect={ctx.config.os_detect}")
         try:
-            svcs, errs = portscan.scan(
+            svcs, os_info, errs = portscan.scan(
                 ctx.target.host, top_ports=ctx.config.top_ports,
-                ports=ctx.config.port_range,
+                ports=ctx.config.port_range, os_detect=ctx.config.os_detect,
             )
             ctx.result.services.extend(svcs)
             ctx.result.errors.extend(errs)
+            if os_info:
+                ctx.result.recon["os"] = os_info
+                vendors = ", ".join(os_info.get("vendors") or []) or "?"
+                types = ", ".join(os_info.get("device_types") or []) or "?"
+                ctx.log(f"OS/device: {os_info.get('best_match')} "
+                        f"({os_info.get('best_accuracy')}%) — type={types} vendor={vendors}")
         except portscan.NmapNotInstalled as e:
             ctx.result.errors.append(str(e))
 

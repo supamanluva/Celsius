@@ -1,11 +1,16 @@
 """nmap wrapper for port + service/version detection.
 
 Runs `nmap -sV` with XML output and parses out open ports and the detected
-service name/product/version for each.
+service name/product/version for each. With ``os_detect`` it also adds nmap OS
+detection (``-O``) and parses the OS/device fingerprint (type, vendor, family) —
+useful for identifying routers/firewalls/embedded devices. ``-O`` needs raw
+sockets, so it is only added when running as root; otherwise the service scan
+proceeds and a note is recorded.
 """
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import xml.etree.ElementTree as ET
@@ -26,17 +31,24 @@ def is_available() -> bool:
     return nmap_path() is not None
 
 
+def _is_root() -> bool:
+    return hasattr(os, "geteuid") and os.geteuid() == 0
+
+
 def scan(
     host: str,
     *,
     top_ports: int = 100,
     ports: Optional[str] = None,
     timeout: int = 300,
+    os_detect: bool = False,
     extra_args: Optional[list[str]] = None,
-) -> tuple[list[Service], list[str]]:
-    """Run nmap service/version detection. Returns (services, errors).
+) -> tuple[list[Service], dict, list[str]]:
+    """Run nmap service/version detection. Returns (services, os_info, errors).
 
     `ports` (e.g. "80,443,8080" or "1-1000") overrides `top_ports` if given.
+    `os_detect` adds OS/device fingerprinting (`-O`); requires root, otherwise it
+    is skipped with a note and `os_info` is empty.
     """
     errors: list[str] = []
     path = nmap_path()
@@ -44,6 +56,17 @@ def scan(
         raise NmapNotInstalled("nmap is not installed or not on PATH")
 
     cmd = [path, "-sV", "-Pn", "-T4", "-oX", "-"]
+    if os_detect:
+        if _is_root():
+            # -O = OS detection; --osscan-guess pushes nmap to report close
+            # matches even when confidence is below the default threshold.
+            cmd += ["-O", "--osscan-guess"]
+        else:
+            errors.append(
+                "OS detection (-O) requires root — run with sudo; "
+                "skipping OS scan (service/version scan continues)"
+            )
+            os_detect = False
     if ports:
         cmd += ["-p", ports]
     else:
@@ -57,24 +80,25 @@ def scan(
             cmd, capture_output=True, text=True, timeout=timeout, check=False
         )
     except subprocess.TimeoutExpired:
-        return [], [f"nmap timed out after {timeout}s scanning {host}"]
+        return [], {}, [f"nmap timed out after {timeout}s scanning {host}"]
     except FileNotFoundError:
         raise NmapNotInstalled("nmap binary disappeared")
 
     if proc.returncode != 0 and not proc.stdout.strip():
-        return [], [f"nmap failed (exit {proc.returncode}): {proc.stderr.strip()[:300]}"]
+        return [], {}, [f"nmap failed (exit {proc.returncode}): {proc.stderr.strip()[:300]}"]
 
     try:
-        services = _parse_xml(proc.stdout)
+        root = ET.fromstring(proc.stdout)
     except ET.ParseError as e:
-        return [], [f"could not parse nmap XML: {e}"]
+        return [], {}, [f"could not parse nmap XML: {e}"]
 
-    return services, errors
+    services = _parse_xml(root)
+    os_info = _parse_os(root) if os_detect else {}
+    return services, os_info, errors
 
 
-def _parse_xml(xml_text: str) -> list[Service]:
+def _parse_xml(root: ET.Element) -> list[Service]:
     services: list[Service] = []
-    root = ET.fromstring(xml_text)
     for host in root.findall("host"):
         for port in host.findall("./ports/port"):
             state = port.find("state")
@@ -112,3 +136,49 @@ def _parse_xml(xml_text: str) -> list[Service]:
                 },
             ))
     return services
+
+
+def _parse_os(root: ET.Element) -> dict:
+    """Parse nmap's <os> block into a structured device/OS fingerprint.
+
+    Returns {} when nmap reported no OS match. Each match carries the device
+    `type` (e.g. router/firewall/WAP/general purpose) and `vendor`, which is what
+    answers "what router/device is this?".
+    """
+    matches: list[dict] = []
+    device_types: list[str] = []
+    vendors: list[str] = []
+
+    for host in root.findall("host"):
+        os_el = host.find("os")
+        if os_el is None:
+            continue
+        for osmatch in os_el.findall("osmatch"):
+            cls = osmatch.find("osclass")
+            entry = {
+                "name": osmatch.get("name") or "",
+                "accuracy": int(osmatch.get("accuracy") or 0),
+                "type": cls.get("type") if cls is not None else None,
+                "vendor": cls.get("vendor") if cls is not None else None,
+                "osfamily": cls.get("osfamily") if cls is not None else None,
+                "osgen": cls.get("osgen") if cls is not None else None,
+                "cpe": [c.text for c in (cls.findall("cpe") if cls is not None else []) if c.text],
+            }
+            matches.append(entry)
+            if entry["type"] and entry["type"] not in device_types:
+                device_types.append(entry["type"])
+            if entry["vendor"] and entry["vendor"] not in vendors:
+                vendors.append(entry["vendor"])
+
+    if not matches:
+        return {}
+
+    # nmap emits matches already sorted by accuracy; surface the best one.
+    matches.sort(key=lambda m: m["accuracy"], reverse=True)
+    return {
+        "best_match": matches[0]["name"],
+        "best_accuracy": matches[0]["accuracy"],
+        "device_types": device_types,
+        "vendors": vendors,
+        "matches": matches[:8],
+    }
