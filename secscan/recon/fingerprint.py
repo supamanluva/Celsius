@@ -32,8 +32,16 @@ _SIGS: list[tuple[str, str, str, re.Pattern]] = [
     ("Akamai", "cdn", "any-header", re.compile(r"\bakamai", re.I)),
     ("Fastly", "cdn", "any-header", re.compile(r"\bfastly\b", re.I)),
     ("Amazon CloudFront", "cdn", "any-header", re.compile(r"cloudfront", re.I)),
-    ("Vercel", "cdn", "any-header", re.compile(r"\bvercel\b", re.I)),
+    ("Vercel", "hosting", "any-header", re.compile(r"x-vercel-id|x-vercel-cache|\bvercel\b", re.I)),
     ("Sucuri", "waf", "any-header", re.compile(r"sucuri", re.I)),
+    # Node/PaaS hosting platforms (named so the edge isn't reported as "unknown")
+    ("Netlify", "hosting", "any-header", re.compile(r"x-nf-request-id|\bnetlify\b", re.I)),
+    ("Railway", "hosting", "any-header", re.compile(r"x-railway-|railway\.app|server:\s*railway", re.I)),
+    ("Render", "hosting", "any-header", re.compile(r"x-render-origin-server|server:\s*render", re.I)),
+    ("Fly.io", "hosting", "any-header", re.compile(r"\bfly-request-id\b|server:\s*fly\b", re.I)),
+    ("Heroku", "hosting", "any-header", re.compile(r"heroku-router|\bvegur\b|server:\s*cowboy", re.I)),
+    ("GitHub Pages", "hosting", "any-header", re.compile(r"x-github-request-id|server:\s*github\.com", re.I)),
+    ("DigitalOcean App Platform", "hosting", "any-header", re.compile(r"x-do-app-origin|\bdo-app\b", re.I)),
     # WAFs / load balancers
     ("Cloudflare WAF", "waf", "server", re.compile(r"cloudflare", re.I)),
     ("AWS WAF/ALB", "waf", "any-header", re.compile(r"\bawselb\b|x-amz", re.I)),
@@ -76,6 +84,9 @@ _SIGS: list[tuple[str, str, str, re.Pattern]] = [
 
 _SEV = {"CRITICAL": Severity.CRITICAL, "HIGH": Severity.HIGH, "MEDIUM": Severity.MEDIUM,
         "LOW": Severity.LOW, "INFO": Severity.INFO}
+
+# Categories that sit in front of / host the origin (CDN, WAF, load balancer, PaaS).
+_EDGE_CATS = ("cdn", "waf", "lb", "hosting")
 
 _OS_HINT = re.compile(
     r"\((win(?:32|64|dows)?|ubuntu|debian|centos|red ?hat|rhel|fedora|"
@@ -145,8 +156,11 @@ def infer_platform(headers: dict[str, str], body: str, techs: list[Tech]) -> dic
         elif runtime == "Node.js":
             os_name, os_conf = "Linux", "low"
             evidence.append("Node.js (Linux-typical in production)")
+        elif any(t.category == "hosting" for t in techs):
+            os_name, os_conf = "Linux", "low"
+            evidence.append("managed hosting platform (Linux-based)")
 
-    edge = sorted({t.name for t in techs if t.category in ("cdn", "waf", "lb")})
+    edge = sorted({t.name for t in techs if t.category in _EDGE_CATS})
     return {
         "os": os_name, "os_confidence": os_conf, "runtime": runtime,
         "server": server or None, "edge": edge, "evidence": evidence,
@@ -229,19 +243,19 @@ def fingerprint(headers: dict[str, str],
                                     source="fingerprint", extra={"category": t.category}))
 
     findings: list[Finding] = []
-    cdn_waf = [t for t in techs if t.category in ("cdn", "waf", "lb")]
+    cdn_waf = [t for t in techs if t.category in _EDGE_CATS]
     if cdn_waf:
         names = ", ".join(sorted({t.name for t in cdn_waf}))
         findings.append(Finding(
             title=f"Edge/WAF detected: {names}",
             severity=Severity.INFO, category="fingerprint",
-            description="A CDN/WAF/load balancer sits in front of the origin. Server "
+            description="A CDN/WAF/load balancer/host sits in front of the origin. Server "
                         "versions and some checks reflect the edge, not the backend.",
             recommendation="Account for the edge when interpreting results; test the "
                            "origin directly only if authorized and reachable.",
             evidence=names,
         ))
-    techlist = [t for t in techs if t.category not in ("cdn", "waf", "lb")]
+    techlist = [t for t in techs if t.category not in _EDGE_CATS]
     if techlist:
         findings.append(Finding(
             title=f"Technologies detected ({len(techlist)})",
