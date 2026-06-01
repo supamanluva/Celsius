@@ -12,6 +12,7 @@ import re
 from dataclasses import dataclass
 from typing import Optional
 
+from .. import eol as eol_mod
 from ..models import Finding, Service, Severity
 
 
@@ -33,22 +34,30 @@ _SIGS: list[tuple[str, str, str, re.Pattern]] = [
     ("Amazon CloudFront", "cdn", "any-header", re.compile(r"cloudfront", re.I)),
     ("Vercel", "cdn", "any-header", re.compile(r"\bvercel\b", re.I)),
     ("Sucuri", "waf", "any-header", re.compile(r"sucuri", re.I)),
-    # WAFs
+    # WAFs / load balancers
     ("Cloudflare WAF", "waf", "server", re.compile(r"cloudflare", re.I)),
     ("AWS WAF/ALB", "waf", "any-header", re.compile(r"\bawselb\b|x-amz", re.I)),
     ("Imperva/Incapsula", "waf", "any-header", re.compile(r"incap_ses|visid_incap|imperva", re.I)),
-    ("F5 BIG-IP", "waf", "cookie", re.compile(r"BIGipServer", re.I)),
+    # F5 BIG-IP: default BIGipServer cookie, renamed *LTM cookie, or the
+    # "=!<long base64>" encrypted persistence-cookie value.
+    ("F5 BIG-IP", "lb", "cookie", re.compile(r"BIGipServer|[A-Za-z0-9]*LTM=!|=!\S{60,}", re.I)),
     # Servers
     ("nginx", "server", "server", re.compile(r"nginx(?:/(?P<ver>[\d.]+))?", re.I)),
     ("Apache httpd", "server", "server", re.compile(r"apache(?:/(?P<ver>[\d.]+))?", re.I)),
     ("Microsoft-IIS", "server", "server", re.compile(r"microsoft-iis(?:/(?P<ver>[\d.]+))?", re.I)),
     ("OpenResty", "server", "server", re.compile(r"openresty(?:/(?P<ver>[\d.]+))?", re.I)),
-    # Languages / runtimes
+    ("OpenSSL", "library", "server", re.compile(r"openssl/(?P<ver>[\d.]+[a-z]?)", re.I)),
+    ("Apache Tomcat", "server", "any-header", re.compile(r"tomcat(?:/(?P<ver>[\d.]+))?|apache-coyote", re.I)),
+    # Languages / runtimes (incl. session-cookie tells)
     ("PHP", "language", "any-header", re.compile(r"php/?(?P<ver>[\d.]+)?", re.I)),
+    ("PHP", "language", "cookie", re.compile(r"PHPSESSID", re.I)),
+    ("Java servlet", "language", "cookie", re.compile(r"JSESSIONID", re.I)),
     ("ASP.NET", "framework", "any-header", re.compile(r"asp\.net|x-aspnet", re.I)),
+    ("ASP.NET", "framework", "cookie", re.compile(r"ASP\.NET_SessionId|\.AspNetCore", re.I)),
     ("Express", "framework", "any-header", re.compile(r"\bexpress\b", re.I)),
     # CMS
     ("WordPress", "cms", "body", re.compile(r"wp-content|wp-includes|<meta name=\"generator\" content=\"WordPress (?P<ver>[\d.]+)", re.I)),
+    ("SiteVision", "cms", "any-header", re.compile(r"sitevision", re.I)),
     ("Drupal", "cms", "any-header", re.compile(r"drupal", re.I)),
     ("Joomla", "cms", "body", re.compile(r"joomla", re.I)),
     ("Shopify", "cms", "any-header", re.compile(r"shopify", re.I)),
@@ -65,8 +74,112 @@ _SIGS: list[tuple[str, str, str, re.Pattern]] = [
 ]
 
 
-def fingerprint(headers: dict[str, str], body: str) -> tuple[list[Tech], list[Service], list[Finding]]:
-    """Returns (techs, services_to_cve, findings)."""
+_SEV = {"CRITICAL": Severity.CRITICAL, "HIGH": Severity.HIGH, "MEDIUM": Severity.MEDIUM,
+        "LOW": Severity.LOW, "INFO": Severity.INFO}
+
+_OS_HINT = re.compile(
+    r"\((win(?:32|64|dows)?|ubuntu|debian|centos|red ?hat|rhel|fedora|"
+    r"suse|alpine|unix|freebsd|openbsd|darwin)\b[^)]*\)", re.I)
+
+
+def infer_platform(headers: dict[str, str], body: str, techs: list[Tech]) -> dict:
+    """Best-effort passive guess of OS family + server-side runtime from headers,
+    cookies and detected tech. No active probing; confidence is explicit."""
+    server = headers.get("server", "")
+    cookie = headers.get("set-cookie", "")
+    xpb = headers.get("x-powered-by", "")
+    names = {t.name for t in techs}
+    evidence: list[str] = []
+    os_name: Optional[str] = None
+    os_conf: Optional[str] = None
+    runtime: Optional[str] = None
+
+    # Strong OS signal: an OS named in a verbose Server header.
+    mo = _OS_HINT.search(server)
+    if mo:
+        tok = mo.group(1).lower().replace(" ", "")
+        if tok.startswith("win"):
+            os_name, os_conf = "Windows", "high"
+        elif tok in ("unix", "freebsd", "openbsd", "darwin"):
+            os_name, os_conf = tok.capitalize(), "high"
+        else:
+            os_name, os_conf = "Linux", "high"
+        evidence.append(f"Server header: {mo.group(0)}")
+
+    # Windows / .NET
+    if "Microsoft-IIS" in names or re.search(r"ASP\.NET_SessionId", cookie, re.I) \
+            or "asp.net" in (xpb + server).lower():
+        os_name, os_conf = "Windows", "high"
+        runtime = runtime or "ASP.NET / IIS"
+        evidence.append("IIS/ASP.NET signature")
+
+    # Java servlet stack
+    if re.search(r"JSESSIONID", cookie, re.I) or "Apache Tomcat" in names or "SiteVision" in names:
+        runtime = runtime or "Java (servlet / Tomcat)"
+        if not os_name:
+            os_name, os_conf = "Linux", "medium"
+        evidence.append("JSESSIONID / Java servlet")
+
+    # PHP
+    if "PHP" in names or re.search(r"PHPSESSID", cookie, re.I):
+        runtime = runtime or "PHP"
+        if not os_name:
+            os_name, os_conf = "Linux", "low"
+        evidence.append("PHP signature")
+
+    # Node.js
+    if "Express" in names or "Next.js" in names:
+        runtime = runtime or "Node.js"
+        evidence.append("Node.js signature")
+
+    edge = sorted({t.name for t in techs if t.category in ("cdn", "waf", "lb")})
+    return {
+        "os": os_name, "os_confidence": os_conf, "runtime": runtime,
+        "server": server or None, "edge": edge, "evidence": evidence,
+    }
+
+
+def _eol_finding(v: dict) -> Finding:
+    eol = v["status"] == "eol"
+    label = f"{v['product']} {v['version']}".strip()
+    return Finding(
+        title=("End-of-life software: " if eol else "Software nearing end-of-life: ") + label,
+        severity=_SEV.get(v["severity"], Severity.MEDIUM), category="eol",
+        description=v["note"],
+        recommendation="Upgrade to a vendor-supported release that still receives security "
+                       "patches; EOL software accrues unpatched vulnerabilities.",
+        evidence=f"EOL {v['eol_date']}",
+    )
+
+
+def _platform_finding(p: dict) -> Optional[Finding]:
+    bits = []
+    if p["os"]:
+        bits.append(f"OS: {p['os']} ({p['os_confidence']} confidence)")
+    if p["runtime"]:
+        bits.append(f"runtime: {p['runtime']}")
+    if p["server"]:
+        bits.append(f"server: {p['server']}")
+    if p["edge"]:
+        bits.append(f"edge/LB: {', '.join(p['edge'])}")
+    if not bits:
+        return None
+    desc = " · ".join(bits)
+    if p["edge"]:
+        desc += (". Origin OS may be masked by the edge/load balancer; this reflects "
+                 "the visible stack, not necessarily the backend.")
+    return Finding(
+        title="Platform (passive inference)", severity=Severity.INFO, category="platform",
+        description=desc,
+        recommendation="Use as a lead; confirm the origin OS with an authorized active scan "
+                       "(sudo … --ports --os-detect) if you need certainty.",
+        evidence="; ".join(p["evidence"])[:160],
+    )
+
+
+def fingerprint(headers: dict[str, str],
+                body: str) -> tuple[list[Tech], list[Service], list[Finding], dict]:
+    """Returns (techs, services_to_cve, findings, platform)."""
     techs: list[Tech] = []
     seen: set[str] = set()
     server = headers.get("server", "")
@@ -102,19 +215,19 @@ def fingerprint(headers: dict[str, str], body: str) -> tuple[list[Tech], list[Se
                                     source="fingerprint", extra={"category": t.category}))
 
     findings: list[Finding] = []
-    cdn_waf = [t for t in techs if t.category in ("cdn", "waf")]
+    cdn_waf = [t for t in techs if t.category in ("cdn", "waf", "lb")]
     if cdn_waf:
         names = ", ".join(sorted({t.name for t in cdn_waf}))
         findings.append(Finding(
             title=f"Edge/WAF detected: {names}",
             severity=Severity.INFO, category="fingerprint",
-            description="A CDN/WAF sits in front of the origin. Server versions and "
-                        "some checks reflect the edge, not the backend.",
+            description="A CDN/WAF/load balancer sits in front of the origin. Server "
+                        "versions and some checks reflect the edge, not the backend.",
             recommendation="Account for the edge when interpreting results; test the "
                            "origin directly only if authorized and reachable.",
             evidence=names,
         ))
-    techlist = [t for t in techs if t.category not in ("cdn", "waf")]
+    techlist = [t for t in techs if t.category not in ("cdn", "waf", "lb")]
     if techlist:
         findings.append(Finding(
             title=f"Technologies detected ({len(techlist)})",
@@ -122,4 +235,21 @@ def fingerprint(headers: dict[str, str], body: str) -> tuple[list[Tech], list[Se
             description="; ".join(f"{t.name}{' ' + t.version if t.version else ''}" for t in techlist),
             recommendation="Versioned components are checked against the CVE database.",
         ))
-    return techs, services, findings
+
+    # passive OS/platform inference
+    platform = infer_platform(headers, body, techs)
+    pf = _platform_finding(platform)
+    if pf:
+        findings.append(pf)
+
+    # end-of-life / outdated platform components
+    for t in techs:
+        if t.version:
+            verdict = eol_mod.check_eol(t.name, t.version)
+            if verdict:
+                findings.append(_eol_finding(verdict))
+    distro_eol = eol_mod.check_os_distro(server)
+    if distro_eol:
+        findings.append(_eol_finding(distro_eol))
+
+    return techs, services, findings, platform
