@@ -132,6 +132,20 @@ def infer_platform(headers: dict[str, str], body: str, techs: list[Tech]) -> dic
         runtime = runtime or "Node.js"
         evidence.append("Node.js signature")
 
+    # Weak fallback: when nothing pinned the OS, lean on the fact that nginx/
+    # OpenResty and Node.js are overwhelmingly Linux in production. Low confidence.
+    if not os_name:
+        sl = server.lower()
+        if "openresty" in sl:
+            os_name, os_conf = "Linux", "low"
+            evidence.append("OpenResty (Linux-typical)")
+        elif "nginx" in sl:
+            os_name, os_conf = "Linux", "low"
+            evidence.append("nginx (Linux-typical)")
+        elif runtime == "Node.js":
+            os_name, os_conf = "Linux", "low"
+            evidence.append("Node.js (Linux-typical in production)")
+
     edge = sorted({t.name for t in techs if t.category in ("cdn", "waf", "lb")})
     return {
         "os": os_name, "os_confidence": os_conf, "runtime": runtime,

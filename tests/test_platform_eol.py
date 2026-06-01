@@ -87,6 +87,14 @@ def test_server_header_os_hint():
     assert platform["os_confidence"] == "high"
 
 
+def test_nodejs_openresty_weak_linux():
+    # secop.se shape: Next.js behind OpenResty, no cookies / OS hint -> low-conf Linux
+    _techs, platform = _platform({"server": "openresty", "x-powered-by": "Next.js"})
+    assert platform["runtime"] == "Node.js"
+    assert platform["os"] == "Linux"
+    assert platform["os_confidence"] == "low"
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     failed = 0
