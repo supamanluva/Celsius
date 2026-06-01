@@ -48,6 +48,17 @@ class HttpResult:
         self.body = body        # decoded HTML (capped), for fingerprinting
 
 
+def _headers_dict(msg) -> dict[str, str]:
+    """Lower-cased header dict that preserves *all* Set-Cookie values. A plain dict
+    comprehension keeps only the last of repeated headers, which would drop earlier
+    cookies (e.g. JSESSIONID) that fingerprinting relies on."""
+    out = {k.lower(): v for k, v in msg.items()}
+    cookies = msg.get_all("set-cookie") if hasattr(msg, "get_all") else None
+    if cookies:
+        out["set-cookie"] = "\n".join(cookies)
+    return out
+
+
 def fetch(url: str, *, insecure: bool = False) -> HttpResult:
     ctx = ssl.create_default_context()
     if insecure:
@@ -59,7 +70,7 @@ def fetch(url: str, *, insecure: bool = False) -> HttpResult:
         urllib.request.HTTPRedirectHandler(),
     )
     with opener.open(req, timeout=TIMEOUT) as resp:
-        headers = {k.lower(): v for k, v in resp.headers.items()}
+        headers = _headers_dict(resp.headers)
         body = ""
         ctype = headers.get("content-type", "")
         if any(t in ctype for t in ("html", "json", "javascript", "text", "xml")) or not ctype:
@@ -90,7 +101,7 @@ def analyze(target: Target, *, insecure: bool = False) -> tuple[
             break
         except urllib.error.HTTPError as e:
             # An HTTP error still gives us headers — keep it.
-            headers = {k.lower(): v for k, v in e.headers.items()} if e.headers else {}
+            headers = _headers_dict(e.headers) if e.headers else {}
             result = HttpResult(url, e.code, headers, url)
             break
         except (urllib.error.URLError, ssl.SSLError, OSError) as e:

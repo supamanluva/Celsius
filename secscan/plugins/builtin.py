@@ -61,12 +61,14 @@ class Fingerprint(Plugin):
         http = ctx.http_result
         if http is None:
             return
-        techs, services, findings = fp_mod.fingerprint(http.headers, getattr(http, "body", ""))
+        techs, services, findings, platform = fp_mod.fingerprint(
+            http.headers, getattr(http, "body", ""))
         ctx.result.services.extend(services)
         ctx.result.findings.extend(findings)
         ctx.result.recon["tech"] = [
             {"name": t.name, "category": t.category, "version": t.version} for t in techs
         ]
+        ctx.result.recon["platform"] = platform
 
 
 @register

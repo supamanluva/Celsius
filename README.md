@@ -17,6 +17,10 @@ code**, with a **web UI** and **text-only proof-of-concept** generation. It:
 - **checks email security** (`--mail`) — SPF, DKIM, DMARC, MTA-STS, TLS-RPT,
   DNSSEC and BIMI for a domain, graded A–F, each gap reported with the exact DNS
   record to add and which mailserver it applies to (passive: DoH lookups only);
+- **infers OS/platform passively** — derives OS family + server-side runtime from
+  headers/cookies (JSESSIONID→Java/Tomcat, ASP.NET→Windows/IIS, Server-header OS
+  hints, F5/CDN/LB edge), and flags **end-of-life** software (PHP, IIS→Windows
+  Server, Apache, Tomcat, OpenSSL, CentOS) that no longer gets security patches;
 - **crawls & analyzes client-side code** — discovers API endpoints/routes in JS,
   detects DOM-XSS sinks, recovers **hidden original source from exposed source
   maps** (and scans it for secrets), and finds OpenAPI/Swagger + GraphQL APIs;
