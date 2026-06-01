@@ -23,6 +23,10 @@ jobs:
       - name: CLI smoke test (stdlib-only core, no deps needed)
         run: python -m secscan --version
 
+      - name: Unit tests (stdlib-only)
+        run: |
+          for t in tests/test_*.py; do python "$t"; done
+
       - name: Lint (ruff, non-blocking)
         run: |
           pip install ruff
