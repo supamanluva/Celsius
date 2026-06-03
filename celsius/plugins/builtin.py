@@ -20,6 +20,7 @@ from ..recon import mailsec as mailsec_mod
 from ..recon import robots as robots_mod
 from ..recon import sourcemaps as sm_mod
 from ..recon import subdomains as subs_mod
+from ..recon import wayback as wayback_mod
 from ..recon import tls as tls_mod
 from ..targets import is_private_or_local
 from .base import Mode, Phase, Plugin, ScanContext, register
@@ -297,6 +298,28 @@ class Crawler(Plugin):
                 description="; ".join(sorted(endpoints)[:25]),
                 recommendation="Review for undocumented/internal endpoints; test those in scope.",
             ))
+
+
+@register
+class Wayback(Plugin):
+    id = "wayback"
+    title = "archive.org historical URL + parameter harvesting"
+    phase = Phase.RECON
+    mode = Mode.PASSIVE       # queries archive.org, never the target
+    category = "recon"
+
+    def enabled(self, ctx: ScanContext) -> bool:
+        return ctx.config.wayback and not ctx.target.is_ip
+
+    def run(self, ctx: ScanContext) -> None:
+        ctx.log(f"harvesting archive.org URLs for {ctx.target.host} ...")
+        findings, urls, params, errs = wayback_mod.harvest(ctx.target.host)
+        ctx.result.findings.extend(findings)
+        ctx.result.errors.extend(errs[:5])
+        if urls:
+            ctx.result.recon["wayback_urls"] = urls[:200]
+        if params:
+            ctx.result.recon["wayback_params"] = params
 
 
 @register
