@@ -47,13 +47,28 @@ def _looks_like_endpoint(url: str, rtype: str) -> bool:
     return any(seg in low for seg in _API_SEGMENTS)
 
 
+# Framework prefetch / cache-bust params that create near-duplicate endpoints.
+_NOISE_PARAMS = {"_rsc", "__nextdatareq", "_next", "_", "v", "ts", "_t"}
+
+
+def _normalize(url: str) -> str:
+    """Drop fragment and framework cache-bust params so /x?_rsc=a and /x?_rsc=b
+    collapse to one endpoint, while real params (id=...) are kept."""
+    p = urllib.parse.urlparse(url.split("#")[0])
+    kept = [(k, v) for k, v in urllib.parse.parse_qsl(p.query)
+            if k.lower() not in _NOISE_PARAMS]
+    query = urllib.parse.urlencode(kept)
+    return urllib.parse.urlunparse(p._replace(query=query))
+
+
 def extract_endpoints(requests: list[tuple], host: str) -> list[str]:
     """From captured (method, url, resource_type) tuples, return same-host API
-    endpoints as 'METHOD url' strings. Pure function (no browser)."""
+    endpoints as 'METHOD url' strings (deduped, framework noise stripped).
+    Pure function (no browser)."""
     out: set[str] = set()
     for method, url, rtype in requests:
         if _same_host(url, host) and _looks_like_endpoint(url, rtype):
-            out.add(f"{method} {url.split('#')[0]}")
+            out.add(f"{method} {_normalize(url)}")
     return sorted(out)
 
 
@@ -106,11 +121,21 @@ def crawl(url: str, *, max_pages: int = 10, timeout_ms: int = 15000,
                 if norm in seen:
                     continue
                 seen.add(norm)
+                # domcontentloaded fires reliably; networkidle can hang forever on
+                # streaming SPAs (Next.js RSC). Best-effort settle, then capture the
+                # DOM even if the page never went fully idle.
                 try:
-                    page.goto(u, wait_until="networkidle", timeout=timeout_ms)
-                    html = page.content()
-                except Exception as e:  # navigation/timeout/etc.
+                    page.goto(u, wait_until="domcontentloaded", timeout=timeout_ms)
+                except Exception as e:
                     errors.append(f"dynamic nav {u}: {str(e)[:120]}")
+                try:
+                    page.wait_for_load_state("networkidle", timeout=3000)
+                except Exception:
+                    pass
+                try:
+                    page.wait_for_timeout(800)   # let client-side render nav/content
+                    html = page.content()
+                except Exception:
                     continue
                 pages[page.url] = html
                 try:
