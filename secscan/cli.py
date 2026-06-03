@@ -80,7 +80,8 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--no-db", action="store_true", help="do not persist the scan to the local store")
     s.add_argument("--ai", action="store_true", help="AI triage + attack-surface hypotheses")
     s.add_argument("--ai-provider", default="deepseek", help="deepseek|openai|anthropic|local|mock")
-    s.add_argument("--ai-model", help="override the provider's default model")
+    s.add_argument("--ai-model", help="override the provider's default model (e.g. a local Ollama model)")
+    s.add_argument("--ai-base-url", help="AI API base URL (local Ollama: http://localhost:11434/v1)")
     s.add_argument("--ai-redact", action="store_true", help="mask secrets before sending to the AI (default off)")
     s.add_argument("--json", metavar="FILE")
     s.add_argument("--html", metavar="FILE")
@@ -243,7 +244,7 @@ def _cmd_scan(args) -> int:
         allow_exploit=args.lab, lab_attestation=lab_attest, dry_run=args.dry_run,
         exploit_max_requests=args.exploit_max_requests, exploit_rate_limit=args.exploit_rate_limit,
         ai=args.ai, ai_provider=args.ai_provider, ai_model=args.ai_model,
-        ai_redact=args.ai_redact,
+        ai_base_url=args.ai_base_url, ai_redact=args.ai_redact,
     )
     store = None
     if config.persist:

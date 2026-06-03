@@ -142,6 +142,25 @@ and the report carries full secret values for the owner to rotate. Every externa
 send is recorded in the audit log with `masked` (was masking applied) and
 `sensitive_count`. Use `--ai-provider local` to keep everything on-machine.
 
+#### Local / on-prem AI (Ollama) — nothing leaves the machine
+
+secscan speaks the OpenAI-compatible API, so any local server works. With
+[Ollama](https://ollama.com):
+
+```bash
+ollama pull llama3.1            # or qwen2.5, mistral, … (any model you have)
+# Ollama auto-serves an OpenAI-compatible API at http://localhost:11434/v1
+
+# CLI:
+python3 -m secscan scan https://example.com --ai --ai-provider local --ai-model llama3.1
+# non-default host/port:
+python3 -m secscan scan ... --ai --ai-provider local --ai-base-url http://192.168.1.5:11434/v1
+```
+
+**In the web UI:** tick **AI analysis**, choose **Local (Ollama)** in the provider
+dropdown, leave the API key blank, and (optionally) set the **model** and **base
+URL** fields. Blank ⇒ defaults `llama3.1` at `http://localhost:11434/v1`. Then scan.
+
 ### Governance (M0)
 
 Scans run as a **phase-ordered plugin pipeline** (recon → detect → enrich), are
