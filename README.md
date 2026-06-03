@@ -1,4 +1,8 @@
-# secscan
+# Celsius
+
+> CLI / Python package: **`secscan`** (the command is `python3 -m secscan`).
+> "Celsius" is the product name (web UI, branding); the importable package and
+> CLI keep the `secscan` name.
 
 A lightweight vulnerability scanner for web pages, public IPs, **and source
 code**, with a **web UI** and **text-only proof-of-concept** generation. It:
