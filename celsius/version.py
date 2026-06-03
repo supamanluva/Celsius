@@ -80,6 +80,11 @@ def in_range(
     # If we got here with at least one bound (or a wildcard exact), it matches.
     if any([start_incl, start_excl, end_incl, end_excl]):
         return True
-    if exact in ("*", "-"):
+    # CPE 2.3 version semantics: '*' (ANY) matches every version, but '-' (NA,
+    # "not applicable") means the product has NO version for this CVE — it must
+    # NOT match a concrete detected version. Treating '-' as a wildcard produced
+    # CRITICAL false positives (e.g. 2008-era IIS ActiveX CVEs with version '-'
+    # matching IIS 8.5). Only '*' is a wildcard.
+    if exact == "*":
         return True
     return False
