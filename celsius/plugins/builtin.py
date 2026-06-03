@@ -313,7 +313,11 @@ class ApiDiscovery(Plugin):
         base = ctx.result.url or ctx.target.web_url()
         ctx.audit.active_probe(self.id, ctx.target.host, self.mode.value,
                                detail="openapi/swagger/graphql probe")
-        info, findings, errs = api_mod.discover(base, insecure=ctx.config.insecure, auth=ctx.config.auth)
+        # fold any endpoints the crawler surfaced into the BOLA/IDOR analysis
+        crawl = ctx.result.recon.get("crawl") or {}
+        extra = list(crawl.get("endpoints") or []) + list(crawl.get("routes") or [])
+        info, findings, errs = api_mod.discover(
+            base, insecure=ctx.config.insecure, auth=ctx.config.auth, extra_endpoints=extra)
         ctx.result.findings.extend(findings)
         ctx.result.errors.extend(errs)
         if info.get("openapi") or info.get("graphql"):
