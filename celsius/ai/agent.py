@@ -122,3 +122,113 @@ def agentic_verify(result_dict: dict, points, provider: LLMProvider, lab, *,
         ))
         log(f"ai-verify: CONFIRMED {tech} on param '{probe.get('param')}'")
     return findings
+
+
+def prove_hypotheses(result_dict: dict, hypotheses: list[dict], provider: LLMProvider,
+                     lab, *, budget: Optional[cache_mod.Budget] = None, audit=None,
+                     log=lambda _m: None, max_calls: int = 10) -> list[dict]:
+    """Tool-using loop: prove/refute each AI hypothesis with safe read-only tools.
+
+    `hypotheses` is a list of finding dicts (category 'ai-hypothesis'). The model
+    picks a tool per hypothesis, the dispatcher runs it (host-locked, guardrailed),
+    and the model judges the evidence. Returns verdicts:
+    {"index", "status": confirmed|refuted|inconclusive|needs-manual,
+     "severity", "reasoning", "evidence", "tool"}.
+    """
+    from . import verify_tools
+    if not hypotheses:
+        return []
+    hyp_view = [{"index": i, "title": h.get("title", ""), "detail": (h.get("description") or "")[:300]}
+                for i, h in enumerate(hypotheses)]
+    context = {
+        "url": result_dict.get("url") or result_dict.get("target"),
+        "host": getattr(lab, "host", ""),
+        "services": [{"name": s.get("name"), "port": s.get("port"), "version": s.get("version")}
+                     for s in result_dict.get("services", [])][:20],
+    }
+    messages = [Message("system", prompts.AGENT_TOOL_SYSTEM),
+                Message("user", prompts.tool_plan_prompt(hyp_view, verify_tools.TOOL_SPECS, context))]
+    plan = parse_json(_call(provider, messages, json_mode=True, budget=budget,
+                            use_cache=True, audit=audit)) or {}
+    plans = plan.get("plans", []) or []
+    log(f"ai-prove: planned {len(plans)} tool call(s) for {len(hypotheses)} hypothesis(es)")
+
+    verdicts: list[dict] = []
+    used = 0
+    for p in plans:
+        try:
+            idx = int(p.get("hypothesis"))
+            hyp = hypotheses[idx]
+        except (ValueError, TypeError, IndexError):
+            continue
+        tool = p.get("tool")
+        if tool in (None, "", "none"):
+            verdicts.append({"index": idx, "status": "needs-manual", "tool": "none",
+                             "reasoning": "no safe read-only tool can settle this"})
+            continue
+        if used >= max_calls:
+            break
+        ok, _why = lab.can_send()
+        if not ok:
+            break
+        evidence = verify_tools.run_tool(tool, p.get("args") or {}, lab)
+        used += 1
+        if evidence is None:
+            verdicts.append({"index": idx, "status": "inconclusive", "tool": tool,
+                             "reasoning": "invalid tool call"})
+            continue
+        jmsg = [Message("system", prompts.AGENT_PROVE_JUDGE_SYSTEM),
+                Message("user", prompts.prove_judge_prompt(
+                    {"title": hyp.get("title"), "detail": hyp.get("description")}, evidence))]
+        v = parse_json(_call(provider, jmsg, json_mode=True, budget=budget,
+                             use_cache=True, audit=audit)) or {}
+        status = str(v.get("status", "inconclusive")).lower()
+        if status not in ("confirmed", "refuted", "inconclusive"):
+            status = "inconclusive"
+        verdicts.append({"index": idx, "status": status, "severity": v.get("severity"),
+                         "reasoning": v.get("reasoning", ""), "evidence": v.get("evidence", ""),
+                         "tool": tool})
+        log(f"ai-prove: {status.upper()} — {hyp.get('title', '')[:60]} (via {tool})")
+    return verdicts
+
+
+def apply_verdicts(findings: list, verdicts: list[dict]) -> tuple[list, dict]:
+    """Rewrite the findings list (Finding objects) given prove/refute verdicts,
+    matched to the ai-hypothesis findings in order.
+
+    confirmed -> retagged 'ai-active-verify' (now counts toward severity);
+    refuted   -> dropped; else kept as an annotated 'ai-hypothesis' lead.
+    Returns (new_findings, stats).
+    """
+    by_idx = {v["index"]: v for v in verdicts}
+    out: list = []
+    stats = {"confirmed": 0, "refuted": 0, "needs_manual": 0, "untested": 0}
+    hyp_pos = 0
+    for f in findings:
+        if getattr(f, "category", "") != "ai-hypothesis":
+            out.append(f)
+            continue
+        v = by_idx.get(hyp_pos)
+        hyp_pos += 1
+        if v is None:
+            stats["untested"] += 1
+            out.append(f)
+            continue
+        st = v["status"]
+        if st == "refuted":
+            stats["refuted"] += 1
+            continue  # drop the disproven lead
+        if st == "confirmed":
+            stats["confirmed"] += 1
+            f.category = "ai-active-verify"
+            f.confidence = "high"
+            if v.get("severity"):
+                f.severity = _to_sev(v["severity"])
+            f.title = "[AI-verified] " + f.title.removeprefix("[AI] ")
+            f.description = (f.description
+                             + f" — CONFIRMED via {v.get('tool')}: {v.get('evidence', '')}").strip()
+        else:
+            stats["needs_manual"] += 1
+            f.description = f.description + f" — [unconfirmed: {v.get('tool', 'tool')} {st}]"
+        out.append(f)
+    return out, stats

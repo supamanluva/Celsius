@@ -519,20 +519,34 @@ class AiActiveVerify(Plugin):
 
         base = ctx.result.url or ctx.target.web_url()
         ctx.log(f"ai-active-verify: agentic proof loop on {base} ...")
-        points = discover_points(base, lab)
-        if not points:
-            ctx.result.errors.append("ai-active-verify: no injectable parameters found")
-            return
+        budget = Budget()
         try:
-            findings = agent.agentic_verify(
-                ctx.result.to_dict(), points, provider, lab,
-                budget=Budget(), audit=ctx.audit, log=ctx.log)
+            # 1. Injection proof loop on discovered parameters (XSS/redirect/SQLi/…)
+            points = discover_points(base, lab)
+            if points:
+                inj = agent.agentic_verify(ctx.result.to_dict(), points, provider, lab,
+                                           budget=budget, audit=ctx.audit, log=ctx.log)
+                ctx.result.findings.extend(inj)
+            else:
+                inj = []
+
+            # 2. Tool loop: prove/refute the AI hypotheses, drop the refuted ones.
+            hyps = [f for f in ctx.result.findings if f.category == "ai-hypothesis"]
+            vstats = {}
+            if hyps:
+                verdicts = agent.prove_hypotheses(
+                    ctx.result.to_dict(), [f.to_dict() for f in hyps], provider, lab,
+                    budget=budget, audit=ctx.audit, log=ctx.log)
+                ctx.result.findings, vstats = agent.apply_verdicts(ctx.result.findings, verdicts)
+                ctx.log(f"ai-prove: {vstats.get('confirmed', 0)} confirmed, "
+                        f"{vstats.get('refuted', 0)} refuted, "
+                        f"{vstats.get('needs_manual', 0)} need manual")
         except AIError as e:
             ctx.result.errors.append(f"ai-active-verify failed: {e}")
             return
-        ctx.result.findings.extend(findings)
         ctx.result.recon["ai_active_verify"] = {
-            "points": len(points), "confirmed": len(findings),
+            "injection_points": len(points), "injection_confirmed": len(inj),
+            "hypotheses": len(hyps), "verdicts": vstats,
             "requests_sent": lab._count, "halted": lab.stopped_reason or None,
         }
 

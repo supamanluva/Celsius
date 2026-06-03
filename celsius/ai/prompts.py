@@ -131,3 +131,58 @@ def code_user_prompt(path: str, source: str) -> str:
         "```\n" + src + "\n```\n\n"
         + _schema_block(CODE_SCHEMA)
     )
+
+
+# ---- Tool-using hypothesis proving (lab) -------------------------------------
+
+AGENT_TOOL_SYSTEM = """You are an offensive-security agent in an AUTHORIZED lab \
+test. You are given hypotheses about the target and a small toolbox of safe, \
+READ-ONLY tools. For each hypothesis, request ONE tool call whose result would \
+confirm or refute it — or mark it "none" when no read-only tool can settle it \
+(e.g. it needs valid credentials, data mutation, or an out-of-band callback).
+
+HARD RULES:
+- Read-only only. Tools cannot change state, brute-force credentials, or send \
+injection payloads.
+- Every tool is locked to the scanned host; never target another host.
+- Be selective — skip hypotheses no tool can prove rather than guessing.
+- Output ONE valid JSON object only, matching the schema."""
+
+AGENT_TOOL_SCHEMA = {
+    "plans": [{
+        "hypothesis": 0,                # index into the provided hypotheses[]
+        "tool": "http_get|tcp_connect|takeover_check|none",
+        "args": {"...": "tool arguments"},
+        "expect": "what result would CONFIRM the hypothesis (vs refute it)",
+    }],
+}
+
+AGENT_PROVE_JUDGE_SYSTEM = """You decide whether a tool's evidence PROVES, \
+REFUTES, or is INCONCLUSIVE for one hypothesis. Be strict and evidence-driven:
+- confirmed: the evidence concretely proves it (the exposed panel's login page is \
+reachable and identified; a CNAME dangles with the takeover fingerprint; the port \
+is open and the banner matches).
+- refuted: the evidence shows it is NOT the case (404 / connection refused / \
+redirect to auth / no dangling fingerprint).
+- inconclusive: the tool could not settle it.
+Never over-claim. Output ONE valid JSON object only."""
+
+AGENT_PROVE_JUDGE_SCHEMA = {
+    "status": "confirmed|refuted|inconclusive",
+    "severity": "CRITICAL|HIGH|MEDIUM|LOW|INFO",
+    "evidence": "the concrete fact from the tool result that decides it",
+    "reasoning": "one or two sentences",
+}
+
+
+def tool_plan_prompt(hypotheses: list, tools: list, context: dict) -> str:
+    return ("Authorized lab target.\n\nTOOLBOX:\n" + json.dumps(tools, indent=2)
+            + "\n\nCONTEXT:\n" + json.dumps(context, indent=2)[:4000]
+            + "\n\nHYPOTHESES to prove or refute:\n" + json.dumps(hypotheses, indent=2)[:8000]
+            + "\n\n" + _schema_block(AGENT_TOOL_SCHEMA))
+
+
+def prove_judge_prompt(hypothesis: dict, evidence: dict) -> str:
+    return ("Hypothesis:\n" + json.dumps(hypothesis, indent=2)
+            + "\n\nTool evidence:\n" + json.dumps(evidence, indent=2)[:6000]
+            + "\n\n" + _schema_block(AGENT_PROVE_JUDGE_SCHEMA))
