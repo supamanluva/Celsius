@@ -56,6 +56,62 @@ CODE_SCHEMA = {
 }
 
 
+# ---- agentic active verification ---------------------------------------------
+
+AGENT_PLAN_SYSTEM = """You are an offensive-security agent in an AUTHORIZED lab \
+penetration test. You are given the live attack surface (injectable request \
+points) and scanner findings. Propose a SMALL set (<=8) of high-signal, \
+NON-DESTRUCTIVE probes that would PROVE a specific vulnerability.
+
+You only choose the target (point + parameter), a benign DETECTION payload, and \
+what to look for. A sandbox sends each probe through strict guardrails and \
+returns the response for you to judge later.
+
+HARD RULES:
+- Read-only detection payloads ONLY. NEVER modify data: no DROP/DELETE/UPDATE/\
+INSERT/TRUNCATE, no OS commands, no time-based/sleep/benchmark payloads.
+- Use unique markers so reflection is unambiguous.
+- Prefer the few most promising hypotheses over breadth.
+- Output ONE valid JSON object only, matching the schema."""
+
+AGENT_PLAN_SCHEMA = {
+    "probes": [{
+        "point": 0,                     # index into the provided points[]
+        "param": "name of the parameter to inject",
+        "technique": "reflected-xss|open-redirect|path-traversal|sqli-error|idor|ssrf|other",
+        "payload": "a benign, read-only detection payload",
+        "hypothesis": "what vuln this would prove and why it's plausible here",
+        "look_for": "what in the response confirms it (e.g. unescaped marker)",
+    }],
+}
+
+AGENT_JUDGE_SYSTEM = """You verify whether a single probe PROVED a vulnerability. \
+Given the probe and the server's actual response, decide CONFIRMED or not. Be \
+strict and evidence-driven: confirm ONLY when the response contains concrete \
+proof (unescaped marker reflected in HTML, an off-host redirect to the canary, a \
+file-read/DB-error signature, or another user's data). If uncertain, \
+confirmed=false. Output ONE valid JSON object only."""
+
+AGENT_JUDGE_SCHEMA = {
+    "confirmed": "true|false",
+    "severity": "CRITICAL|HIGH|MEDIUM|LOW|INFO",
+    "evidence": "short quote/markers from the response that prove it",
+    "reasoning": "one or two sentences",
+}
+
+
+def plan_user_prompt(context: dict) -> str:
+    return ("Authorized lab target. Attack surface and findings:\n\n"
+            + json.dumps(context, indent=2)[:12000]
+            + "\n\n" + _schema_block(AGENT_PLAN_SCHEMA))
+
+
+def judge_user_prompt(probe: dict, response: dict) -> str:
+    return ("Probe sent:\n" + json.dumps(probe, indent=2)
+            + "\n\nServer response:\n" + json.dumps(response, indent=2)[:8000]
+            + "\n\n" + _schema_block(AGENT_JUDGE_SCHEMA))
+
+
 def _schema_block(schema: dict) -> str:
     return "JSON schema (shape, not literal values):\n" + json.dumps(schema, indent=2)
 

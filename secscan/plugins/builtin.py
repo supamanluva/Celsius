@@ -355,6 +355,67 @@ class ActiveVerification(Plugin):
 
 
 @register
+class AiActiveVerify(Plugin):
+    id = "ai-active-verify"
+    title = "agentic AI proof loop (plan -> guardrailed probe -> judge)"
+    phase = Phase.DETECT
+    mode = Mode.EXPLOIT       # sends real probes; engine gates on allow_exploit + scope EXPLOIT
+    category = "ai-active-verify"
+
+    def enabled(self, ctx: ScanContext) -> bool:
+        return ctx.config.ai and ctx.config.allow_exploit
+
+    def run(self, ctx: ScanContext) -> None:
+        from ..active.harness import LabContext, discover_points
+        from ..ai import agent, get_provider
+        from ..ai.cache import Budget
+        from ..ai.provider import AIError
+
+        cfg = ctx.config
+        try:
+            provider = get_provider(cfg.ai_provider, model=cfg.ai_model,
+                                    api_key=cfg.ai_api_key, base_url=cfg.ai_base_url)
+        except AIError as e:
+            ctx.result.errors.append(f"ai-active-verify: {e}")
+            return
+        ok, why = provider.available()
+        if not ok:
+            ctx.result.errors.append(f"ai-active-verify: provider unavailable ({why})")
+            return
+
+        lab = LabContext(
+            host=ctx.target.host, enabled=cfg.allow_exploit,
+            attested=bool(cfg.lab_attestation), audit=ctx.audit, dry_run=cfg.dry_run,
+            rate_limit_rps=cfg.exploit_rate_limit, max_requests=cfg.exploit_max_requests,
+            insecure=cfg.insecure, log=ctx.log, auth=cfg.auth,
+        )
+        ready, why = lab.ready()
+        if not ready:
+            ctx.result.errors.append(f"ai-active-verify: skipped ({why})")
+            ctx.audit.skipped(self.id, ctx.target.host, why)
+            return
+
+        base = ctx.result.url or ctx.target.web_url()
+        ctx.log(f"ai-active-verify: agentic proof loop on {base} ...")
+        points = discover_points(base, lab)
+        if not points:
+            ctx.result.errors.append("ai-active-verify: no injectable parameters found")
+            return
+        try:
+            findings = agent.agentic_verify(
+                ctx.result.to_dict(), points, provider, lab,
+                budget=Budget(), audit=ctx.audit, log=ctx.log)
+        except AIError as e:
+            ctx.result.errors.append(f"ai-active-verify failed: {e}")
+            return
+        ctx.result.findings.extend(findings)
+        ctx.result.recon["ai_active_verify"] = {
+            "points": len(points), "confirmed": len(findings),
+            "requests_sent": lab._count, "halted": lab.stopped_reason or None,
+        }
+
+
+@register
 class WebHardening(Plugin):
     id = "web-hardening"
     title = "CSP deep-eval, JWT analysis, security.txt"
