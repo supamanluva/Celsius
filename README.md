@@ -14,6 +14,11 @@ code**, with a **web UI** and **text-only proof-of-concept** generation. It:
   NVD hasn't enriched yet (via the MITRE CNA records);
 - **audits web security headers** — CSP, HSTS, X-Frame-Options,
   X-Content-Type-Options, Referrer-Policy, cookie flags, version disclosure;
+- **deep web checks** — evaluates CSP *content* (unsafe-inline/eval, wildcards,
+  missing base-uri/frame-ancestors), analyses JWTs (alg=none, weak HMAC, no
+  expiry), probes **CORS** misconfiguration (reflected/`null` origin with
+  credentials), checks `security.txt`, and detects dangling-CNAME **subdomain
+  takeover**;
 - **checks email security** (`--mail`) — SPF, DKIM, DMARC, MTA-STS, TLS-RPT,
   DNSSEC and BIMI for a domain, graded A–F, each gap reported with the exact DNS
   record to add and which mailserver it applies to (passive: DoH lookups only);
