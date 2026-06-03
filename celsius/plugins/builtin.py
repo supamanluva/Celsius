@@ -14,6 +14,7 @@ from ..recon import content_discovery as cd_mod
 from ..recon import crawler as crawler_mod
 from ..recon import dns as dns_mod
 from ..recon import dynamic as dynamic_mod
+from ..recon import favicon as favicon_mod
 from ..recon import fingerprint as fp_mod
 from ..recon import jsintel as jsintel_mod
 from ..recon import mailsec as mailsec_mod
@@ -320,6 +321,29 @@ class Wayback(Plugin):
             ctx.result.recon["wayback_urls"] = urls[:200]
         if params:
             ctx.result.recon["wayback_params"] = params
+
+
+@register
+class FaviconFingerprint(Plugin):
+    id = "favicon"
+    title = "favicon hash fingerprint (app identification + Shodan pivot)"
+    phase = Phase.RECON          # after WebAnalysis -> reuse the fetched HTML/body
+    mode = Mode.PASSIVE
+    category = "fingerprint"
+
+    def enabled(self, ctx: ScanContext) -> bool:
+        return ctx.config.favicon
+
+    def run(self, ctx: ScanContext) -> None:
+        base = ctx.result.url or ctx.target.web_url()
+        html = getattr(ctx.http_result, "body", "") if ctx.http_result else ""
+        services, findings, h, errs = favicon_mod.analyze(
+            base, html=html, insecure=ctx.config.insecure, auth=ctx.config.auth)
+        ctx.result.services.extend(services)
+        ctx.result.findings.extend(findings)
+        ctx.result.errors.extend(errs[:3])
+        if h is not None:
+            ctx.result.recon["favicon_hash"] = h
 
 
 @register
