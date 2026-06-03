@@ -172,6 +172,23 @@ python3 -m secscan scan https://lab.local/ --lab --scope scope.yml \
 
 Lab mode is **CLI-only by design** — active exploitation is not exposed in the web UI.
 
+#### Agentic AI proof loop (`--lab --ai`)
+
+Add `--ai` to lab mode to run an **AI-driven prove-it loop**: the model reads the
+live attack surface and *plans* high-signal, non-destructive probes (which
+parameter, which benign payload, what would prove it); the **same lab harness**
+sends each request under the guardrails above; then the model *judges* the real
+response and only **proven** issues become `[AI-verified]` findings
+(`confirmed-exploitable`). The model never sends a request itself, payloads are
+validated read-only (no DROP/DELETE/OS-commands/time-based), and the request
+cap/rate-limit/kill-switch/audit all still apply. This is secscan's take on
+"no exploit, no report".
+
+```bash
+python3 -m secscan scan https://lab.local/?q=test --lab --ai --scope scope.yml \
+    --lab-attest "I am authorized to actively test lab.local"
+```
+
 ### Useful flags
 
 | Flag | Meaning |
