@@ -157,15 +157,22 @@ def _extract_cvss(metrics: dict) -> tuple[Optional[float], Severity]:
 
 # ---- Version matching ---------------------------------------------------------
 
-def _matches_nvd_config(vuln: dict, product: str, version: str) -> Optional[bool]:
+def _matches_nvd_config(vuln: dict, product: str, version: str) -> Optional[str]:
     """Match `version` against the CVE's NVD CPE configuration.
 
-    Returns True/False if the CVE is enriched (has configurations), or None if
-    it has no configuration (so the caller should fall back to the CNA record).
+    Returns:
+      * ``None``   — no configuration (caller should fall back to the CNA record)
+      * ``""``     — has configuration(s) but `version` does not match (not vuln)
+      * ``"firm"`` — matched via a real version constraint (concrete or a range)
+      * ``"weak"`` — matched ONLY via a bare ``*`` (ANY) with no version range.
+                     NVD over-models legacy CVEs this way ("all versions ever"),
+                     which is the main source of false positives like a 2008 CVE
+                     hitting OpenSSH 9.6 — so it's reported but kept low-confidence.
     """
     configs = vuln.get("cve", {}).get("configurations")
     if not configs:
         return None
+    result = ""
     for cfg in configs:
         for node in cfg.get("nodes", []):
             for m in node.get("cpeMatch", []):
@@ -177,16 +184,26 @@ def _matches_nvd_config(vuln: dict, product: str, version: str) -> Optional[bool
                 if len(parts) < 6 or parts[4].lower() != product.lower():
                     continue
                 cpe_version = parts[5]
+                bounds = (
+                    m.get("versionStartIncluding"),
+                    m.get("versionStartExcluding"),
+                    m.get("versionEndIncluding"),
+                    m.get("versionEndExcluding"),
+                )
                 if vercmp.in_range(
                     version,
-                    start_incl=m.get("versionStartIncluding"),
-                    start_excl=m.get("versionStartExcluding"),
-                    end_incl=m.get("versionEndIncluding"),
-                    end_excl=m.get("versionEndExcluding"),
+                    start_incl=bounds[0],
+                    start_excl=bounds[1],
+                    end_incl=bounds[2],
+                    end_excl=bounds[3],
                     exact=cpe_version,
                 ):
-                    return True
-    return False
+                    # A concrete exact version or any real range bound is firm;
+                    # a bare "*" with no bounds is the weak "all versions" case.
+                    if any(bounds) or cpe_version not in ("*", "-"):
+                        return "firm"
+                    result = "weak"
+    return result
 
 
 def _matches_cna(cve_id: str, version: str, mapping: "_Map") -> bool:
@@ -250,7 +267,40 @@ def _extract_references(c: dict) -> list[dict]:
     return refs[:12]
 
 
-def _build_cve(vuln: dict, affects: str) -> Optional[CVE]:
+# A version string carrying a distro suffix (e.g. "9.6p1 Ubuntu 3ubuntu13.16",
+# "1.18.0-6.1+deb12u3", "...el9") comes from a distribution package whose
+# maintainers backport security fixes WITHOUT bumping the upstream version. So
+# an upstream-version CVE match is unreliable — the fix may already be applied.
+_DISTRO_RE = re.compile(
+    r"(?i)(?:\bubuntu\b|\bdebian\b|[-+~]deb\d|\bel[5-9]\b|\.el\d|\bfc\d\d|"
+    r"\bamzn\d|\braspbian\b|ubuntu[\d.]|deb\d+u\d)"
+)
+
+
+def _distro_build(version: str) -> bool:
+    return bool(_DISTRO_RE.search(version or ""))
+
+
+def _confidence(match_kind: str, distro: bool) -> tuple[str, str]:
+    """Map a match kind + distro-build flag to (confidence, caveat)."""
+    if distro:
+        return "weak", (
+            "Matched on the upstream version of a distribution package; the distro "
+            "likely backported the fix without changing the version. Verify against "
+            "the distribution's security tracker before treating as exploitable."
+        )
+    if match_kind == "weak":
+        return "weak", (
+            "NVD lists no affected version range for this product (matches every "
+            "version), which is frequently over-broad for legacy CVEs. Verify the "
+            "advisory applies to this version."
+        )
+    return "firm", ""
+
+
+def _build_cve(
+    vuln: dict, affects: str, *, confidence: str = "firm", caveat: str = ""
+) -> Optional[CVE]:
     c = vuln.get("cve", {})
     cid = c.get("id")
     if not cid:
@@ -267,6 +317,8 @@ def _build_cve(vuln: dict, affects: str) -> Optional[CVE]:
         published=c.get("published"),
         affects=affects,
         references=_extract_references(c),
+        confidence=confidence,
+        caveat=caveat,
     )
 
 
@@ -292,11 +344,13 @@ def lookup_for_service(
     vulns = data.get("vulnerabilities", [])
     matched: list[CVE] = []
     cna_candidates: list[dict] = []
+    distro = _distro_build(svc.version)
 
     for vuln in vulns:
         decision = _matches_nvd_config(vuln, product, svc.version)
-        if decision is True:
-            cve = _build_cve(vuln, svc.label())
+        if decision in ("firm", "weak"):
+            conf, caveat = _confidence(decision, distro)
+            cve = _build_cve(vuln, svc.label(), confidence=conf, caveat=caveat)
             if cve:
                 matched.append(cve)
         elif decision is None:
@@ -314,10 +368,13 @@ def lookup_for_service(
             cid = vuln.get("cve", {}).get("id", "")
             return vuln if cid and _matches_cna(cid, svc.version, mapping) else None
 
+        # CNA matches use real semver ranges, so they're firm unless the service
+        # is a distro package (backport caveat still applies).
+        conf, caveat = _confidence("firm", distro)
         with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
             for vuln in ex.map(check, cna_candidates):
                 if vuln:
-                    cve = _build_cve(vuln, svc.label())
+                    cve = _build_cve(vuln, svc.label(), confidence=conf, caveat=caveat)
                     if cve:
                         matched.append(cve)
 
@@ -352,7 +409,7 @@ def lookup_all(
                 clone = CVE(
                     id=c.id, severity=c.severity, cvss=c.cvss, description=c.description,
                     url=c.url, published=c.published, affects=svc.label(),
-                    references=c.references,
+                    references=c.references, confidence=c.confidence, caveat=c.caveat,
                 )
                 all_cves.append(clone)
             continue

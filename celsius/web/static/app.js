@@ -313,13 +313,17 @@ function followupHosts(res) {
 function renderResult(res, scanId) {
   lastUrl = res.url || res.target;
   const counts = { CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0, INFO: 0 };
-  (res.cves || []).forEach((c) => counts[c.severity]++);
+  // Low-confidence CVEs (over-broad NVD match / distro-backported) are reported
+  // but kept out of the headline severity counts so they don't cry wolf.
+  let weakCount = 0;
+  (res.cves || []).forEach((c) => { if (c.confidence === "weak") weakCount++; else counts[c.severity]++; });
   (res.findings || []).forEach((f) => counts[f.severity]++);
 
   const sum = $("summary");
   sum.classList.remove("hidden");
   sum.innerHTML = ["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"]
     .map((s) => `<span class="chip sev-${s}">${s} ${counts[s]}</span>`).join("")
+    + (weakCount ? `<span class="chip sev-UNCONFIRMED" title="Reported but not confirmed — verify before acting">⚠ UNCONFIRMED ${weakCount}</span>` : "")
     + (scanId ? `<a class="reportlink" href="/api/scans/${encodeURIComponent(scanId)}/report.html" target="_blank">📄 HTML report</a>` : "");
 
   let html = "";
@@ -388,25 +392,32 @@ function renderResult(res, scanId) {
     }
   }
 
-  // CVEs
+  // CVEs — firm (confident) first, low-confidence ("weak") sorted to the bottom.
   const cves = (res.cves || []).slice().sort((a, b) =>
-    (SEV_ORDER[b.severity] - SEV_ORDER[a.severity]) || ((b.cvss || 0) - (a.cvss || 0)));
-  html += `<h2 class="section">Known CVEs (${cves.length})</h2>`;
+    ((a.confidence === "weak") - (b.confidence === "weak"))
+    || (SEV_ORDER[b.severity] - SEV_ORDER[a.severity]) || ((b.cvss || 0) - (a.cvss || 0)));
+  const firmN = cves.filter((c) => c.confidence !== "weak").length;
+  const weakN = cves.length - firmN;
+  html += `<h2 class="section">Known CVEs (${firmN}${weakN ? ` + ${weakN} unconfirmed` : ""})</h2>`;
   if (cves.length) {
     cves.forEach((c, i) => {
       const verified = c.verified ? ` <span class="verdict v-high">✔ VERIFIED</span>` : "";
+      const weak = c.confidence === "weak";
+      const unconfirmed = weak ? ` <span class="verdict v-low" title="${esc(c.caveat || "")}">⚠ UNCONFIRMED</span>` : "";
+      const caveatHtml = weak && c.caveat ? `<div class="meta">⚠ ${esc(c.caveat)}</div>` : "";
       const pocs = (c.references || []).filter((r) => r.poc).slice(0, 4);
       const pocHtml = pocs.length
         ? `<div class="meta">PoC: ${pocs.map((r) => `<a href="${esc(r.url)}" target="_blank">${esc(shortUrl(r.url))}</a>`).join(" · ")}</div>`
         : "";
-      html += `<div class="card ${c.severity}">
+      html += `<div class="card ${weak ? "INFO" : c.severity}${weak ? " weak" : ""}">
         <div class="row">
           <span class="title"><span class="badge sev-${c.severity}">${c.severity}</span>
             <a href="${esc(c.url)}" target="_blank">${esc(c.id)}</a>
-            &nbsp;CVSS ${c.cvss == null ? "-" : c.cvss}${verdictBadge(c.exploitability)}${verified}</span>
+            &nbsp;CVSS ${c.cvss == null ? "-" : c.cvss}${verdictBadge(c.exploitability)}${verified}${unconfirmed}</span>
           <button class="pocBtn" data-poc="cve" data-i="${i}">how-to</button>
         </div>
         <div class="meta">affects: ${esc(c.affects)}${exploitMeta(c.exploitability)}</div>
+        ${caveatHtml}
         ${pocHtml}
         <div class="desc">${esc((c.description || "").slice(0, 240))}</div>
       </div>`;

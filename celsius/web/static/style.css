@@ -197,6 +197,7 @@ button.secondary:hover { background: var(--surface-3); filter: none; }
 .summary .chip.sev-MEDIUM { border-left: 3px solid var(--med); color: #f4c977; }
 .summary .chip.sev-LOW { border-left: 3px solid var(--low); color: #9dbcff; }
 .summary .chip.sev-INFO { border-left: 3px solid var(--info); color: var(--muted); }
+.summary .chip.sev-UNCONFIRMED { border-left: 3px solid var(--info); color: #c9a3ff; }
 
 /* ---- sections & cards ------------------------------------------------------ */
 h2.section {
@@ -214,6 +215,7 @@ h2.section {
 .card.MEDIUM { border-left-color: var(--med); }
 .card.LOW { border-left-color: var(--low); }
 .card.INFO { border-left-color: var(--info); }
+.card.weak { opacity: .72; }  /* low-confidence CVE — visually de-emphasised */
 .card .row { display: flex; justify-content: space-between; align-items: center; gap: .6rem; }
 .card .title { font-weight: 600; font-size: .95rem; }
 .card .meta { color: var(--muted); font-size: .8rem; margin-top: .25rem; font-family: ui-monospace, Menlo, monospace; }
