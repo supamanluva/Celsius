@@ -12,8 +12,6 @@ let lastUrl = null; // url of last scan, for PoC context
     root.setAttribute("data-theme", theme);
     const btn = $("themeToggle");
     if (btn) btn.textContent = theme === "light" ? "☾" : "☀"; // ☾ / ☀
-    const logo = $("brandLogo");
-    if (logo) logo.src = theme === "light" ? "/static/logo.png" : "/static/logo-dark.png";
   }
   let saved = null;
   try { saved = localStorage.getItem(KEY); } catch (e) { /* private mode */ }

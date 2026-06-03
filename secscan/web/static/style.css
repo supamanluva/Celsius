@@ -53,8 +53,17 @@ body {
   border-bottom: 1px solid var(--border-soft);
 }
 .brand-logo {
-  height: 190px; width: auto; max-width: 92%; object-fit: contain; display: block;
+  box-sizing: content-box;
+  height: 176px; width: auto; max-width: 92%; object-fit: contain; display: block;
   filter: drop-shadow(0 10px 30px rgba(91,130,247,.16));
+}
+/* on dark theme the logo's dark tagline needs a light surface to read cleanly,
+   so place the (untouched, crisp) logo on an elegant light plate */
+:root[data-theme="dark"] .brand-logo {
+  background: linear-gradient(180deg, #fbfcfe, #eef1f8);
+  padding: 18px 30px; border-radius: 20px;
+  box-shadow: 0 18px 44px -18px rgba(0,0,0,.65), 0 0 0 1px rgba(255,255,255,.05) inset;
+  filter: none;
 }
 .pill-soft {
   font-size: .72rem; color: var(--accent-ink); letter-spacing: .12em; text-transform: uppercase;
