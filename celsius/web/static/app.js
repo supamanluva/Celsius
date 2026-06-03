@@ -112,6 +112,36 @@ $("opt-ai-key").addEventListener("change", (e) => {
   try { localStorage.setItem("celsius_ai_key", e.target.value); } catch (_) {}
 });
 
+// ---- legal test targets ------------------------------------------------------
+(async function loadTestSites() {
+  try {
+    const r = await fetch("/api/testsites");
+    if (!r.ok) return;
+    const data = await r.json();
+    $("testsitesNote").textContent = data.note || "";
+    $("testsitesList").innerHTML = (data.groups || []).map((g) => `
+      <div class="ts-group">
+        <h4>${esc(g.name)}</h4>
+        ${(g.sites || []).map((s) => `
+          <div class="ts-site">
+            <button type="button" class="ts-use" data-url="${esc(s.url)}"
+              title="Use ${esc(s.url)} as the scan target">${esc(s.name)}</button>
+            <span class="ts-stack">${esc(s.stack)}</span>
+            <div class="ts-focus">${esc(s.focus)}</div>
+          </div>`).join("")}
+      </div>`).join("");
+
+    $("testsitesList").addEventListener("click", (e) => {
+      const btn = e.target.closest(".ts-use");
+      if (!btn) return;
+      $("target").value = btn.dataset.url;
+      $("testsites").open = false;
+      $("target").focus();
+      $("target").scrollIntoView({ block: "center", behavior: "smooth" });
+    });
+  } catch (e) { /* offline — panel just stays empty */ }
+})();
+
 function esc(s) {
   return String(s == null ? "" : s).replace(/[&<>"]/g, (c) =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));

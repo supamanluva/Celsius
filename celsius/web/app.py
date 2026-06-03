@@ -6,6 +6,7 @@ Endpoints:
   GET  /api/scan/{job_id}     poll job status / log / result
   POST /api/code              static code/secret scan (path or pasted text)
   POST /api/poc               text-only reproduction steps for a finding/CVE
+  GET  /api/testsites         curated authorized vulnerable test targets
 
 Scan jobs run in a thread pool; state is kept in-memory (single-process).
 """
@@ -254,6 +255,13 @@ def make_poc(req: PocRequest) -> dict:
         )
         return poc.poc_for_finding(finding, req.url or "<URL>")
     raise HTTPException(status_code=400, detail="kind must be 'finding' or 'cve'.")
+
+
+@app.get("/api/testsites")
+def list_testsites() -> dict:
+    """Curated authorized vulnerable test targets to practise against legally."""
+    from .. import testsites
+    return {"groups": testsites.groups(), "note": testsites.NOTE}
 
 
 # ---- frontend -----------------------------------------------------------------

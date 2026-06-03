@@ -339,6 +339,25 @@ footer { color: var(--faint); font-size: .78rem; text-align: center; margin-top:
 :root[data-theme="light"] .card a, :root[data-theme="light"] .poc-refs a { color: var(--accent-ink); }
 :root[data-theme="light"] .sev-MEDIUM { color: #1a1205; }
 
+/* ---- legal test targets ---------------------------------------------------- */
+.testsites { margin: .75rem 0; border: 1px solid var(--border); border-radius: var(--r);
+  background: var(--surface); padding: .4rem .8rem; }
+.testsites > summary { cursor: pointer; color: var(--muted); font-size: .9rem;
+  padding: .35rem 0; list-style: none; user-select: none; }
+.testsites > summary:hover { color: var(--text); }
+.testsites[open] > summary { color: var(--text); margin-bottom: .4rem; }
+.testsites .or { margin: .2rem 0 .8rem; font-size: .82rem; }
+.ts-group { margin-bottom: .9rem; }
+.ts-group h4 { margin: .3rem 0 .45rem; font-size: .8rem; letter-spacing: .04em;
+  text-transform: uppercase; color: var(--muted); }
+.ts-site { padding: .35rem 0; border-top: 1px solid var(--border); }
+.ts-site:first-of-type { border-top: none; }
+.ts-use { background: transparent; border: 1px solid var(--accent); color: var(--accent);
+  border-radius: 6px; padding: 2px 9px; font-size: .85rem; font-weight: 600; cursor: pointer; }
+.ts-use:hover { background: var(--accent); color: #fff; }
+.ts-stack { margin-left: .55rem; font-size: .76rem; color: var(--muted); }
+.ts-focus { margin-top: .25rem; font-size: .82rem; color: var(--muted); line-height: 1.45; }
+
 /* ---- responsive ------------------------------------------------------------ */
 @media (max-width: 640px) {
   .masthead { padding: 1.8rem 1rem 1.3rem; }
