@@ -55,6 +55,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--no-fingerprint", action="store_true", help="skip tech fingerprinting")
     s.add_argument("--subdomains", action="store_true", help="enumerate subdomains (crt.sh)")
     s.add_argument("--subdomain-bruteforce", action="store_true", help="also resolve a wordlist")
+    s.add_argument("--wayback", action="store_true", help="harvest historical URLs/params from archive.org (passive)")
     s.add_argument("--no-diff", action="store_true", help="skip temporal diff vs last scan")
     s.add_argument("--no-exploitability", action="store_true", help="skip EPSS/KEV exploitability assessment")
     s.add_argument("--cve-verify", action="store_true", help="confirm detected CVEs with matching nuclei templates (safe-active)")
@@ -189,7 +190,7 @@ def _cmd_scan(args) -> int:
     # --full / --thorough: enable the whole safe (passive + safe-active) battery.
     # Lab/exploit and AI stay opt-in (they need attestation / an API key).
     if args.full:
-        for attr in ("ports", "nuclei", "subdomains", "crawl", "api_discovery",
+        for attr in ("ports", "nuclei", "subdomains", "wayback", "crawl", "api_discovery",
                      "content_discovery", "mail", "cve_verify", "os_detect"):
             setattr(args, attr, True)
 
@@ -238,6 +239,7 @@ def _cmd_scan(args) -> int:
         dns=not args.no_dns, tls=not args.no_tls, robots=not args.no_robots, mailsec=args.mail,
         fingerprint=not args.no_fingerprint,
         subdomains=args.subdomains, subdomain_bruteforce=args.subdomain_bruteforce,
+        wayback=args.wayback,
         diff=not args.no_diff,
         crawl=args.crawl, crawl_max_pages=args.crawl_max_pages,
         api_discovery=args.api_discovery, content_discovery=args.content_discovery,
