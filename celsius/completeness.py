@@ -24,6 +24,7 @@ def assess_coverage(result: ScanResult, config: ScanConfig) -> dict:
     mark("dns", config.dns and not _is_ip(result))
     mark("tls", config.tls)
     mark("robots/sitemap", config.robots and not _is_ip(result))
+    mark("favicon", config.favicon)
     mark("fingerprint", config.fingerprint)
     mark("subdomains", config.subdomains)
     mark("wayback", config.wayback and not _is_ip(result))

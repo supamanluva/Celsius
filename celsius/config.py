@@ -23,6 +23,7 @@ class ScanConfig:
     dns: bool = True
     tls: bool = True
     robots: bool = True               # harvest robots.txt + sitemap.xml (passive)
+    favicon: bool = True              # favicon hash fingerprint (passive, 1 request)
     mailsec: bool = False              # e-mail security (SPF/DKIM/DMARC/MTA-STS/DNSSEC) — opt-in
     fingerprint: bool = True
     subdomains: bool = False          # crt.sh CT lookup (opt-in; can be large/slow)

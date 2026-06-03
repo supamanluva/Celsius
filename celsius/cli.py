@@ -50,6 +50,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--no-dns", action="store_true", help="skip DNS recon")
     s.add_argument("--no-tls", action="store_true", help="skip TLS/certificate analysis")
     s.add_argument("--no-robots", action="store_true", help="skip robots.txt/sitemap.xml harvesting")
+    s.add_argument("--no-favicon", action="store_true", help="skip favicon hash fingerprinting")
     s.add_argument("--mail", action="store_true",
                    help="e-mail security: SPF/DKIM/DMARC/MTA-STS/TLS-RPT/DNSSEC/BIMI (passive)")
     s.add_argument("--no-fingerprint", action="store_true", help="skip tech fingerprinting")
@@ -236,7 +237,8 @@ def _cmd_scan(args) -> int:
         os_detect=args.os_detect,
         nvd_api_key=args.nvd_api_key, insecure=args.insecure,
         exploitability=not args.no_exploitability, cve_verify=args.cve_verify,
-        dns=not args.no_dns, tls=not args.no_tls, robots=not args.no_robots, mailsec=args.mail,
+        dns=not args.no_dns, tls=not args.no_tls, robots=not args.no_robots,
+        favicon=not args.no_favicon, mailsec=args.mail,
         fingerprint=not args.no_fingerprint,
         subdomains=args.subdomains, subdomain_bruteforce=args.subdomain_bruteforce,
         wayback=args.wayback,
