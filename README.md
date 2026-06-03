@@ -1,11 +1,45 @@
-# Celsius
+<div align="center">
 
-> CLI / Python package: **`celsius`** (the command is `python3 -m celsius`).
-> "Celsius" is the product name (web UI, branding); the importable package and
-> CLI keep the `celsius` name.
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/logo-dark.png">
+  <img src="docs/logo-light.png" alt="Celsius — local security scanner" width="460">
+</picture>
 
-A lightweight vulnerability scanner for web pages, public IPs, **and source
-code**, with a **web UI** and **text-only proof-of-concept** generation. It:
+### Local security scanner — web, network &amp; source code
+
+<p>
+  <img src="https://img.shields.io/badge/python-3.10%2B-3776AB?logo=python&logoColor=white" alt="Python 3.10+">
+  <img src="https://img.shields.io/badge/license-MIT-3fb96b" alt="MIT License">
+  <img src="https://img.shields.io/badge/core-stdlib--only-5b82f7" alt="stdlib-only core">
+  <img src="https://img.shields.io/badge/UI-light%20%2F%20dark-7c5cff" alt="light / dark UI">
+</p>
+
+Passive recon · OS/platform &amp; EOL fingerprinting · CVE + dependency (SCA) ·
+authenticated &amp; headless-browser scanning · CORS/JWT/takeover checks ·
+email security · an **agentic AI proof loop** — with a polished web UI and a
+stdlib-only core.
+
+</div>
+
+---
+
+## Screenshots
+
+<p align="center">
+  <img src="docs/screenshot-home.png" alt="Celsius web UI" width="820">
+</p>
+<table>
+<tr>
+  <td width="50%"><img src="docs/screenshot-scan.png" alt="Scan results"><br><em>Host/web scan — services, attack surface, findings, one-click HTML report</em></td>
+  <td width="50%"><img src="docs/screenshot-mail.png" alt="Email security scorecard"><br><em>Email security — SPF/DKIM/DMARC/MTA-STS graded A–F with exact fixes</em></td>
+</tr>
+</table>
+
+---
+
+**Celsius** is a lightweight vulnerability scanner for web pages, public IPs, **and source
+code**, with a **web UI**, an **agentic AI proof loop**, and **text-only proof-of-concept**
+generation. It:
 
 - **maps the attack surface** — DNS records (via DoH), subdomains (crt.sh CT
   logs), TLS/certificate analysis, and tech/CDN/WAF/CMS fingerprinting, plus a
