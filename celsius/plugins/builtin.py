@@ -96,26 +96,26 @@ class DnsRecon(Plugin):
 @register
 class MailSecurity(Plugin):
     id = "mailsec"
-    title = "e-postsäkerhet (SPF/DKIM/DMARC/MTA-STS/TLS-RPT/DNSSEC/BIMI)"
+    title = "e-mail security (SPF/DKIM/DMARC/MTA-STS/TLS-RPT/DNSSEC/BIMI)"
     phase = Phase.RECON
-    mode = Mode.PASSIVE       # DoH-uppslag + domänens egen MTA-STS-policy-URL
+    mode = Mode.PASSIVE       # DoH lookups + the domain's own MTA-STS policy URL
     category = "mailsec"
 
     def enabled(self, ctx: ScanContext) -> bool:
         return ctx.config.mailsec and not ctx.target.is_ip
 
     def run(self, ctx: ScanContext) -> None:
-        ctx.log("granskar e-postsäkerhet (SPF/DKIM/DMARC/MTA-STS) ...")
+        ctx.log("assessing e-mail security (SPF/DKIM/DMARC/MTA-STS) ...")
         info, findings, errs = mailsec_mod.analyze(ctx.target.host)
         ctx.result.recon["mailsec"] = info
         ctx.result.findings.extend(findings)
         ctx.result.errors.extend(errs)
         if info.get("checks"):
             ctx.result.findings.append(Finding(
-                title=f"E-postsäkerhet: betyg {info['grade']} ({info['score']}/100)",
+                title=f"E-mail security: grade {info['grade']} ({info['score']}/100)",
                 severity=Severity.INFO, category="mailsec",
                 description=mailsec_mod.summarize(info),
-                evidence="MX: " + (", ".join(info.get("mx", [])) or "ingen")
+                evidence="MX: " + (", ".join(info.get("mx", [])) or "none")
                          + (f" ({info['provider']})" if info.get("provider") else ""),
             ))
 
