@@ -227,7 +227,7 @@ function renderResult(res, scanId) {
   sum.classList.remove("hidden");
   sum.innerHTML = ["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"]
     .map((s) => `<span class="chip sev-${s}">${s} ${counts[s]}</span>`).join("")
-    + (scanId ? `<a class="reportlink" href="/api/scans/${encodeURIComponent(scanId)}/report.html" target="_blank">📄 HTML-rapport</a>` : "");
+    + (scanId ? `<a class="reportlink" href="/api/scans/${encodeURIComponent(scanId)}/report.html" target="_blank">📄 HTML report</a>` : "");
 
   let html = "";
 
