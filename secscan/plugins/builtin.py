@@ -251,12 +251,36 @@ class Crawler(Plugin):
                     sm_findings.extend(sm_mod.scan_recovered(recovered))
         ctx.result.findings.extend(sm_findings)
 
-        # optional dynamic crawl (Playwright)
+        # optional dynamic SPA analysis (headless browser)
         if ctx.config.dynamic and dynamic_mod.is_available():
-            dyn, derrs = dynamic_mod.crawl(base)
-            ctx.result.errors.extend(derrs)
+            ctx.log("dynamic SPA render (Playwright) ...")
+            dyn, derrs = dynamic_mod.crawl(
+                base, max_pages=min(ctx.config.crawl_max_pages, 12),
+                auth=ctx.config.auth, insecure=ctx.config.insecure)
+            ctx.result.errors.extend(derrs[:10])
             for e in dyn.get("endpoints", []):
                 endpoints.add(e)
+            for r in dyn.get("routes", []):
+                routes.add(r)
+            # Re-run JS intel over the POST-JS rendered DOM — catches DOM-XSS sinks,
+            # endpoints and routes that never appear in the static HTML.
+            dyn_pages = dyn.get("pages", {})
+            if dyn_pages:
+                d_eps, d_routes, d_sinks = jsintel_mod.analyze_js(dyn_pages)
+                endpoints |= d_eps
+                routes |= d_routes
+                ctx.result.findings.extend(d_sinks)
+            if dyn.get("console_errors"):
+                ctx.result.recon["dynamic_console_errors"] = dyn["console_errors"][:30]
+            ctx.result.recon["dynamic"] = {
+                "rendered_pages": len(dyn_pages),
+                "network_endpoints": len(dyn.get("endpoints", [])),
+                "routes": dyn.get("routes", [])[:50],
+            }
+        elif ctx.config.dynamic:
+            ctx.result.errors.append(
+                "dynamic: Playwright not installed (pip install playwright && "
+                "playwright install chromium) — used static crawl only")
 
         ctx.result.recon["crawl"] = {
             "pages": len(cr.pages),

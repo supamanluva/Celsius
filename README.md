@@ -29,6 +29,10 @@ code**, with a **web UI** and **text-only proof-of-concept** generation. It:
 - **crawls & analyzes client-side code** — discovers API endpoints/routes in JS,
   detects DOM-XSS sinks, recovers **hidden original source from exposed source
   maps** (and scans it for secrets), and finds OpenAPI/Swagger + GraphQL APIs;
+- **dynamic SPA analysis** (`--dynamic`, needs Playwright) — drives a headless
+  browser to render single-page apps, follow client-side routes, capture the
+  XHR/fetch endpoints they actually call, and scan the post-JS DOM for sinks the
+  static HTML never contains (honours the authenticated session);
 - **scans front-end content for exposed secrets** (HTML + linked JS);
 - **scans source code** for hardcoded secrets (regex + entropy) and risky
   patterns (SAST-lite), integrating `gitleaks`/`semgrep`/`trufflehog` if present;
