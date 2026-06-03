@@ -236,7 +236,7 @@ class Crawler(Plugin):
         # JS intelligence (endpoints / routes / DOM sinks) over pages + JS
         blob = dict(cr.pages)
         blob.update(js_sources)
-        endpoints, routes, sink_findings = jsintel_mod.analyze_js(blob)
+        endpoints, routes, sink_findings = jsintel_mod.analyze_js(blob, ctx.target.host)
         ctx.result.findings.extend(sink_findings)
 
         # source-map archaeology
@@ -258,15 +258,14 @@ class Crawler(Plugin):
                 base, max_pages=min(ctx.config.crawl_max_pages, 12),
                 auth=ctx.config.auth, insecure=ctx.config.insecure)
             ctx.result.errors.extend(derrs[:10])
-            for e in dyn.get("endpoints", []):
-                endpoints.add(e)
+            endpoints |= jsintel_mod.scope_endpoints(set(dyn.get("endpoints", [])), ctx.target.host)
             for r in dyn.get("routes", []):
                 routes.add(r)
             # Re-run JS intel over the POST-JS rendered DOM — catches DOM-XSS sinks,
             # endpoints and routes that never appear in the static HTML.
             dyn_pages = dyn.get("pages", {})
             if dyn_pages:
-                d_eps, d_routes, d_sinks = jsintel_mod.analyze_js(dyn_pages)
+                d_eps, d_routes, d_sinks = jsintel_mod.analyze_js(dyn_pages, ctx.target.host)
                 endpoints |= d_eps
                 routes |= d_routes
                 ctx.result.findings.extend(d_sinks)
