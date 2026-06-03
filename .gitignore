@@ -39,3 +39,7 @@ report.md
 # OS
 .DS_Store
 Thumbs.db
+
+# environment / secrets
+.env
+**/.env
