@@ -55,6 +55,7 @@ body {
   border-bottom: 1px solid var(--border-soft);
 }
 .brand { display: flex; align-items: center; gap: .7rem; }
+.brand-logo { height: 46px; width: auto; display: block; }
 .brand-mark {
   display: grid; place-items: center; width: 34px; height: 34px;
   border-radius: 9px; color: #fff;
