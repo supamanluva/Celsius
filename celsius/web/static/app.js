@@ -319,12 +319,15 @@ function renderResult(res, scanId) {
   (res.cves || []).forEach((c) => { if (c.confidence === "weak") weakCount++; else counts[c.severity]++; });
   (res.findings || []).forEach((f) => counts[f.severity]++);
 
+  const scannedHost = hostOf(res.url || res.target) || "";
+  const apex = scannedHost.split(".").slice(-2).join(".");
   const sum = $("summary");
   sum.classList.remove("hidden");
   sum.innerHTML = ["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"]
     .map((s) => `<span class="chip sev-${s}">${s} ${counts[s]}</span>`).join("")
     + (weakCount ? `<span class="chip sev-UNCONFIRMED" title="Reported but not confirmed — verify before acting">⚠ UNCONFIRMED ${weakCount}</span>` : "")
-    + (scanId ? `<a class="reportlink" href="/api/scans/${encodeURIComponent(scanId)}/report.html" target="_blank">📄 HTML report</a>` : "");
+    + (scanId ? `<a class="reportlink" href="/api/scans/${encodeURIComponent(scanId)}/report.html" target="_blank">📄 HTML report</a>` : "")
+    + (apex ? `<a class="reportlink" href="/api/domain/${encodeURIComponent(apex)}/report.html" target="_blank" title="Aggregated report across ${esc(apex)} and its scanned subdomains">🌐 Domain report (${esc(apex)})</a>` : "");
 
   let html = "";
 

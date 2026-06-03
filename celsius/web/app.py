@@ -175,6 +175,16 @@ def scan_report(scan_id: str) -> HTMLResponse:
     )
 
 
+@app.get("/api/domain/{domain}/report.html")
+def domain_report(domain: str) -> HTMLResponse:
+    """Aggregate rollup across the latest stored scan per host for a domain."""
+    scans = _store.scans_for_domain(domain)
+    return HTMLResponse(
+        report.domain_rollup_html(domain, scans),
+        headers={"Content-Disposition": f'inline; filename="celsius-{_safe_name(domain)}-domain.html"'},
+    )
+
+
 # ---- email security -----------------------------------------------------------
 
 class MailSecRequest(BaseModel):

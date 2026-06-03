@@ -5,7 +5,6 @@ from __future__ import annotations
 import html
 import json
 import sys
-from typing import Optional
 
 from .models import ScanResult, Severity
 
@@ -360,6 +359,104 @@ def html_report(data: dict) -> str:
 def write_html(result: ScanResult, path: str) -> None:
     with open(path, "w") as f:
         f.write(html_report(result.to_dict()))
+
+
+def domain_rollup_html(domain: str, scans: list[dict]) -> str:
+    """Aggregate report for one domain across many hosts (the host + subdomains).
+
+    Each item in `scans` is a ScanResult.to_dict() mapping. Low-confidence CVEs
+    are excluded from headline counts/worst, matching the rest of the tool.
+    """
+    from .store import _host_of
+    e = html.escape
+
+    def badge(sev: str) -> str:
+        return f'<span class="badge" style="background:{_SEV_BG.get(sev, "#888")}">{e(sev)}</span>'
+
+    def firm(d):
+        return [c for c in d.get("cves", []) if c.get("confidence", "firm") != "weak"]
+
+    def worst(d) -> str:
+        w, r = "NONE", -1
+        for it in firm(d) + d.get("findings", []):
+            s = it.get("severity", "INFO")
+            if _SEV_RANK.get(s, 0) > r:
+                w, r = s, _SEV_RANK.get(s, 0)
+        return w
+
+    if not scans:
+        body = f"<p>No stored scans found for <strong>{e(domain)}</strong> or its subdomains. " \
+               "Scan the host (and queue its subdomains) first.</p>"
+        return (f"<!doctype html><html><head><meta charset='utf-8'><title>celsius — {e(domain)}</title>"
+                "<style>body{font:14px/1.5 system-ui,sans-serif;margin:2rem}</style></head>"
+                f"<body><h1>celsius domain report — {e(domain)}</h1>{body}</body></html>")
+
+    totals = {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0, "INFO": 0}
+    weak_total = 0
+    for d in scans:
+        for c in firm(d):
+            totals[c.get("severity", "INFO")] = totals.get(c.get("severity", "INFO"), 0) + 1
+        for f in d.get("findings", []):
+            totals[f.get("severity", "INFO")] = totals.get(f.get("severity", "INFO"), 0) + 1
+        weak_total += sum(1 for c in d.get("cves", []) if c.get("confidence") == "weak")
+
+    ordered = sorted(scans, key=lambda d: _SEV_RANK.get(worst(d), 0), reverse=True)
+
+    chips = " ".join(badge(f"{s} {totals[s]}") for s in ("CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"))
+    if weak_total:
+        chips += f' <span class="badge" style="background:#7c5cff">UNCONFIRMED {weak_total}</span>'
+
+    overview = ""
+    for d in ordered:
+        h = _host_of(d.get("url") or d.get("target") or "")
+        svcs = ", ".join(sorted({s.get("name", "") for s in d.get("services", []) if s.get("name")}))
+        overview += (
+            f"<tr><td><a href='#h-{e(h)}'>{e(h)}</a></td><td>{badge(worst(d))}</td>"
+            f"<td>{len(firm(d))}</td><td>{len(d.get('findings', []))}</td>"
+            f"<td>{e(svcs[:90]) or '-'}</td>"
+            f"<td>{e((d.get('finished_at') or d.get('started_at') or '')[:19])}</td></tr>"
+        )
+
+    sections = ""
+    for d in ordered:
+        h = _host_of(d.get("url") or d.get("target") or "")
+        cves = sorted(firm(d), key=lambda x: (_SEV_RANK.get(x.get("severity"), 0), x.get("cvss") or 0), reverse=True)
+        finds = sorted(d.get("findings", []), key=lambda x: _SEV_RANK.get(x.get("severity"), 0), reverse=True)
+        crows = "".join(
+            f"<tr><td>{badge(c.get('severity', 'INFO'))}</td>"
+            f"<td><a href='{e(c.get('url', ''))}' target='_blank'>{e(c.get('id', ''))}</a></td>"
+            f"<td>{e(c.get('affects', ''))}</td></tr>" for c in cves
+        ) or '<tr><td colspan="3">none</td></tr>'
+        frows = "".join(
+            f"<tr><td>{badge(f.get('severity', 'INFO'))}</td><td>{e(f.get('title', ''))}</td>"
+            f"<td>{e(f.get('category', ''))}</td></tr>" for f in finds[:60]
+        ) or '<tr><td colspan="3">none</td></tr>'
+        sections += (
+            f"<h2 id='h-{e(h)}'>{e(h)} &middot; {badge(worst(d))} "
+            f"<a href='#top' style='font-size:12px'>↑</a></h2>"
+            f"<table><tr><th>Sev</th><th>CVE</th><th>Affects</th></tr>{crows}</table>"
+            f"<table><tr><th>Sev</th><th>Finding</th><th>Category</th></tr>{frows}</table>"
+        )
+
+    return f"""<!doctype html><html><head><meta charset="utf-8">
+<title>celsius domain report — {e(domain)}</title>
+<style>
+ body{{font:14px/1.5 system-ui,sans-serif;margin:2rem;color:#1a1a1a;background:#fafafa}}
+ h1{{margin-bottom:.2rem}} .meta{{color:#666;margin-bottom:1rem}}
+ table{{border-collapse:collapse;width:100%;margin:.5rem 0 2rem;background:#fff}}
+ th,td{{border:1px solid #ddd;padding:.45rem;text-align:left;vertical-align:top}}
+ th{{background:#f0f0f0}}
+ .badge{{color:#fff;padding:2px 8px;border-radius:4px;font-size:12px;font-weight:600}}
+ a{{color:#2d7dd2}} @media print{{body{{margin:0}}}}
+</style></head><body>
+<a id="top"></a><h1>celsius domain report — {e(domain)}</h1>
+<div class="meta">{len(scans)} host(s) &middot; aggregated from the latest stored scan per host</div>
+<div style="margin:.5rem 0 1.5rem">{chips}</div>
+<h2>Hosts</h2>
+<table><tr><th>Host</th><th>Worst</th><th>CVEs</th><th>Findings</th><th>Services</th><th>Scanned</th></tr>{overview}</table>
+{sections}
+<p class="meta">Generated by celsius {e(_version())}. For authorized testing only.</p>
+</body></html>"""
 
 
 _MS_COLOR = {"ok": "#2e9e44", "warn": "#e6a100", "bad": "#b30000", "info": "#888"}

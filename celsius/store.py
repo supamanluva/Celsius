@@ -106,8 +106,40 @@ class Store:
         row = cur.fetchone()
         return json.loads(row["result_json"]) if row else None
 
+    def scans_for_domain(self, domain: str) -> list[dict]:
+        """Latest stored scan (full result) per host for `domain` + its subdomains."""
+        domain = domain.strip().lower().rstrip(".")
+        if not domain:
+            return []
+        cur = self._conn.execute(
+            "SELECT target, url, result_json FROM scans ORDER BY created_at DESC")
+        seen: set[str] = set()
+        out: list[dict] = []
+        for row in cur.fetchall():
+            host = _host_of(row["url"] or row["target"] or "")
+            if not host or host in seen:
+                continue
+            if host == domain or host.endswith("." + domain):
+                seen.add(host)
+                try:
+                    out.append(json.loads(row["result_json"]))
+                except (json.JSONDecodeError, TypeError):
+                    continue
+        return out
+
     def close(self) -> None:
         self._conn.close()
+
+
+def _host_of(target: str) -> str:
+    """Bare hostname from a URL/target string (no scheme, userinfo, path, port)."""
+    t = (target or "").strip().lower()
+    if "://" in t:
+        t = t.split("://", 1)[1]
+    t = t.split("/")[0].split("@")[-1]
+    if t.startswith("["):                 # IPv6 literal
+        return t.split("]")[0].lstrip("[")
+    return t.split(":")[0]
 
 
 def _worst_severity(cves: list[dict], findings: list[dict]) -> str:
