@@ -1,0 +1,59 @@
+[build-system]
+requires = ["uv_build>=0.9,<0.10"]
+build-backend = "uv_build"
+
+[project]
+name = "celsius"
+description = "Local security scanner — web, network & source code. Stdlib-only core."
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.10"
+# Keep in sync with celsius/__init__.py:__version__ (uv_build needs a static
+# version; the source tree runs uninstalled, so __init__ stays authoritative at
+# runtime). tests/test_packaging.py guards against drift.
+version = "1.1.0"
+authors = [{ name = "supamanluva" }]
+keywords = ["security", "scanner", "pentest", "recon", "cve", "vulnerability"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Topic :: Security",
+    "Environment :: Console",
+]
+
+# Stdlib-only core: no runtime dependencies. Third-party packages live behind
+# extras so `uv pip install celsius` (or `pip install celsius`) stays dependency-
+# free, matching the README/CI guarantee.
+dependencies = []
+
+[project.optional-dependencies]
+# Web UI (`celsius serve`). Mirrors requirements.txt.
+web = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.27",
+    "python-multipart>=0.0.9",
+]
+
+[project.scripts]
+celsius = "celsius.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/andvision/celsius"
+Repository = "https://github.com/andvision/celsius"
+
+[tool.uv.build-backend]
+# Flat layout: the package lives at the repo root (celsius/), not under src/.
+module-root = ""
+module-name = "celsius"
+# Ship non-Python assets (celsius/web/static/*) in the wheel.
+source-include = ["celsius/web/static/**"]
+
+# --- uv dependency groups (dev tooling; not shipped) ---------------------------
+[dependency-groups]
+dev = [
+    "ruff>=0.5",
+]
+
+[tool.ruff]
+target-version = "py310"

@@ -9,11 +9,22 @@ HOST="${HOST:-127.0.0.1}"
 PORT="${PORT:-8000}"
 RELOAD_ARG=""
 [ "${RELOAD:-0}" = "1" ] && RELOAD_ARG="--reload"
-PY="$DIR/.venv/bin/python"
 PIDFILE="$DIR/.celsius-serve.pid"
 LOGFILE="$DIR/celsius-serve.log"
 
-[ -x "$PY" ] || { echo "venv python not found at $PY — run: python3 -m venv .venv && .venv/bin/pip install -r requirements.txt" >&2; exit 1; }
+# Launch command: prefer uv (`uv run` syncs the [web] extra on demand), fall back
+# to a classic .venv. Override with LAUNCHER if you want a specific interpreter.
+if [ -n "${LAUNCHER:-}" ]; then
+    RUN=($LAUNCHER -m celsius)
+elif command -v uv >/dev/null 2>&1; then
+    RUN=(uv run --extra web --project "$DIR" celsius)
+elif [ -x "$DIR/.venv/bin/python" ]; then
+    RUN=("$DIR/.venv/bin/python" -m celsius)
+else
+    echo "no launcher found — install uv (https://docs.astral.sh/uv/) then re-run," >&2
+    echo "or: python3 -m venv .venv && .venv/bin/pip install -e '.[web]'" >&2
+    exit 1
+fi
 
 # Already running?
 if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
@@ -21,7 +32,12 @@ if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
     exit 0
 fi
 
-setsid "$PY" -m celsius serve --host "$HOST" --port "$PORT" $RELOAD_ARG > "$LOGFILE" 2>&1 < /dev/null &
+# Detach into its own session. setsid on Linux; nohup fallback on macOS/BSD.
+if command -v setsid >/dev/null 2>&1; then
+    setsid "${RUN[@]}" serve --host "$HOST" --port "$PORT" $RELOAD_ARG > "$LOGFILE" 2>&1 < /dev/null &
+else
+    nohup "${RUN[@]}" serve --host "$HOST" --port "$PORT" $RELOAD_ARG > "$LOGFILE" 2>&1 < /dev/null &
+fi
 PID=$!
 echo "$PID" > "$PIDFILE"
 
