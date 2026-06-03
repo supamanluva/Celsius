@@ -91,11 +91,53 @@ TEST_SITES: list[dict] = [
         "focus": "HTML5/REST front-end over a NoSQL (CouchDB) backend — REST and "
                  "NoSQL-injection practice.",
     },
+
+    # ---- Pentest-Ground (Pentest-Tools.com) ----------------------------------
+    # Openly scannable, no auth; every target is destroyed and redeployed every
+    # 30 minutes to keep a clean vulnerable state. Note the non-standard ports.
+    {
+        "group": "Pentest-Ground", "name": "DVWA", "url": "https://pentest-ground.com:4280",
+        "stack": "PHP web app · port 4280",
+        "focus": "Damn Vulnerable Web Application — the classic CSRF / XSS / SQL "
+                 "injection trainer, with selectable difficulty levels.",
+    },
+    {
+        "group": "Pentest-Ground", "name": "DVGA", "url": "https://pentest-ground.com:5013",
+        "stack": "GraphQL · port 5013",
+        "focus": "Damn Vulnerable GraphQL Application — command injection, XSS and "
+                 "SQLi via GraphQL, plus introspection/batching abuse.",
+    },
+    {
+        "group": "Pentest-Ground", "name": "RestFlaw", "url": "https://pentest-ground.com:9000",
+        "stack": "REST API · port 9000",
+        "focus": "Vulnerable REST API — SQL injection, code injection and XXE "
+                 "through API parameters and XML bodies.",
+    },
+    {
+        "group": "Pentest-Ground", "name": "ShadowLogic",
+        "url": "https://pentest-ground.com:7001/console/login/LoginForm.jsp",
+        "stack": "Oracle WebLogic · port 7001",
+        "focus": "WebLogic admin console vulnerable to CVE-2023-21839 — "
+                 "unauthenticated remote code execution.",
+    },
+    {
+        "group": "Pentest-Ground", "name": "CipherHeart", "url": "pentest-ground.com:6379",
+        "stack": "Redis · port 6379",
+        "focus": "Exposed Redis vulnerable to CVE-2022-0543 (Lua sandbox escape → "
+                 "RCE). A network-service target — scan with the port/nmap option.",
+    },
+    {
+        "group": "Pentest-Ground", "name": "GuardianLeaks", "url": "https://pentest-ground.com:81",
+        "stack": "Web app · port 81",
+        "focus": "Web application carrying XSS, SSRF and code-injection flaws.",
+    },
 ]
 
 NOTE = ("Authorized targets only. These apps are published by their vendors "
-        "(Invicti / Acunetix) for security-testing practice. Never point celsius "
-        "at a system you don't own or have written permission to test.")
+        "(Invicti / Acunetix / Pentest-Tools.com) as deliberately-vulnerable "
+        "practice targets — Pentest-Ground resets every 30 min and is openly "
+        "scannable. Never point celsius at a system you don't own or have "
+        "written permission to test.")
 
 
 def groups() -> list[dict]:
