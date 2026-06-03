@@ -1,4 +1,4 @@
-# secscan — Backlog / future work
+# celsius — Backlog / future work
 
 Status as of **v1.1.0** — the full M0–M6 roadmap in [plan.md](plan.md) is shipped.
 This file tracks the *future* enhancements noted across milestones. None are
@@ -36,7 +36,7 @@ blocking; pick by value.
 - [ ] **Global rate-limiting enforcement** — honor `scope.rate_limit_rps` across
       all active checks (currently only lab mode rate-limits).
 - [ ] **Subdomain bruteforce wordlist expansion** — larger optional wordlist.
-- [ ] **AI key config file** — `~/.config/secscan/config.toml` to store the AI key
+- [ ] **AI key config file** — `~/.config/celsius/config.toml` to store the AI key
       once (web UI field + env var already work; this avoids re-entry).
 - [ ] **Packaging/distribution** — pipx / Docker image / single binary (PyInstaller).
 - [ ] **Tests** — unit tests for matchers/parsers (cve version ranges, secrets,

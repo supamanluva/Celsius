@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Stop the secscan web app started by run.sh.
+# Stop the celsius web app started by run.sh.
 # Uses the PID file when present; falls back to matching the serve process.
 set -uo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PIDFILE="$DIR/.secscan-serve.pid"
+PIDFILE="$DIR/.celsius-serve.pid"
 
 stopped=0
 
@@ -18,15 +18,15 @@ if [ -f "$PIDFILE" ]; then
             sleep 1
         done
         kill -0 "$PID" 2>/dev/null && kill -9 "$PID" 2>/dev/null || true
-        echo "stopped secscan (PID $PID)"
+        echo "stopped celsius (PID $PID)"
     fi
     rm -f "$PIDFILE"
 fi
 
 # Fallback / cleanup of any stray serve process.
-if pgrep -f 'secscan serve' >/dev/null 2>&1; then
-    pkill -f 'secscan serve' 2>/dev/null && stopped=1
-    echo "stopped stray 'secscan serve' process(es)"
+if pgrep -f 'celsius serve' >/dev/null 2>&1; then
+    pkill -f 'celsius serve' 2>/dev/null && stopped=1
+    echo "stopped stray 'celsius serve' process(es)"
 fi
 
-[ "$stopped" -eq 1 ] || echo "no running secscan server found"
+[ "$stopped" -eq 1 ] || echo "no running celsius server found"

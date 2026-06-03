@@ -15,9 +15,9 @@ import urllib.parse
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from secscan.active.harness import LabContext, discover_points  # noqa: E402
-from secscan.ai import agent  # noqa: E402
-from secscan.audit import AuditLog  # noqa: E402
+from celsius.active.harness import LabContext, discover_points  # noqa: E402
+from celsius.ai import agent  # noqa: E402
+from celsius.audit import AuditLog  # noqa: E402
 
 
 class _ReflectHandler(http.server.BaseHTTPRequestHandler):
@@ -66,7 +66,7 @@ class _StubProvider:
 
 def _lab():
     return LabContext(host="127.0.0.1", enabled=True, attested=True,
-                      audit=AuditLog(path="/tmp/secscan-test-audit.log"),
+                      audit=AuditLog(path="/tmp/celsius-test-audit.log"),
                       rate_limit_rps=50, max_requests=20)
 
 

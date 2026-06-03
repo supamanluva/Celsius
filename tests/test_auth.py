@@ -15,8 +15,8 @@ import urllib.parse
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from secscan import auth  # noqa: E402
-from secscan.recon import crawler  # noqa: E402
+from celsius import auth  # noqa: E402
+from celsius.recon import crawler  # noqa: E402
 
 
 class _Handler(http.server.BaseHTTPRequestHandler):

@@ -12,7 +12,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from secscan import webchecks as W  # noqa: E402
+from celsius import webchecks as W  # noqa: E402
 
 
 def _titles(findings):

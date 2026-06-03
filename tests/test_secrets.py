@@ -13,7 +13,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from secscan import secrets  # noqa: E402
+from celsius import secrets  # noqa: E402
 
 
 def _high_entropy_hits(text: str) -> list[str]:

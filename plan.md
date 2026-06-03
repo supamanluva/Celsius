@@ -1,4 +1,4 @@
-# secscan — Development Plan
+# celsius — Development Plan
 
 > From a lightweight scanner to a professional, AI-augmented offensive-security
 > platform that finds, prioritizes, and *safely* proves web & code
@@ -16,7 +16,7 @@ to rotate; we log what was sent and recommend the provider's no-retention mode.
 
 ## 0. North star
 
-A tester points secscan at an authorized target (or a repo) and gets back:
+A tester points celsius at an authorized target (or a repo) and gets back:
 1. a complete **attack-surface map** (hosts, ports, tech, endpoints, client code),
 2. a prioritized, **deduplicated** list of weaknesses (CVE, config, code, logic),
 3. for each: a **non-destructive exploitability verdict** + a generated
@@ -190,7 +190,7 @@ Key building blocks to add:
 ## 4. AI / LLM layer (DeepSeek-first, pluggable)
 
 ```
-secscan/ai/
+celsius/ai/
   provider.py      # abstract LLMProvider: complete(), embed(), stream()
   deepseek.py      # default impl (DeepSeek API)
   openai.py        # optional
@@ -397,7 +397,7 @@ Each milestone is independently shippable and testable.
   refutes with a benign payload.
 - ✅ Safety harness (`active/harness.py`, `LabContext`): the single chokepoint for
   every active request, enforcing lab-mode flag + scope.yml EXPLOIT entry + per-run
-  attestation + dry-run preview + kill-switch (`~/.secscan-stop`) + request cap +
+  attestation + dry-run preview + kill-switch (`~/.celsius-stop`) + request cap +
   rate limit + audit of every request. Verified by tests for each guardrail.
 - ✅ CLI-only by design (`--lab/--lab-attest/--dry-run/--exploit-max-requests`),
   with interactive attestation. Confirmed findings get verdict `confirmed-exploitable`.
@@ -414,7 +414,7 @@ Each milestone is independently shippable and testable.
 - TODO (future): vector RAG knowledge base, AI-augmented chains, OOB SSRF
   collaborator, PDF export, web report-download buttons.
 
-🎉 **Roadmap M0–M6 complete.** secscan is a full AI-augmented offensive-security
+🎉 **Roadmap M0–M6 complete.** celsius is a full AI-augmented offensive-security
 platform: 15-stage plugin pipeline, attack-surface mapping, client-side intel,
 CVE + exploitability, lab-mode verification, exploit-chain correlation, and
 multi-format reporting — all behind scope/authorization + audit.

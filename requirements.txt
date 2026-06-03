@@ -1,5 +1,5 @@
 # Core scanner (CLI) needs NO third-party packages — stdlib only.
-# These are required ONLY for the web app (`secscan serve`):
+# These are required ONLY for the web app (`celsius serve`):
 fastapi>=0.110
 uvicorn[standard]>=0.27
 python-multipart>=0.0.9

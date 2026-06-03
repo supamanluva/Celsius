@@ -13,8 +13,8 @@ from datetime import date
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from secscan import eol  # noqa: E402
-from secscan.recon import fingerprint as fp  # noqa: E402
+from celsius import eol  # noqa: E402
+from celsius.recon import fingerprint as fp  # noqa: E402
 
 REF = date(2026, 6, 1)  # fixed "today" for deterministic EOL assertions
 

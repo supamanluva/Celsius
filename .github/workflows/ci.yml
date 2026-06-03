@@ -21,7 +21,7 @@ jobs:
         run: python -m py_compile $(git ls-files '*.py')
 
       - name: CLI smoke test (stdlib-only core, no deps needed)
-        run: python -m secscan --version
+        run: python -m celsius --version
 
       - name: Unit tests (stdlib-only)
         run: |
@@ -30,4 +30,4 @@ jobs:
       - name: Lint (ruff, non-blocking)
         run: |
           pip install ruff
-          ruff check secscan/ || true
+          ruff check celsius/ || true
