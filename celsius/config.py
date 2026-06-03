@@ -33,6 +33,7 @@ class ScanConfig:
     crawl_max_pages: int = 40
     sourcemaps: bool = True           # within crawl: recover & scan exposed .map sources
     api_discovery: bool = False       # OpenAPI/Swagger probe + GraphQL introspection (safe-active)
+    content_discovery: bool = False   # probe for exposed sensitive files/paths (safe-active)
     dynamic: bool = False             # use Playwright if installed
 
     # port scan

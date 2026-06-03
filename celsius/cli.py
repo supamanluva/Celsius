@@ -60,6 +60,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--crawl", action="store_true", help="crawl + JS endpoint/route + source-map recovery")
     s.add_argument("--crawl-max-pages", type=int, default=40)
     s.add_argument("--api-discovery", action="store_true", help="probe OpenAPI/Swagger + GraphQL introspection")
+    s.add_argument("--content-discovery", action="store_true", help="probe for exposed sensitive files (.git/.env/backups)")
     s.add_argument("--dynamic", action="store_true", help="use Playwright dynamic crawl if installed")
     s.add_argument("--ports", action="store_true", help="run nmap port/service scan")
     s.add_argument("--nuclei", action="store_true", help="run nuclei templates")
@@ -188,7 +189,7 @@ def _cmd_scan(args) -> int:
     # Lab/exploit and AI stay opt-in (they need attestation / an API key).
     if args.full:
         for attr in ("ports", "nuclei", "subdomains", "crawl", "api_discovery",
-                     "mail", "cve_verify", "os_detect"):
+                     "content_discovery", "mail", "cve_verify", "os_detect"):
             setattr(args, attr, True)
 
     # Lab-mode attestation gate (in addition to scope EXPLOIT + the auth prompt).
@@ -238,7 +239,8 @@ def _cmd_scan(args) -> int:
         subdomains=args.subdomains, subdomain_bruteforce=args.subdomain_bruteforce,
         diff=not args.no_diff,
         crawl=args.crawl, crawl_max_pages=args.crawl_max_pages,
-        api_discovery=args.api_discovery, dynamic=args.dynamic,
+        api_discovery=args.api_discovery, content_discovery=args.content_discovery,
+        dynamic=args.dynamic,
         auth=auth_session,
         scope_file=args.scope, allow_active=not args.no_active, persist=not args.no_db,
         allow_exploit=args.lab, lab_attestation=lab_attest, dry_run=args.dry_run,

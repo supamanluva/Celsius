@@ -10,6 +10,7 @@ from .. import cve as cve_mod
 from .. import http_analysis, nuclei_scan, portscan, webchecks, websecrets
 from ..models import Finding, Service, Severity
 from ..recon import apidisco as api_mod
+from ..recon import content_discovery as cd_mod
 from ..recon import crawler as crawler_mod
 from ..recon import dns as dns_mod
 from ..recon import dynamic as dynamic_mod
@@ -295,6 +296,28 @@ class Crawler(Plugin):
                 description="; ".join(sorted(endpoints)[:25]),
                 recommendation="Review for undocumented/internal endpoints; test those in scope.",
             ))
+
+
+@register
+class ContentDiscovery(Plugin):
+    id = "content-discovery"
+    title = "exposed sensitive files (.git/.env/backups/server-status)"
+    phase = Phase.DETECT
+    mode = Mode.SAFE_ACTIVE   # GETs paths a browser wouldn't request
+    category = "exposure"
+
+    def enabled(self, ctx: ScanContext) -> bool:
+        return ctx.config.content_discovery and not ctx.target.is_ip
+
+    def run(self, ctx: ScanContext) -> None:
+        base = ctx.result.url or ctx.target.web_url()
+        ctx.log(f"probing {base} for exposed sensitive files ...")
+        findings, paths, errs = cd_mod.discover(
+            base, insecure=ctx.config.insecure, auth=ctx.config.auth)
+        ctx.result.findings.extend(findings)
+        ctx.result.errors.extend(errs[:10])
+        if paths:
+            ctx.result.recon["exposed_paths"] = paths
 
 
 @register

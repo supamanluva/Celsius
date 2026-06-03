@@ -28,6 +28,7 @@ def assess_coverage(result: ScanResult, config: ScanConfig) -> dict:
     mark("port-scan", config.ports)
     mark("crawl+js", config.crawl)
     mark("api-discovery", config.api_discovery)
+    mark("content-discovery", config.content_discovery)
     mark("front-end-secrets", config.web_secrets)
     mark("nuclei", config.nuclei)
     mark("cve-lookup", config.cve)
@@ -47,6 +48,8 @@ def assess_coverage(result: ScanResult, config: ScanConfig) -> dict:
         suggestions.append("crawl client code (--crawl) for hidden endpoints/source maps")
     if not config.subdomains:
         suggestions.append("enumerate subdomains (--subdomains) for wider attack surface")
+    if not config.content_discovery:
+        suggestions.append("probe for exposed files (--content-discovery): .git/.env/backups")
     if not config.ai:
         suggestions.append("add AI analysis (--ai) for business-logic hypotheses")
     if ai_unconfirmed:
