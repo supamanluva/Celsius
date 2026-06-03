@@ -96,10 +96,12 @@ class LabContext:
 
     # ---- the only way to make an active request ----
     def send(self, url: str, *, method: str = "GET", data: Optional[dict] = None,
-             purpose: str = "", follow: bool = False, payload: bool = True) -> Optional[Response]:
+             purpose: str = "", follow: bool = False, payload: bool = True,
+             headers: Optional[dict] = None) -> Optional[Response]:
         """Make a gated request. `payload=False` marks a benign discovery fetch
         (a plain page GET) that is still performed under --dry-run, since dry-run
-        only suppresses the actual probe payloads."""
+        only suppresses the actual probe payloads. `headers` adds extra request
+        headers (e.g. Origin/Authorization) for read-only probes."""
         ok, why = self.can_send()
         if not ok:
             if self.log:
@@ -113,15 +115,19 @@ class LabContext:
             return None
         self._throttle()
         self._count += 1
-        return self._raw(url, method, data, follow)
+        return self._raw(url, method, data, follow, headers)
 
-    def _raw(self, url, method, data, follow) -> Optional[Response]:
+    def _raw(self, url, method, data, follow, extra_headers=None) -> Optional[Response]:
         ctx = ssl.create_default_context()
         if self.insecure:
             ctx.check_hostname = False
             ctx.verify_mode = ssl.CERT_NONE
         body_bytes = None
         headers = self.auth.merge({"User-Agent": USER_AGENT}) if self.auth else {"User-Agent": USER_AGENT}
+        if extra_headers:
+            for k, v in extra_headers.items():
+                if isinstance(k, str) and isinstance(v, str):
+                    headers[k] = v
         if method == "POST" and data is not None:
             body_bytes = urllib.parse.urlencode(data).encode()
             headers["Content-Type"] = "application/x-www-form-urlencoded"

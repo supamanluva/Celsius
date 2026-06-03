@@ -20,11 +20,17 @@ from .. import webchecks
 _TITLE = re.compile(r"<title[^>]*>(.*?)</title>", re.I | re.S)
 
 # What the model is told it can call. Kept tiny and high-signal.
+_SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 TOOL_SPECS = [
     {"name": "http_get",
-     "args": {"url": "absolute http(s) URL on the SCANNED host (any path/port)"},
-     "use": "fetch a page to confirm it is reachable and see what it is — login "
-            "pages, app banners, exposed admin panels, directory listings, errors"},
+     "args": {"url": "absolute http(s) URL on the SCANNED host (any path/port)",
+              "method": "GET|HEAD|OPTIONS (optional, default GET)",
+              "headers": "optional dict of request headers, e.g. {\"Origin\":\"https://evil.test\"} "
+                         "for CORS, or {\"Authorization\":\"\"} to test if auth is required"},
+     "use": "fetch a URL and return its status + ALL response headers + title/snippet. "
+            "Confirms: reachable panels/services, exposed paths, CORS misconfig (ACAO "
+            "reflecting your Origin), missing auth (200 without credentials), allowed "
+            "methods (OPTIONS -> Allow), security headers"},
     {"name": "tcp_connect",
      "args": {"host": "the scanned host", "port": "integer port"},
      "use": "check whether a TCP port is open/reachable (confirm an exposed service)"},
@@ -32,6 +38,15 @@ TOOL_SPECS = [
      "args": {"host": "the scanned host"},
      "use": "resolve the host's CNAME and look for a dangling third-party "
             "fingerprint — proves/refutes a subdomain takeover"},
+    {"name": "tls_probe",
+     "args": {"host": "the scanned host", "port": "integer TLS port (default 443)"},
+     "use": "TLS handshake details — cert subject/issuer/SAN/expiry, protocol, whether "
+            "self-signed or hostname-mismatched. Identifies the service behind a TLS "
+            "port and proves cert/protocol issues"},
+    {"name": "dns_lookup",
+     "args": {"host": "the scanned host"},
+     "use": "resolve A/AAAA/CNAME/MX/TXT/CAA records (+ reverse DNS) — confirms DNS "
+            "exposure, mail setup, missing CAA, dangling records"},
 ]
 
 
@@ -45,22 +60,57 @@ def _http_get(args: dict, lab) -> Optional[dict]:
     url = (args or {}).get("url")
     if not isinstance(url, str) or not url.startswith(("http://", "https://")):
         return None
+    method = str((args or {}).get("method") or "GET").upper()
+    if method not in _SAFE_METHODS:
+        return {"tool": "http_get", "url": url,
+                "error": f"method {method} not allowed (read-only: GET/HEAD/OPTIONS)"}
+    req_headers = (args or {}).get("headers")
+    req_headers = req_headers if isinstance(req_headers, dict) else None
     if not _same_host(urlparse(url).hostname or "", lab.host):
         return {"tool": "http_get", "url": url, "error": "off-scope host refused"}
-    resp = lab.send(url, method="GET", purpose="ai-tool:http_get", payload=False, follow=True)
+    resp = lab.send(url, method=method, purpose="ai-tool:http_get", payload=False,
+                    follow=False, headers=req_headers)
     if resp is None:
         return {"tool": "http_get", "url": url, "error": "no response / halted"}
     body = resp.body or ""
     m = _TITLE.search(body)
     return {
-        "tool": "http_get", "url": url, "status": resp.status,
-        "final_url": resp.final_url,
-        "server": (resp.headers or {}).get("server", ""),
-        "www_authenticate": (resp.headers or {}).get("www-authenticate", ""),
+        "tool": "http_get", "url": url, "method": method, "status": resp.status,
+        "location": resp.location, "final_url": resp.final_url,
+        "request_headers_sent": req_headers or {},
+        "response_headers": resp.headers or {},
         "title": (m.group(1).strip()[:120] if m else ""),
         "length": len(body),
         "snippet": re.sub(r"\s+", " ", body).strip()[:600],
     }
+
+
+def _tls_probe(args: dict, lab) -> Optional[dict]:
+    host = (args or {}).get("host")
+    port = (args or {}).get("port", 443)
+    try:
+        port = int(port)
+    except (TypeError, ValueError):
+        port = 443
+    if not _same_host(host, lab.host):
+        return {"tool": "tls_probe", "host": host, "error": "off-scope host refused"}
+    from ..recon import tls as tls_mod
+    info, _f, errs = tls_mod.analyze(host, port)
+    keep = {k: info.get(k) for k in
+            ("protocol", "cipher", "verified", "subject", "issuer", "san",
+             "not_after", "self_signed", "hostname_mismatch", "days_left")
+            if k in info}
+    return {"tool": "tls_probe", "host": host, "port": port, **keep, "errors": errs[:2]}
+
+
+def _dns_lookup(args: dict, lab) -> Optional[dict]:
+    host = (args or {}).get("host")
+    if not _same_host(host, lab.host):
+        return {"tool": "dns_lookup", "host": host, "error": "off-scope host refused"}
+    from ..recon import dns as dns_mod
+    data = dns_mod.lookup(host)
+    return {"tool": "dns_lookup", "host": host,
+            "records": data.get("records", {}), "reverse": data.get("reverse", {})}
 
 
 def _tcp_connect(args: dict, lab) -> Optional[dict]:
@@ -104,6 +154,8 @@ _TOOLS: dict[str, Callable[[dict, object], Optional[dict]]] = {
     "http_get": _http_get,
     "tcp_connect": _tcp_connect,
     "takeover_check": _takeover_check,
+    "tls_probe": _tls_probe,
+    "dns_lookup": _dns_lookup,
 }
 
 
