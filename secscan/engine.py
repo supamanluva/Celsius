@@ -59,6 +59,9 @@ def run_scan(
         return result
 
     audit.scan_start(target.host, modes=_enabled_modes(config))
+    if getattr(config, "auth", None):
+        audit.event("auth_session", host=target.host,
+                    source=getattr(config.auth, "source", "") or "session")
 
     ctx = ScanContext(config=config, target=target, result=result,
                       scope=scope, audit=audit, log=log)

@@ -102,6 +102,7 @@ def scan(
     rate_limit: int = 150,
     timeout: int = 600,
     extra_args: Optional[list[str]] = None,
+    headers: Optional[list[str]] = None,
 ) -> tuple[list[Finding], list[str]]:
     """Run nuclei against a URL. Returns (findings, errors).
 
@@ -132,6 +133,8 @@ def scan(
     ]
     if tags:
         cmd += ["-tags", tags]
+    for hv in headers or []:
+        cmd += ["-H", hv]
     if extra_args:
         cmd += extra_args
 

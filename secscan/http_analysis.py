@@ -59,12 +59,13 @@ def _headers_dict(msg) -> dict[str, str]:
     return out
 
 
-def fetch(url: str, *, insecure: bool = False) -> HttpResult:
+def fetch(url: str, *, insecure: bool = False, auth=None) -> HttpResult:
     ctx = ssl.create_default_context()
     if insecure:
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
-    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT}, method="GET")
+    hdrs = auth.merge({"User-Agent": USER_AGENT}) if auth else {"User-Agent": USER_AGENT}
+    req = urllib.request.Request(url, headers=hdrs, method="GET")
     opener = urllib.request.build_opener(
         urllib.request.HTTPSHandler(context=ctx),
         urllib.request.HTTPRedirectHandler(),
@@ -81,7 +82,7 @@ def fetch(url: str, *, insecure: bool = False) -> HttpResult:
         return HttpResult(url, resp.status, headers, resp.geturl(), body)
 
 
-def analyze(target: Target, *, insecure: bool = False) -> tuple[
+def analyze(target: Target, *, insecure: bool = False, auth=None) -> tuple[
     Optional[HttpResult], list[Service], list[Finding], list[str]
 ]:
     """Returns (http_result, detected_services, findings, errors)."""
@@ -97,7 +98,7 @@ def analyze(target: Target, *, insecure: bool = False) -> tuple[
 
     for url in candidates:
         try:
-            result = fetch(url, insecure=insecure)
+            result = fetch(url, insecure=insecure, auth=auth)
             break
         except urllib.error.HTTPError as e:
             # An HTTP error still gives us headers — keep it.

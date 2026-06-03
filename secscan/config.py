@@ -53,6 +53,7 @@ class ScanConfig:
 
     # transport
     insecure: bool = False
+    auth: object = None                     # auth.AuthSession for authenticated scans (or None)
 
     # M0: governance
     scope_file: Optional[str] = None        # path to scope.yml (None -> permissive)

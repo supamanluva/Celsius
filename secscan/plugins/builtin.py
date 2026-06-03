@@ -36,7 +36,7 @@ class WebAnalysis(Plugin):
 
     def run(self, ctx: ScanContext) -> None:
         http_res, services, findings, errs = http_analysis.analyze(
-            ctx.target, insecure=ctx.config.insecure
+            ctx.target, insecure=ctx.config.insecure, auth=ctx.config.auth
         )
         ctx.result.services.extend(services)
         ctx.result.findings.extend(findings)
@@ -220,14 +220,14 @@ class Crawler(Plugin):
         base = ctx.result.url or ctx.target.web_url()
         ctx.log(f"crawling {base} (<= {ctx.config.crawl_max_pages} pages) ...")
         cr = crawler_mod.crawl(base, max_pages=ctx.config.crawl_max_pages,
-                               insecure=ctx.config.insecure)
+                               insecure=ctx.config.insecure, auth=ctx.config.auth)
         ctx.result.errors.extend(cr.errors[:10])
 
         # fetch JS bodies
         js_sources: dict[str, str] = {}
         for js in list(cr.js_urls)[:30]:
             try:
-                _s, body, _f = crawler_mod._fetch(js, ctx.config.insecure)
+                _s, body, _f = crawler_mod._fetch(js, ctx.config.insecure, ctx.config.auth)
                 if body:
                     js_sources[js] = body
             except Exception:
@@ -289,7 +289,7 @@ class ApiDiscovery(Plugin):
         base = ctx.result.url or ctx.target.web_url()
         ctx.audit.active_probe(self.id, ctx.target.host, self.mode.value,
                                detail="openapi/swagger/graphql probe")
-        info, findings, errs = api_mod.discover(base, insecure=ctx.config.insecure)
+        info, findings, errs = api_mod.discover(base, insecure=ctx.config.insecure, auth=ctx.config.auth)
         ctx.result.findings.extend(findings)
         ctx.result.errors.extend(errs)
         if info.get("openapi") or info.get("graphql"):
@@ -316,7 +316,7 @@ class ActiveVerification(Plugin):
             host=ctx.target.host, enabled=cfg.allow_exploit,
             attested=bool(cfg.lab_attestation), audit=ctx.audit, dry_run=cfg.dry_run,
             rate_limit_rps=cfg.exploit_rate_limit, max_requests=cfg.exploit_max_requests,
-            insecure=cfg.insecure, log=ctx.log,
+            insecure=cfg.insecure, log=ctx.log, auth=cfg.auth,
         )
         ready, why = lab.ready()
         if not ready:
@@ -369,7 +369,7 @@ class WebSecrets(Plugin):
         if ctx.http_result is None and not ctx.result.url:
             return
         url = ctx.result.url or ctx.target.web_url()
-        findings, errs = websecrets.scan_page(url, insecure=ctx.config.insecure)
+        findings, errs = websecrets.scan_page(url, insecure=ctx.config.insecure, auth=ctx.config.auth)
         ctx.result.findings.extend(findings)
         ctx.result.errors.extend(errs)
 
@@ -393,7 +393,9 @@ class Nuclei(Plugin):
         tags = None if ctx.config.nuclei_full else (ctx.config.nuclei_tags or nuclei_scan.DEFAULT_TAGS)
         ctx.audit.active_probe(self.id, ctx.target.host, self.mode.value,
                                detail=f"tags={tags or 'ALL'}")
-        nf, errs = nuclei_scan.scan(url, tags=tags)
+        hdrs = ([f"{k}: {v}" for k, v in ctx.config.auth.headers.items()]
+                if ctx.config.auth else None)
+        nf, errs = nuclei_scan.scan(url, tags=tags, headers=hdrs)
         ctx.result.findings.extend(nf)
         ctx.result.errors.extend(errs)
 

@@ -26,29 +26,30 @@ _GRAPHQL_PATHS = ["/graphql", "/api/graphql", "/v1/graphql", "/query"]
 _INTROSPECTION = json.dumps({"query": "{__schema{queryType{name} types{name}}}"})
 
 
-def _get(url: str, insecure: bool) -> tuple[int, str]:
+def _get(url: str, insecure: bool, auth=None) -> tuple[int, str]:
     ctx = ssl.create_default_context()
     if insecure:
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
-    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    hdrs = auth.merge({"User-Agent": USER_AGENT}) if auth else {"User-Agent": USER_AGENT}
+    req = urllib.request.Request(url, headers=hdrs)
     with urllib.request.urlopen(req, timeout=TIMEOUT, context=ctx) as resp:
         return resp.status, resp.read(400_000).decode("utf-8", errors="replace")
 
 
-def _post_json(url: str, body: str, insecure: bool) -> tuple[int, str]:
+def _post_json(url: str, body: str, insecure: bool, auth=None) -> tuple[int, str]:
     ctx = ssl.create_default_context()
     if insecure:
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
-    req = urllib.request.Request(url, data=body.encode(),
-                                 headers={"User-Agent": USER_AGENT,
-                                          "Content-Type": "application/json"}, method="POST")
+    base = {"User-Agent": USER_AGENT, "Content-Type": "application/json"}
+    hdrs = auth.merge(base) if auth else base
+    req = urllib.request.Request(url, data=body.encode(), headers=hdrs, method="POST")
     with urllib.request.urlopen(req, timeout=TIMEOUT, context=ctx) as resp:
         return resp.status, resp.read(400_000).decode("utf-8", errors="replace")
 
 
-def discover(base_url: str, *, insecure: bool = False
+def discover(base_url: str, *, insecure: bool = False, auth=None
              ) -> tuple[dict, list[Finding], list[str]]:
     """Returns (info, findings, errors). info has 'openapi', 'graphql', 'endpoints'."""
     findings: list[Finding] = []
@@ -62,7 +63,7 @@ def discover(base_url: str, *, insecure: bool = False
     for path in _OPENAPI_PATHS:
         url = root + path
         try:
-            status, body = _get(url, insecure)
+            status, body = _get(url, insecure, auth)
         except (urllib.error.URLError, ssl.SSLError, OSError, ValueError):
             continue
         if status != 200:
@@ -90,7 +91,7 @@ def discover(base_url: str, *, insecure: bool = False
     for path in _GRAPHQL_PATHS:
         url = root + path
         try:
-            status, body = _post_json(url, _INTROSPECTION, insecure)
+            status, body = _post_json(url, _INTROSPECTION, insecure, auth)
         except (urllib.error.URLError, ssl.SSLError, OSError, ValueError):
             continue
         if status == 200 and "__schema" in body and '"types"' in body:
