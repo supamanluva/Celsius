@@ -299,7 +299,7 @@ def _confidence(match_kind: str, distro: bool) -> tuple[str, str]:
 
 
 def _build_cve(
-    vuln: dict, affects: str, *, confidence: str = "firm", caveat: str = ""
+    vuln: dict, svc: Service, *, confidence: str = "firm", caveat: str = ""
 ) -> Optional[CVE]:
     c = vuln.get("cve", {})
     cid = c.get("id")
@@ -315,7 +315,10 @@ def _build_cve(
         description=desc,
         url=f"https://nvd.nist.gov/vuln/detail/{cid}",
         published=c.get("published"),
-        affects=affects,
+        affects=svc.label(),
+        product=svc.product or svc.name,
+        version=svc.version,
+        port=svc.port,
         references=_extract_references(c),
         confidence=confidence,
         caveat=caveat,
@@ -350,7 +353,7 @@ def lookup_for_service(
         decision = _matches_nvd_config(vuln, product, svc.version)
         if decision in ("firm", "weak"):
             conf, caveat = _confidence(decision, distro)
-            cve = _build_cve(vuln, svc.label(), confidence=conf, caveat=caveat)
+            cve = _build_cve(vuln, svc, confidence=conf, caveat=caveat)
             if cve:
                 matched.append(cve)
         elif decision is None:
@@ -374,7 +377,7 @@ def lookup_for_service(
         with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
             for vuln in ex.map(check, cna_candidates):
                 if vuln:
-                    cve = _build_cve(vuln, svc.label(), confidence=conf, caveat=caveat)
+                    cve = _build_cve(vuln, svc, confidence=conf, caveat=caveat)
                     if cve:
                         matched.append(cve)
 
@@ -409,6 +412,7 @@ def lookup_all(
                 clone = CVE(
                     id=c.id, severity=c.severity, cvss=c.cvss, description=c.description,
                     url=c.url, published=c.published, affects=svc.label(),
+                    product=svc.product or svc.name, version=svc.version, port=svc.port,
                     references=c.references, confidence=c.confidence, caveat=c.caveat,
                 )
                 all_cves.append(clone)
