@@ -168,6 +168,8 @@ $("scanForm").addEventListener("submit", async (e) => {
         cve_verify: $("opt-cveverify").checked,
         ai: $("opt-ai").checked, ai_provider: $("opt-ai-provider").value,
         ai_api_key: $("opt-ai-key").value.trim() || null,
+        ai_model: $("opt-ai-model").value.trim() || null,
+        ai_base_url: $("opt-ai-base").value.trim() || null,
       }),
     });
     if (!resp.ok) {

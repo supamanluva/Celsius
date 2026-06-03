@@ -67,6 +67,7 @@ class ScanRequest(BaseModel):
     ai: bool = False
     ai_provider: str = "deepseek"
     ai_model: Optional[str] = None
+    ai_base_url: Optional[str] = None
     ai_api_key: Optional[str] = None
     ai_redact: bool = False
 
@@ -124,7 +125,7 @@ def start_scan(req: ScanRequest) -> dict:
         fingerprint=req.fingerprint, subdomains=req.subdomains,
         crawl=req.crawl, api_discovery=req.api_discovery, cve_verify=req.cve_verify,
         ai=req.ai, ai_provider=req.ai_provider, ai_model=req.ai_model,
-        ai_api_key=req.ai_api_key, ai_redact=req.ai_redact,
+        ai_base_url=req.ai_base_url, ai_api_key=req.ai_api_key, ai_redact=req.ai_redact,
     )
     with _jobs_lock:
         _jobs[job_id] = {"status": "running", "log": [], "result": None, "error": None}
