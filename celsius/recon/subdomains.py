@@ -1,21 +1,32 @@
 """Subdomain enumeration.
 
-Passive: query crt.sh Certificate Transparency logs (no auth, no contact with the
-target). Optional safe-active: resolve a small built-in wordlist against the apex
-domain (only DNS lookups, still non-intrusive).
+Passive: query several Certificate Transparency / passive-DNS sources (crt.sh,
+certspotter, hackertarget) and merge them — no contact with the target. Using
+more than one source means a transient crt.sh outage (its 502s/timeouts are
+common) no longer yields an empty result. Results are cached briefly, and a
+total live failure falls back to the last cached set.
+
+Optional safe-active: resolve a small built-in wordlist against the apex domain
+(only DNS lookups, still non-intrusive).
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
+import os
 import socket
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
 USER_AGENT = "celsius/0.4 (+authorized security testing)"
 TIMEOUT = 20
+_CACHE_DIR = Path(os.path.expanduser("~/.cache/celsius/subdomains"))
+_CACHE_TTL = 6 * 3600  # treat a cached set younger than this as fresh
 
 # small high-signal wordlist for optional resolution
 COMMON = [
@@ -35,35 +46,109 @@ def apex_domain(host: str) -> str:
     return ".".join(labels[-2:])
 
 
-def from_crtsh(domain: str, *, retries: int = 2) -> tuple[set[str], list[str]]:
-    """Passive CT-log lookup. Returns (subdomains, errors).
+# ---- fetch helpers ------------------------------------------------------------
 
-    crt.sh frequently returns transient 502s under load, so we retry briefly.
-    """
-    url = f"https://crt.sh/?q={urllib.parse.quote('%.' + domain)}&output=json"
+def _fetch(url: str, *, retries: int = 1) -> tuple[str | None, str]:
+    """GET text with a short retry/backoff. Returns (body or None, last_error)."""
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-    data = None
     last_err = ""
     for attempt in range(retries + 1):
         try:
             with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
-                data = json.loads(resp.read().decode("utf-8", errors="replace"))
-            break
-        except (urllib.error.URLError, OSError, json.JSONDecodeError) as e:
+                return resp.read().decode("utf-8", errors="replace"), ""
+        except (urllib.error.URLError, OSError) as e:
             last_err = str(e)
             if attempt < retries:
-                time.sleep(2.0 * (attempt + 1))
-    if data is None:
-        return set(), [f"crt.sh lookup failed after retries: {last_err}"]
+                time.sleep(1.5 * (attempt + 1))
+    return None, last_err
 
-    subs: set[str] = set()
-    for entry in data:
-        for name in str(entry.get("name_value", "")).splitlines():
-            name = name.strip().lower().lstrip("*.")
-            if name.endswith(domain) and name != domain and "@" not in name:
-                subs.add(name)
+
+def _keep(name: str, domain: str) -> str | None:
+    name = name.strip().lower().lstrip("*.")
+    if name.endswith(domain) and name != domain and "@" not in name:
+        return name
+    return None
+
+
+# ---- passive sources (each returns (subdomains, errors)) ----------------------
+
+def from_crtsh(domain: str, *, retries: int = 2) -> tuple[set[str], list[str]]:
+    """crt.sh CT-log lookup. Frequently 502s under load, so retry briefly."""
+    url = f"https://crt.sh/?q={urllib.parse.quote('%.' + domain)}&output=json"
+    body, err = _fetch(url, retries=retries)
+    if body is None:
+        return set(), [f"crt.sh lookup failed after retries: {err}"]
+    try:
+        data = json.loads(body)
+    except json.JSONDecodeError:
+        return set(), ["crt.sh returned non-JSON (likely an error page)"]
+    subs = {k for entry in data for line in str(entry.get("name_value", "")).splitlines()
+            if (k := _keep(line, domain))}
     return subs, []
 
+
+def from_certspotter(domain: str) -> tuple[set[str], list[str]]:
+    """certspotter issuances API (free tier, no key needed for light use)."""
+    url = ("https://api.certspotter.com/v1/issuances?"
+           + urllib.parse.urlencode({"domain": domain, "include_subdomains": "true",
+                                     "expand": "dns_names"}))
+    body, err = _fetch(url)
+    if body is None:
+        return set(), [f"certspotter lookup failed: {err}"]
+    try:
+        data = json.loads(body)
+    except json.JSONDecodeError:
+        return set(), []  # rate-limited / error object — not fatal
+    if not isinstance(data, list):
+        return set(), []
+    subs = {k for entry in data for name in (entry.get("dns_names") or [])
+            if (k := _keep(name, domain))}
+    return subs, []
+
+
+def from_hackertarget(domain: str) -> tuple[set[str], list[str]]:
+    """hackertarget hostsearch (CSV text; free tier is rate-limited)."""
+    url = f"https://api.hackertarget.com/hostsearch/?q={urllib.parse.quote(domain)}"
+    body, err = _fetch(url)
+    if body is None:
+        return set(), [f"hackertarget lookup failed: {err}"]
+    low = body.lower()
+    if "api count exceeded" in low or "error" in low and "," not in body:
+        return set(), []  # rate-limited — not fatal
+    subs = {k for line in body.splitlines() if (k := _keep(line.split(",")[0], domain))}
+    return subs, []
+
+
+_SOURCES = (from_crtsh, from_certspotter, from_hackertarget)
+
+
+# ---- cache --------------------------------------------------------------------
+
+def _cache_file(domain: str) -> Path:
+    return _CACHE_DIR / (hashlib.sha256(domain.encode()).hexdigest() + ".json")
+
+
+def _cache_read(domain: str, *, max_age: float | None) -> set[str] | None:
+    f = _cache_file(domain)
+    try:
+        if not f.exists():
+            return None
+        if max_age is not None and (time.time() - f.stat().st_mtime) > max_age:
+            return None
+        return set(json.loads(f.read_text()))
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def _cache_write(domain: str, subs: set[str]) -> None:
+    try:
+        _CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        _cache_file(domain).write_text(json.dumps(sorted(subs)))
+    except OSError:
+        pass
+
+
+# ---- safe-active wordlist -----------------------------------------------------
 
 def resolve_wordlist(domain: str, words=COMMON) -> set[str]:
     """Safe-active: which <word>.<domain> resolve. DNS only."""
@@ -84,10 +169,35 @@ def resolve_wordlist(domain: str, words=COMMON) -> set[str]:
     return found
 
 
+# ---- public API ---------------------------------------------------------------
+
 def enumerate_subdomains(host: str, *, bruteforce: bool = False) -> tuple[list[str], list[str]]:
-    """Returns (sorted_subdomains, errors)."""
+    """Returns (sorted_subdomains, errors).
+
+    Queries several passive sources in parallel and merges them; a fresh cache
+    hit short-circuits the network entirely, and if every live source fails we
+    fall back to the last cached set so a crt.sh outage doesn't blank the result.
+    """
     domain = apex_domain(host)
-    subs, errors = from_crtsh(domain)
+    errors: list[str] = []
+
+    fresh = _cache_read(domain, max_age=_CACHE_TTL)
+    if fresh is not None:
+        subs = set(fresh)
+    else:
+        subs = set()
+        with ThreadPoolExecutor(max_workers=len(_SOURCES)) as ex:
+            for found, errs in ex.map(lambda fn: fn(domain), _SOURCES):
+                subs |= found
+                errors.extend(errs)
+        if subs:
+            _cache_write(domain, subs)
+        else:
+            stale = _cache_read(domain, max_age=None)
+            if stale:
+                subs = set(stale)
+                errors.append("all live CT sources failed — used subdomains cached from an earlier scan")
+
     if bruteforce:
         subs |= resolve_wordlist(domain)
     return sorted(subs), errors
