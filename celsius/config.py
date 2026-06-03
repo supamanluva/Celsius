@@ -22,6 +22,7 @@ class ScanConfig:
     # M1: recon / attack surface
     dns: bool = True
     tls: bool = True
+    robots: bool = True               # harvest robots.txt + sitemap.xml (passive)
     mailsec: bool = False              # e-mail security (SPF/DKIM/DMARC/MTA-STS/DNSSEC) — opt-in
     fingerprint: bool = True
     subdomains: bool = False          # crt.sh CT lookup (opt-in; can be large/slow)

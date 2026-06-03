@@ -17,6 +17,7 @@ from ..recon import dynamic as dynamic_mod
 from ..recon import fingerprint as fp_mod
 from ..recon import jsintel as jsintel_mod
 from ..recon import mailsec as mailsec_mod
+from ..recon import robots as robots_mod
 from ..recon import sourcemaps as sm_mod
 from ..recon import subdomains as subs_mod
 from ..recon import tls as tls_mod
@@ -296,6 +297,29 @@ class Crawler(Plugin):
                 description="; ".join(sorted(endpoints)[:25]),
                 recommendation="Review for undocumented/internal endpoints; test those in scope.",
             ))
+
+
+@register
+class RobotsSitemap(Plugin):
+    id = "robots"
+    title = "robots.txt + sitemap.xml path harvesting"
+    phase = Phase.RECON          # registered after WebAnalysis -> ctx.result.url set
+    mode = Mode.PASSIVE
+    category = "recon"
+
+    def enabled(self, ctx: ScanContext) -> bool:
+        return ctx.config.robots and not ctx.target.is_ip
+
+    def run(self, ctx: ScanContext) -> None:
+        base = ctx.result.url or ctx.target.web_url()
+        findings, paths, sitemap_urls, errs = robots_mod.harvest(
+            base, insecure=ctx.config.insecure, auth=ctx.config.auth)
+        ctx.result.findings.extend(findings)
+        ctx.result.errors.extend(errs[:5])
+        if paths:
+            ctx.result.recon["robots_paths"] = paths
+        if sitemap_urls:
+            ctx.result.recon["sitemap_urls"] = sitemap_urls[:200]
 
 
 @register
