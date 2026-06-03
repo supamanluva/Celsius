@@ -63,7 +63,7 @@ A machine-readable scope file gates everything:
 authorized_by: "stjarngatan19@gmail.com"
 authorized_at: 2026-05-31
 targets:
-  - host: scan.example.com        # owned / written permission
+  - host: example.com        # owned / written permission
     modes: [passive, safe-active]
   - host: lab.local             # full lab
     modes: [passive, safe-active, exploit]

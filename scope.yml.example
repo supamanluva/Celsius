@@ -13,7 +13,7 @@ authorized_by: you@example.com
 authorized_at: 2026-05-31
 
 targets:
-  - host: scan.example.com        # you own this / have written permission
+  - host: example.com        # you own this / have written permission
     modes: [passive, safe-active]
 
   - host: lab.local             # your isolated lab box

@@ -1,8 +1,8 @@
 """Regression tests for the front-end secret scanner's high-entropy pass.
 
-Pinned against the real false positives seen on example.com (URL slugs, a
-Facebook domain-verification token, a webpack public path) plus genuine secrets
-that must still be detected. Stdlib-only: run directly (`python tests/test_secrets.py`)
+Pinned against real-world false positives (URL slugs, a Facebook
+domain-verification token, a webpack public path) plus genuine secrets that must
+still be detected. Stdlib-only: run directly (`python tests/test_secrets.py`)
 or under pytest.
 """
 
@@ -24,18 +24,18 @@ def _any_secret(text: str) -> list[str]:
     return [m.rule_id for m in secrets.scan_text(text)]
 
 
-# ---- must NOT be flagged (real example.com false positives) --------------------
+# ---- must NOT be flagged (real-world false positives) ------------------------
 
 BENIGN = [
     # public Facebook domain-verification meta token
-    '<meta name="facebook-domain-verification" content="x6dtf5i818eeznymy1khs29ng19pvj">',
+    '<meta name="facebook-domain-verification" content="qz7m3k9x2p5v8b1n4r6t0w2e5y7u9i1o">',
     # google variant
     '<meta name="google-site-verification" content="aB3dEfGhIjKlMnOpQrStUvWxYz012345">',
     # news-article URL slugs in href
-    '<h3 class="heading3"><a href="/nyheter/nyhetsarkiv/2026-05-06-sommarstangt-hos-handlaggningen">x</a>',
-    '<a href="/nyheter/nyhetsarkiv/2026-05-19-har-ar-alla-medverkande-i-hostens-djupet-2026">x</a>',
-    # webpack public path -> SiteVision asset with a content hash
-    'o.p="/sitevision/system-resource/555f1319f4123ed62b6fc6dc06c326a139b08be0e4561fa4c7556c35e5ae5300"',
+    '<h3 class="heading3"><a href="/news/archive/2026-05-06-summer-opening-hours-for-the-office">x</a>',
+    '<a href="/news/archive/2026-05-19-everyone-taking-part-in-this-autumn-festival-2026">x</a>',
+    # webpack public path -> CMS asset with a content hash
+    'o.p="/cms/system-resource/555f1319f4123ed62b6fc6dc06c326a139b08be0e4561fa4c7556c35e5ae5300"',
     # plain asset URL reference
     'src="/dist/app.7f3a9c2e1b8d4f6a0c5e2d1f.js"',
 ]
