@@ -198,6 +198,7 @@ button.secondary:hover { background: var(--surface-3); filter: none; }
 .summary .chip.sev-LOW { border-left: 3px solid var(--low); color: #9dbcff; }
 .summary .chip.sev-INFO { border-left: 3px solid var(--info); color: var(--muted); }
 .summary .chip.sev-UNCONFIRMED { border-left: 3px solid var(--info); color: #c9a3ff; }
+.summary .chip.sev-AILEADS { border-left: 3px solid var(--info); color: #8fb3ff; }
 
 /* ---- sections & cards ------------------------------------------------------ */
 h2.section {

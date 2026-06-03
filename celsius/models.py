@@ -148,9 +148,9 @@ class ScanResult:
         }
 
     def all_severities_sorted(self) -> list[Severity]:
-        # Weak (low-confidence) CVEs are reported but excluded from the headline
-        # severity / exit code, so an unconfirmed legacy match can't flip the
-        # whole result to CRITICAL.
+        # Weak (low-confidence) CVEs and AI hypotheses ("leads, not facts") are
+        # reported but excluded from the headline severity / exit code, so an
+        # unconfirmed match can't flip the whole result to CRITICAL.
         sev = {c.severity for c in self.cves if c.confidence != "weak"} \
-            | {f.severity for f in self.findings}
+            | {f.severity for f in self.findings if f.category != "ai-hypothesis"}
         return sorted(sev, key=lambda s: s.rank, reverse=True)
