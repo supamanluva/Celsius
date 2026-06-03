@@ -50,7 +50,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--no-dns", action="store_true", help="skip DNS recon")
     s.add_argument("--no-tls", action="store_true", help="skip TLS/certificate analysis")
     s.add_argument("--mail", action="store_true",
-                   help="e-postsäkerhet: SPF/DKIM/DMARC/MTA-STS/TLS-RPT/DNSSEC/BIMI (passivt)")
+                   help="e-mail security: SPF/DKIM/DMARC/MTA-STS/TLS-RPT/DNSSEC/BIMI (passive)")
     s.add_argument("--no-fingerprint", action="store_true", help="skip tech fingerprinting")
     s.add_argument("--subdomains", action="store_true", help="enumerate subdomains (crt.sh)")
     s.add_argument("--subdomain-bruteforce", action="store_true", help="also resolve a wordlist")

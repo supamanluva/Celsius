@@ -43,7 +43,7 @@ $("mailForm").addEventListener("submit", async (e) => {
   e.preventDefault();
   const domain = $("mailDomain").value.trim();
   if (!domain) return;
-  setStatus("mailStatus", "Kontrollerar e-postsäkerhet…", false);
+  setStatus("mailStatus", "Checking e-mail security…", false);
   $("mailResults").innerHTML = "";
   try {
     const r = await fetch("/api/mailsec", {
@@ -56,33 +56,33 @@ $("mailForm").addEventListener("submit", async (e) => {
     }
     renderMail(await r.json());
   } catch (err) {
-    setStatus("mailStatus", "Fel: " + err.message, true);
+    setStatus("mailStatus", "Error: " + err.message, true);
   }
 });
 
 const MAIL_STATUS = {
   ok:   { icon: "✅", cls: "ms-ok",   label: "OK" },
-  warn: { icon: "⚠️", cls: "ms-warn", label: "Åtgärda" },
-  bad:  { icon: "❌", cls: "ms-bad",  label: "Brist" },
+  warn: { icon: "⚠️", cls: "ms-warn", label: "Fix" },
+  bad:  { icon: "❌", cls: "ms-bad",  label: "Issue" },
   info: { icon: "ℹ️", cls: "ms-info", label: "Info" },
 };
 
 function renderMail(info) {
   if (!info.checks || !info.checks.length) {
-    setStatus("mailStatus", "Inga DNS-svar för " + esc(info.domain || "") + ".", true);
+    setStatus("mailStatus", "No DNS answers for " + esc(info.domain || "") + ".", true);
     return;
   }
   const todo = info.checks.filter((c) => c.status === "warn" || c.status === "bad").length;
   setStatus("mailStatus",
-    `${info.domain} · betyg ${info.grade} (${info.score}/100) · ${todo} att åtgärda`, false);
+    `${info.domain} · grade ${info.grade} (${info.score}/100) · ${todo} to fix`, false);
 
-  const mx = (info.mx || []).join(", ") || "ingen MX";
+  const mx = (info.mx || []).join(", ") || "no MX";
   const reportUrl = "/api/mailsec/report.html?domain=" + encodeURIComponent(info.domain || "");
   let html = `<div class="mail-score grade-${(info.grade || "F")[0]}">
       <div class="grade">${esc(info.grade)}</div>
       <div class="score"><strong>${info.score}</strong>/100</div>
-      <div class="mx">Mailserver: ${esc(mx)}${info.provider ? " · " + esc(info.provider) : ""}
-        <br><a class="reportlink" href="${reportUrl}" target="_blank">📄 HTML-rapport</a></div>
+      <div class="mx">Mail server: ${esc(mx)}${info.provider ? " · " + esc(info.provider) : ""}
+        <br><a class="reportlink" href="${reportUrl}" target="_blank">📄 HTML report</a></div>
     </div>`;
 
   info.checks.forEach((c) => {
