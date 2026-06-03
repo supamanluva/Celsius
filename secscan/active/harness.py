@@ -57,6 +57,7 @@ class LabContext:
     max_requests: int = 200
     insecure: bool = False
     log: object = None
+    auth: object = None        # auth.AuthSession for authenticated active checks
     _count: int = 0
     _last_ts: float = 0.0
     preview: list = field(default_factory=list)
@@ -120,7 +121,7 @@ class LabContext:
             ctx.check_hostname = False
             ctx.verify_mode = ssl.CERT_NONE
         body_bytes = None
-        headers = {"User-Agent": USER_AGENT}
+        headers = self.auth.merge({"User-Agent": USER_AGENT}) if self.auth else {"User-Agent": USER_AGENT}
         if method == "POST" and data is not None:
             body_bytes = urllib.parse.urlencode(data).encode()
             headers["Content-Type"] = "application/x-www-form-urlencoded"

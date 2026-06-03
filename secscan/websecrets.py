@@ -26,23 +26,24 @@ _SEV = {"CRITICAL": Severity.CRITICAL, "HIGH": Severity.HIGH,
         "MEDIUM": Severity.MEDIUM, "LOW": Severity.LOW, "INFO": Severity.INFO}
 
 
-def _fetch(url: str, insecure: bool) -> tuple[str, str]:
+def _fetch(url: str, insecure: bool, auth=None) -> tuple[str, str]:
     ctx = ssl.create_default_context()
     if insecure:
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
-    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    hdrs = auth.merge({"User-Agent": USER_AGENT}) if auth else {"User-Agent": USER_AGENT}
+    req = urllib.request.Request(url, headers=hdrs)
     with urllib.request.urlopen(req, timeout=TIMEOUT, context=ctx) as resp:
         data = resp.read(MAX_BYTES)
         return data.decode("utf-8", errors="replace"), resp.geturl()
 
 
-def scan_page(url: str, *, insecure: bool = False) -> tuple[list[Finding], list[str]]:
+def scan_page(url: str, *, insecure: bool = False, auth=None) -> tuple[list[Finding], list[str]]:
     findings: list[Finding] = []
     errors: list[str] = []
 
     try:
-        html, final_url = _fetch(url, insecure)
+        html, final_url = _fetch(url, insecure, auth)
     except (urllib.error.URLError, ssl.SSLError, OSError) as e:
         return [], [f"secret-scan: could not fetch {url}: {e}"]
 
@@ -56,7 +57,7 @@ def scan_page(url: str, *, insecure: bool = False) -> tuple[list[Finding], list[
             script_urls.append(src)
     for src in script_urls[:MAX_SCRIPTS]:
         try:
-            body, _ = _fetch(src, insecure)
+            body, _ = _fetch(src, insecure, auth)
             sources[src] = body
         except (urllib.error.URLError, ssl.SSLError, OSError) as e:
             errors.append(f"secret-scan: could not fetch script {src}: {e}")

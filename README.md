@@ -174,6 +174,8 @@ Lab mode is **CLI-only by design** — active exploitation is not exposed in the
 | `--no-web` | skip HTTP header/CSP analysis |
 | `--no-cve` | skip the NVD CVE lookup |
 | `--full` / `--thorough` | enable every safe check at once (ports, nuclei, subdomains, crawl, API discovery, mail, CVE-verify, OS detect) |
+| `--cookie` / `--bearer` / `--header` | authenticated scan: attach a session/token to every request |
+| `--login-url` (+ `--login-user`/`--login-pass`) | form login: log in first, then scan as that user |
 | `--mail` | check email security (SPF/DKIM/DMARC/MTA-STS/TLS-RPT/DNSSEC/BIMI), graded A–F |
 | `--ports` | run `nmap -sV` (off by default) |
 | `--top-ports N` / `--port-range "80,443"` | port selection for nmap |
@@ -189,6 +191,26 @@ Lab mode is **CLI-only by design** — active exploitation is not exposed in the
 
 Exit code encodes the worst severity found (30 CRITICAL / 20 HIGH / 10 MEDIUM /
 0 otherwise), handy in CI gates.
+
+### Authenticated scanning
+
+By default secscan scans as an anonymous, logged-out visitor. To reach surfaces
+behind a login, attach a session — the crawler, secret scan, API discovery,
+nuclei and active checks all run as that user:
+
+```bash
+# reuse a session you grabbed from the browser
+secscan scan https://app.example.com --full --cookie "session=abc; csrf=xyz" -y
+# or a bearer token
+secscan scan https://api.example.com --bearer "$TOKEN" --crawl -y
+# or let secscan log in via the form (CSRF hidden fields are auto-filled)
+secscan scan https://app.example.com --full \
+  --login-url https://app.example.com/login --login-user alice --login-pass secret -y
+```
+
+⚠️ An authenticated **active** scan sends requests as the logged-in user and can
+change state (submit forms, etc.). Use a **test account / staging**. Every scan
+that carries a session is recorded in the audit log.
 
 ### Logging
 

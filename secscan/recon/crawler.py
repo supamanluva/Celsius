@@ -39,12 +39,13 @@ class CrawlResult:
     errors: list = field(default_factory=list)
 
 
-def _fetch(url: str, insecure: bool) -> tuple[int, str, str]:
+def _fetch(url: str, insecure: bool, auth=None) -> tuple[int, str, str]:
     ctx = ssl.create_default_context()
     if insecure:
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
-    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    hdrs = auth.merge({"User-Agent": USER_AGENT}) if auth else {"User-Agent": USER_AGENT}
+    req = urllib.request.Request(url, headers=hdrs)
     with urllib.request.urlopen(req, timeout=TIMEOUT, context=ctx) as resp:
         ctype = resp.headers.get("Content-Type", "")
         body = ""
@@ -54,7 +55,7 @@ def _fetch(url: str, insecure: bool) -> tuple[int, str, str]:
 
 
 def crawl(base_url: str, *, max_pages: int = 40, max_depth: int = 3,
-          insecure: bool = False) -> CrawlResult:
+          insecure: bool = False, auth=None) -> CrawlResult:
     parsed = urllib.parse.urlparse(base_url)
     host = parsed.netloc
     result = CrawlResult(base=base_url)
@@ -68,7 +69,7 @@ def crawl(base_url: str, *, max_pages: int = 40, max_depth: int = 3,
             continue
         seen.add(norm)
         try:
-            status, body, final = _fetch(norm, insecure)
+            status, body, final = _fetch(norm, insecure, auth)
         except (urllib.error.URLError, ssl.SSLError, OSError, ValueError) as e:
             result.errors.append(f"crawl {norm}: {e}")
             continue

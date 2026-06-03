@@ -88,6 +88,17 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--markdown", metavar="FILE", help="write a Markdown report")
     s.add_argument("--poc", action="store_true", help="print reproduction steps for findings/CVEs")
     s.add_argument("--insecure", action="store_true")
+    # authenticated scan: attach a logged-in session to crawl/checks/nuclei/active
+    s.add_argument("--cookie", help="Cookie header to send (e.g. \"session=abc; csrf=xyz\")")
+    s.add_argument("--header", action="append", metavar="\"K: V\"",
+                   help="extra request header (repeatable), e.g. --header \"Authorization: Bearer ...\"")
+    s.add_argument("--bearer", help="shortcut for an Authorization: Bearer <token> header")
+    s.add_argument("--login-url", help="form login: URL to POST credentials to (captures the session)")
+    s.add_argument("--login-data", help="form login: raw body, e.g. \"user=alice&pass=secret\"")
+    s.add_argument("--login-user", help="form login: username value")
+    s.add_argument("--login-pass", help="form login: password value")
+    s.add_argument("--login-field-user", default="username", help="form login: username field name")
+    s.add_argument("--login-field-pass", default="password", help="form login: password field name")
     s.add_argument("-y", "--yes", action="store_true", help="skip authorization prompt")
     s.add_argument("-v", "--verbose", action="store_true",
                    help="show per-step progress on stderr even when piped")
@@ -138,6 +149,35 @@ def _confirm_authorization(target: str, assume_yes: bool) -> bool:
         return False
 
 
+def _build_auth(args, logger):
+    """Assemble an AuthSession from --cookie/--bearer/--header and optional form
+    login. Returns an AuthSession or None."""
+    import urllib.parse
+    from . import auth as auth_mod
+
+    base = auth_mod.from_options(cookie=args.cookie or "", bearer=args.bearer or "",
+                                 headers=args.header or [])
+    if args.login_url:
+        data: dict = {}
+        if args.login_data:
+            data.update(dict(urllib.parse.parse_qsl(args.login_data)))
+        if args.login_user:
+            data[args.login_field_user] = args.login_user
+        if args.login_pass:
+            data[args.login_field_pass] = args.login_pass
+        session, msg = auth_mod.form_login(args.login_url, data, insecure=args.insecure,
+                                           extra_headers=base.headers)
+        logger.info("auth: %s", msg)
+        if not session:
+            logger.warning("auth: form login failed — continuing UNauthenticated")
+            return base if base else None
+        return session
+    if base:
+        logger.info("auth: attaching session (%s)", base.source)
+        return base
+    return None
+
+
 def _cmd_scan(args) -> int:
     if not _confirm_authorization(args.target, args.yes):
         print("Aborted: authorization not confirmed.", file=sys.stderr)
@@ -179,6 +219,11 @@ def _cmd_scan(args) -> int:
         verbose=args.verbose, debug=args.debug, quiet=args.quiet, log_file=args.log_file,
     )
     logger.info("scan starting: target=%s", args.target)
+
+    auth_session = _build_auth(args, logger)
+    if auth_session and not args.no_active:
+        print("[!] Authenticated + active scan: requests are sent as the logged-in user and "
+              "may change state. Prefer a test account / staging.", file=sys.stderr)
     log = lambda m: logger.info("%s", m)  # noqa: E731  (engine progress callback)
     config = ScanConfig(
         target=args.target, web=not args.no_web, cve=not args.no_cve,
@@ -193,6 +238,7 @@ def _cmd_scan(args) -> int:
         diff=not args.no_diff,
         crawl=args.crawl, crawl_max_pages=args.crawl_max_pages,
         api_discovery=args.api_discovery, dynamic=args.dynamic,
+        auth=auth_session,
         scope_file=args.scope, allow_active=not args.no_active, persist=not args.no_db,
         allow_exploit=args.lab, lab_attestation=lab_attest, dry_run=args.dry_run,
         exploit_max_requests=args.exploit_max_requests, exploit_rate_limit=args.exploit_rate_limit,
