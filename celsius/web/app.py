@@ -185,7 +185,7 @@ def mailsec_check(req: MailSecRequest) -> dict:
     from ..recon import mailsec
     domain = (req.domain or "").strip()
     if not domain:
-        raise HTTPException(status_code=400, detail="Ange en domän.")
+        raise HTTPException(status_code=400, detail="Enter a domain.")
     # tolerate a pasted URL or email address
     if "@" in domain:
         domain = domain.split("@", 1)[1]
@@ -209,7 +209,7 @@ def mailsec_report(domain: str = "") -> HTMLResponse:
         domain = domain.split("://", 1)[1]
     domain = domain.split("/")[0].strip()
     if not domain:
-        raise HTTPException(status_code=400, detail="Ange en domän.")
+        raise HTTPException(status_code=400, detail="Enter a domain.")
     info, _findings, _errors = mailsec.analyze(domain)
     fname = f"celsius-mail-{_safe_name(domain)}.html"
     return HTMLResponse(

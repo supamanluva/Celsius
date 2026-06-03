@@ -22,7 +22,7 @@ class ScanConfig:
     # M1: recon / attack surface
     dns: bool = True
     tls: bool = True
-    mailsec: bool = False              # e-postsäkerhet (SPF/DKIM/DMARC/MTA-STS/DNSSEC) — opt-in
+    mailsec: bool = False              # e-mail security (SPF/DKIM/DMARC/MTA-STS/DNSSEC) — opt-in
     fingerprint: bool = True
     subdomains: bool = False          # crt.sh CT lookup (opt-in; can be large/slow)
     subdomain_bruteforce: bool = False  # also resolve a wordlist (safe-active)

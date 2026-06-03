@@ -1,12 +1,12 @@
-"""E-postsäkerhetsgranskning via DNS-over-HTTPS (helt passiv).
+"""E-mail security assessment via DNS-over-HTTPS (fully passive).
 
-Bedömer en domäns e-postsäkerhet utan att kontakta målets mailserver: MX, SPF,
-DKIM (selector-probing), DMARC, MTA-STS (DNS-record + policyfil via HTTPS),
-TLS-RPT, BIMI och DNSSEC. Returnerar (info, findings, errors); plugin-lagret
-lägger info i ScanResult.recon['mailsec'] och findings i result.findings.
+Assesses a domain's e-mail security without contacting the target's mail server:
+MX, SPF, DKIM (selector probing), DMARC, MTA-STS (DNS record + policy file over
+HTTPS), TLS-RPT, BIMI and DNSSEC. Returns (info, findings, errors); the plugin
+layer stores info in ScanResult.recon['mailsec'] and findings in result.findings.
 
-All trafik går till en publik DoH-resolver och (för MTA-STS) till domänens egen
-publicerade policy-URL — inget skickas till mailservern, inga paket mot port 25.
+All traffic goes to a public DoH resolver and (for MTA-STS) to the domain's own
+published policy URL — nothing is sent to the mail server, no packets to port 25.
 """
 
 from __future__ import annotations
@@ -22,17 +22,17 @@ DOH_URL = "https://dns.google/resolve"
 USER_AGENT = "celsius/1.1 (+authorized email-security check)"
 TIMEOUT = 8
 
-# Vanliga DKIM-selektorer (kan inte räknas upp via DNS — vi provar kända namn).
+# Common DKIM selectors (cannot be enumerated via DNS — we probe known names).
 COMMON_SELECTORS = [
     "selector1", "selector2",          # Microsoft 365
     "google",                          # Google Workspace
-    "k1", "k2",                        # Mailchimp/Mandrill m.fl.
+    "k1", "k2",                        # Mailchimp/Mandrill et al.
     "s1", "s2", "default", "dkim", "mail", "smtp", "mx",
     "mandrill", "mxvault", "dkim1", "key1", "fm1", "fm2", "fm3",  # Fastmail
     "scph0", "sig1", "zoho",
 ]
 
-# Kända mailprovider-mönster i MX -> läsbart namn (styr selektorgissning + fixtext).
+# Known mail-provider patterns in MX -> readable name (drives selector guessing + fix text).
 _PROVIDERS = [
     ("protection.outlook.com", "Microsoft 365 / Exchange Online", ["selector1", "selector2"]),
     ("outlook.com", "Microsoft 365", ["selector1", "selector2"]),
@@ -93,45 +93,45 @@ def _check_spf(domain: str) -> dict:
     spf = next((t for t in txts if t.lower().startswith("v=spf1")), None)
     if not spf:
         return {"key": "spf", "label": "SPF", "status": "bad", "value": "",
-                "detail": "Ingen SPF-post — avsändaradresser kan förfalskas.",
-                "fix": f'Lägg till TXT på {domain}:  "v=spf1 include:<din-provider> -all"'}
+                "detail": "No SPF record — sender addresses can be spoofed.",
+                "fix": f'Add a TXT record on {domain}:  "v=spf1 include:<your-provider> -all"'}
     tail = spf.split()[-1].lower()
     if tail == "-all":
         return {"key": "spf", "label": "SPF", "status": "ok", "value": spf,
-                "detail": "Hard fail (-all) — strikt.", "fix": ""}
+                "detail": "Hard fail (-all) — strict.", "fix": ""}
     if tail == "~all":
         return {"key": "spf", "label": "SPF", "status": "warn", "value": spf,
-                "detail": "Softfail (~all) — släpper igenom misslyckade kontroller.",
-                "fix": "Skärp slutet av SPF-posten från ~all till -all när du verifierat att alla "
-                       "legitima avsändare täcks."}
+                "detail": "Softfail (~all) — lets failing checks through.",
+                "fix": "Tighten the end of the SPF record from ~all to -all once you have verified "
+                       "that all legitimate senders are covered."}
     return {"key": "spf", "label": "SPF", "status": "bad", "value": spf,
-            "detail": f"Saknar fail-mekanism ('{tail}') — ger inget förfalskningsskydd.",
-            "fix": "Avsluta SPF-posten med -all (eller minst ~all)."}
+            "detail": f"Missing fail mechanism ('{tail}') — provides no spoofing protection.",
+            "fix": "End the SPF record with -all (or at least ~all)."}
 
 
 def _check_dmarc(domain: str) -> dict:
     _ad, txts = _txt(f"_dmarc.{domain}")
     rec = next((t for t in txts if t.lower().startswith("v=dmarc1")), None)
-    fix_add = (f'Lägg till TXT på _dmarc.{domain}:  '
+    fix_add = (f'Add a TXT record on _dmarc.{domain}:  '
                f'"v=DMARC1; p=reject; rua=mailto:dmarc@{domain}; pct=100"')
     if not rec:
         return {"key": "dmarc", "label": "DMARC", "status": "bad", "value": "",
-                "detail": "Ingen DMARC-policy — mottagare vet inte hur de ska hantera förfalskning.",
+                "detail": "No DMARC policy — recipients have no instruction on how to handle spoofing.",
                 "fix": fix_add}
     tags = {k.strip().lower(): v.strip() for k, _, v in
             (p.partition("=") for p in rec.split(";") if "=" in p)}
     p = tags.get("p", "none").lower()
     has_rua = "rua" in tags
-    detail = f"p={p}" + ("" if has_rua else "; ingen rua= (saknar aggregerad rapportering)")
+    detail = f"p={p}" + ("" if has_rua else "; no rua= (missing aggregate reporting)")
     if p == "reject":
         status = "ok"
-        fix = "" if has_rua else f"Lägg till rua=mailto:dmarc@{domain} för aggregerade rapporter."
+        fix = "" if has_rua else f"Add rua=mailto:dmarc@{domain} for aggregate reports."
     elif p == "quarantine":
         status = "warn"
-        fix = "Höj till p=reject när rapporterna ser rena ut."
+        fix = "Raise to p=reject once the reports look clean."
     else:  # none
         status = "bad"
-        fix = "p=none ger ingen tillämpning — höj till p=quarantine och sedan p=reject."
+        fix = "p=none provides no enforcement — raise to p=quarantine and then p=reject."
     return {"key": "dmarc", "label": "DMARC", "status": status, "value": rec,
             "detail": detail, "fix": fix}
 
@@ -162,24 +162,23 @@ def _check_dkim(domain: str, provider_selectors: list[str]) -> dict:
     if found:
         return {"key": "dkim", "label": "DKIM", "status": "ok",
                 "value": ", ".join(found),
-                "detail": f"Publicerad nyckel hittad (selektor: {', '.join(found)}).", "fix": ""}
+                "detail": f"Published key found (selector: {', '.join(found)}).", "fix": ""}
     return {"key": "dkim", "label": "DKIM", "status": "warn", "value": "",
-            "detail": "Ingen DKIM-nyckel hittades på vanliga selektorer (kan använda eget "
-                      "selektornamn).",
-            "fix": "Bekräfta att DKIM-signering är på hos din mailprovider och att selektorn är "
-                   "publicerad som <selektor>._domainkey." + domain + "."}
+            "detail": "No DKIM key found on common selectors (may use a custom selector name).",
+            "fix": "Confirm DKIM signing is enabled at your mail provider and that the selector is "
+                   "published as <selector>._domainkey." + domain + "."}
 
 
 def _check_mta_sts(domain: str) -> dict:
     _ad, txts = _txt(f"_mta-sts.{domain}")
     rec = next((t for t in txts if t.lower().startswith("v=stsv1")), None)
-    fix_add = (f"Publicera MTA-STS: TXT på _mta-sts.{domain} (\"v=STSv1; id=<ändras vid uppdatering>\") "
-               f"+ policyfil på https://mta-sts.{domain}/.well-known/mta-sts.txt med mode: enforce.")
+    fix_add = (f"Publish MTA-STS: a TXT record on _mta-sts.{domain} (\"v=STSv1; id=<changes on update>\") "
+               f"+ a policy file at https://mta-sts.{domain}/.well-known/mta-sts.txt with mode: enforce.")
     if not rec:
         return {"key": "mta_sts", "label": "MTA-STS", "status": "warn", "value": "",
-                "detail": "Saknas — inkommande mail kan nedgraderas till oskyddad anslutning (MITM).",
+                "detail": "Missing — inbound mail can be downgraded to an unprotected connection (MITM).",
                 "fix": fix_add}
-    # Hämta policyfilen (publik, standardiserad URL — fortfarande passivt).
+    # Fetch the policy file (public, standardised URL — still passive).
     mode = ""
     try:
         url = f"https://mta-sts.{domain}/.well-known/mta-sts.txt"
@@ -191,15 +190,15 @@ def _check_mta_sts(domain: str) -> dict:
                 mode = line.split(":", 1)[1].strip().lower()
     except (urllib.error.URLError, OSError, ValueError):
         return {"key": "mta_sts", "label": "MTA-STS", "status": "warn", "value": rec,
-                "detail": "DNS-post finns men policyfilen kunde inte hämtas.",
-                "fix": f"Säkerställ att https://mta-sts.{domain}/.well-known/mta-sts.txt "
-                       f"svarar med giltigt cert."}
+                "detail": "DNS record exists but the policy file could not be fetched.",
+                "fix": f"Make sure https://mta-sts.{domain}/.well-known/mta-sts.txt "
+                       f"responds with a valid certificate."}
     if mode == "enforce":
         return {"key": "mta_sts", "label": "MTA-STS", "status": "ok", "value": f"mode={mode}",
-                "detail": "Aktiv i enforce-läge.", "fix": ""}
+                "detail": "Active in enforce mode.", "fix": ""}
     return {"key": "mta_sts", "label": "MTA-STS", "status": "warn", "value": f"mode={mode or '?'}",
-            "detail": f"Policy i läge '{mode or 'okänt'}' — tillämpas inte ännu.",
-            "fix": "Sätt mode: enforce i policyfilen när du verifierat att mx-listan stämmer."}
+            "detail": f"Policy in '{mode or 'unknown'}' mode — not enforced yet.",
+            "fix": "Set mode: enforce in the policy file once you have verified the mx list is correct."}
 
 
 def _check_tls_rpt(domain: str) -> dict:
@@ -207,21 +206,21 @@ def _check_tls_rpt(domain: str) -> dict:
     rec = next((t for t in txts if t.lower().startswith("v=tlsrptv1")), None)
     if rec:
         return {"key": "tls_rpt", "label": "TLS-RPT", "status": "ok", "value": rec,
-                "detail": "Rapportering av TLS-problem är aktiverad.", "fix": ""}
+                "detail": "Reporting of TLS problems is enabled.", "fix": ""}
     return {"key": "tls_rpt", "label": "TLS-RPT", "status": "info", "value": "",
-            "detail": "Saknas — du får inga rapporter om misslyckad TLS vid mailleverans.",
-            "fix": f'Lägg till TXT på _smtp._tls.{domain}:  "v=TLSRPTv1; rua=mailto:tlsrpt@{domain}"'}
+            "detail": "Missing — you receive no reports about failed TLS on mail delivery.",
+            "fix": f'Add a TXT record on _smtp._tls.{domain}:  "v=TLSRPTv1; rua=mailto:tlsrpt@{domain}"'}
 
 
 def _check_dnssec(domain: str, mx_ad: bool) -> dict:
     status_code, _ad, ds = _query(domain, "DS")
     if ds or mx_ad:
         return {"key": "dnssec", "label": "DNSSEC", "status": "ok",
-                "value": "DS publicerad" if ds else "autentiserade svar",
-                "detail": "DNSSEC är aktivt — DNS-svaren går inte att förfalska.", "fix": ""}
+                "value": "DS published" if ds else "authenticated answers",
+                "detail": "DNSSEC is active — DNS answers cannot be spoofed.", "fix": ""}
     return {"key": "dnssec", "label": "DNSSEC", "status": "warn", "value": "",
-            "detail": "Ingen DS-post — DNS för domänen är inte signerad.",
-            "fix": "Aktivera DNSSEC hos din DNS-operatör/registrar och publicera DS-posten."}
+            "detail": "No DS record — DNS for the domain is not signed.",
+            "fix": "Enable DNSSEC at your DNS operator/registrar and publish the DS record."}
 
 
 def _check_bimi(domain: str, dmarc_ok: bool) -> dict:
@@ -229,15 +228,15 @@ def _check_bimi(domain: str, dmarc_ok: bool) -> dict:
     rec = next((t for t in txts if t.lower().startswith("v=bimi1")), None)
     if rec:
         return {"key": "bimi", "label": "BIMI", "status": "ok", "value": rec,
-                "detail": "BIMI-post publicerad (varumärkeslogga i inkorgen).", "fix": ""}
+                "detail": "BIMI record published (brand logo in the inbox).", "fix": ""}
     return {"key": "bimi", "label": "BIMI", "status": "info", "value": "",
-            "detail": "Saknas (valfritt; kräver DMARC p=reject/quarantine"
-                      + ("" if dmarc_ok else " — fixa DMARC först") + ").",
-            "fix": "Valfritt: publicera en BIMI-post + ev. VMC-certifikat för logga i inkorgen."}
+            "detail": "Missing (optional; requires DMARC p=reject/quarantine"
+                      + ("" if dmarc_ok else " — fix DMARC first") + ").",
+            "fix": "Optional: publish a BIMI record + optional VMC certificate for a logo in the inbox."}
 
 
 _GRADE = [(95, "A+"), (85, "A"), (75, "B"), (60, "C"), (40, "D"), (0, "F")]
-# Vikt per kontroll (summa 100). info-kontroller (tls_rpt, bimi) väger lätt.
+# Weight per check (sums to 100). info checks (tls_rpt, bimi) weigh lightly.
 _WEIGHTS = {"spf": 22, "dkim": 18, "dmarc": 25, "mta_sts": 12, "tls_rpt": 6,
             "dnssec": 12, "bimi": 5}
 _STATUS_SCORE = {"ok": 1.0, "warn": 0.4, "info": 0.5, "bad": 0.0}
@@ -253,8 +252,8 @@ def analyze(domain: str) -> tuple[dict, list[Finding], list[str]]:
     status_code, mx_ad, mx_raw = _query(domain, "MX")
     if status_code == -1:
         return ({"domain": domain, "checks": [], "mx": [], "grade": "?", "score": 0},
-                [], [f"mailsec: DNS-uppslag misslyckades för {domain}"])
-    # MX-data ser ut som "10 mail.example.com." -> ta värdnamnet.
+                [], [f"mailsec: DNS lookup failed for {domain}"])
+    # MX data looks like "10 mail.example.com." -> take the hostname.
     mx_hosts = [v.split()[-1].rstrip(".") for v in mx_raw if v.split()]
     provider, prov_selectors = _provider(mx_hosts)
 
@@ -284,16 +283,16 @@ def analyze(domain: str) -> tuple[dict, list[Finding], list[str]]:
         "grade": grade,
     }
 
-    # findings (en per icke-ok kontroll), med exakt fix + vilken mailserver det gäller
+    # findings (one per non-ok check), with the exact fix + which mail server it applies to
     findings: list[Finding] = []
-    mx_note = (f" Gäller mailservern: {', '.join(mx_hosts)}"
+    mx_note = (f" Applies to the mail server: {', '.join(mx_hosts)}"
                f"{f' ({provider})' if provider else ''}." if mx_hosts else "")
     for c in checks:
         sev = _SEVERITY.get(c["status"])
         if sev is None:
             continue
         findings.append(Finding(
-            title=f"E-post: {c['label']} — {c['detail'].split('—')[0].strip().rstrip('.')}",
+            title=f"E-mail: {c['label']} — {c['detail'].split('—')[0].strip().rstrip('.')}",
             severity=sev, category="mailsec",
             description=c["detail"] + mx_note,
             recommendation=c["fix"],
@@ -306,5 +305,5 @@ def summarize(info: dict) -> str:
     if not info.get("checks"):
         return ""
     bad = [c["label"] for c in info["checks"] if c["status"] in ("bad", "warn")]
-    head = f"Mail-säkerhet {info.get('grade', '?')} ({info.get('score', 0)}/100)"
-    return head + (f" — att åtgärda: {', '.join(bad)}" if bad else " — inga brister")
+    head = f"Mail security {info.get('grade', '?')} ({info.get('score', 0)}/100)"
+    return head + (f" — to fix: {', '.join(bad)}" if bad else " — no issues")
