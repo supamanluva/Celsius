@@ -136,7 +136,7 @@ python3 -m celsius code /path/to/repo --json code-report.json
 python3 -m celsius serve --host 127.0.0.1 --port 8000
 
 # Authorize targets/modes with a scope file; disable active checks
-python3 -m celsius scan scan.example.com --scope scope.yml --no-active
+python3 -m celsius scan example.com --scope scope.yml --no-active
 
 # List past scans (stored locally in SQLite)
 python3 -m celsius history
