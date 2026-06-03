@@ -88,16 +88,35 @@ generation. It:
 - ships a **web app** (FastAPI) and produces **terminal, JSON, HTML, SARIF, and
   Markdown** reports (`--sarif`/`--markdown` for CI/IDE ingestion).
 
-Stdlib-only scanning core — the CLI needs no `pip install`. `nmap`/`nuclei` are
+Stdlib-only scanning core — the CLI needs no dependencies. `nmap`/`nuclei` are
 optional external binaries (auto-discovered, incl. `~/go/bin`). The **web app**
-needs `fastapi`/`uvicorn` (see `requirements.txt`).
+needs `fastapi`/`uvicorn`, pulled in by the `web` extra.
+
+## Install
+
+Managed with [uv](https://docs.astral.sh/uv/). The CLI is stdlib-only, so for a
+quick run you don't even need to install anything:
+
+```bash
+# Run straight from a checkout — uv builds + caches it for you
+uv run celsius https://example.com
+
+# Or install the CLI as a tool on your PATH
+uv tool install .                # then: celsius https://example.com
+
+# Web app needs the `web` extra (fastapi/uvicorn)
+uv run --extra web celsius serve            # http://127.0.0.1:8000
+```
+
+No uv? The stdlib core still runs with plain Python — `python3 -m celsius
+<target>` — and the web app works under a classic venv:
+`python3 -m venv .venv && .venv/bin/pip install -e '.[web]'`.
 
 ## Web app
 
 ```bash
-python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt
-.venv/bin/python -m celsius serve            # http://127.0.0.1:8000
+uv run --extra web celsius serve            # http://127.0.0.1:8000
+# convenience wrapper (detached, PID + logs): ./run.sh   (prefers uv, falls back to venv)
 ```
 
 The UI has two tabs — **Host/Web scan** (target + options, live log, colour-coded
@@ -114,6 +133,9 @@ you are authorized. Only point it at your own systems or sanctioned engagements
 (pentest scope, bug-bounty in-scope, CTF, lab).
 
 ## CLI usage
+
+> Examples below use `python3 -m celsius` (works with zero install). If you ran
+> `uv tool install .`, just use `celsius …`; from a checkout, `uv run celsius …`.
 
 ```bash
 # Host/web scan — headers + CVE lookup + front-end secrets (default)
@@ -334,6 +356,7 @@ which are increasingly polluted with AI-invented "CVEs".
 ## Requirements
 
 - Python 3.10+
+- [uv](https://docs.astral.sh/uv/) (recommended) — `curl -LsSf https://astral.sh/uv/install.sh | sh`
 - `nmap` (optional, for `--ports`)
 - `nuclei` (optional, for `--nuclei`) — `go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest`
 

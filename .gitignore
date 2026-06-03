@@ -12,6 +12,10 @@ __pycache__/
 venv/
 env/
 
+# Build artifacts (uv build / pip)
+dist/
+build/
+
 # Local agent / editor config
 .claude/
 .idea/
