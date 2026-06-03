@@ -1,12 +1,13 @@
 [build-system]
-requires = ["uv_build>=0.9,<0.10"]
+requires = ["uv_build>=0.9,<0.12"]
 build-backend = "uv_build"
 
 [project]
 name = "celsius"
 description = "Local security scanner — web, network & source code. Stdlib-only core."
 readme = "README.md"
-license = { file = "LICENSE" }
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.10"
 # Keep in sync with celsius/__init__.py:__version__ (uv_build needs a static
 # version; the source tree runs uninstalled, so __init__ stays authoritative at
@@ -16,7 +17,6 @@ authors = [{ name = "supamanluva" }]
 keywords = ["security", "scanner", "pentest", "recon", "cve", "vulnerability"]
 classifiers = [
     "Programming Language :: Python :: 3",
-    "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Topic :: Security",
     "Environment :: Console",
@@ -39,8 +39,8 @@ web = [
 celsius = "celsius.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/andvision/celsius"
-Repository = "https://github.com/andvision/celsius"
+Homepage = "https://github.com/supamanluva/celsius"
+Repository = "https://github.com/supamanluva/celsius"
 
 [tool.uv.build-backend]
 # Flat layout: the package lives at the repo root (celsius/), not under src/.
