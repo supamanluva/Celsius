@@ -1,14 +1,28 @@
-"""Optional dynamic crawler via Playwright (headless Chromium).
+"""Dynamic SPA analysis via Playwright (headless Chromium), optional.
 
-Used only when Playwright is installed AND browsers are provisioned:
+Enabled only when Playwright is installed AND a browser is provisioned:
     pip install playwright && playwright install chromium
 
-It renders SPAs and captures the network requests the page actually makes —
-surfacing XHR/fetch endpoints that never appear in static HTML. If anything is
-missing we degrade silently and the static crawler covers the basics.
+Single-page apps render their real content, routes and API calls in the browser —
+none of which appear in static HTML. This module drives a headless browser to:
+  - render the app and follow same-origin in-app links (client-side routes),
+  - capture the XHR/fetch endpoints the page actually calls (with methods),
+  - return the post-JS DOM of each view (so DOM-XSS sink and secret scanning see
+    what the user sees), and
+  - collect console errors (often leaking stack traces / internal paths).
+
+It honours an authenticated session (cookies/headers are set on the browser
+context). If Playwright is missing it degrades silently and the static crawler
+covers the basics. The browser-driving part is isolated; the URL/endpoint logic
+below is pure and unit-tested.
 """
 
 from __future__ import annotations
+
+import urllib.parse
+
+USER_AGENT = "secscan/1.1 (+authorized security testing)"
+_API_SEGMENTS = ("/api", "/graphql", "/v1/", "/v2/", "/rest", "/gql", "/.json")
 
 
 def is_available() -> bool:
@@ -19,10 +33,45 @@ def is_available() -> bool:
         return False
 
 
-def crawl(url: str, *, timeout_ms: int = 15000) -> tuple[dict, list[str]]:
-    """Render `url`, capture requested URLs + final HTML. Returns (info, errors).
+def _same_host(url: str, host: str) -> bool:
+    try:
+        return urllib.parse.urlparse(url).netloc == host
+    except ValueError:
+        return False
 
-    info = {"requests": [...], "html": "...", "endpoints": [...]}.
+
+def _looks_like_endpoint(url: str, rtype: str) -> bool:
+    if rtype in ("xhr", "fetch", "websocket"):
+        return True
+    low = url.lower()
+    return any(seg in low for seg in _API_SEGMENTS)
+
+
+def extract_endpoints(requests: list[tuple], host: str) -> list[str]:
+    """From captured (method, url, resource_type) tuples, return same-host API
+    endpoints as 'METHOD url' strings. Pure function (no browser)."""
+    out: set[str] = set()
+    for method, url, rtype in requests:
+        if _same_host(url, host) and _looks_like_endpoint(url, rtype):
+            out.add(f"{method} {url.split('#')[0]}")
+    return sorted(out)
+
+
+def extract_routes(page_urls: list[str]) -> list[str]:
+    """Distinct client-side routes (path[+hash]) from the rendered page URLs."""
+    routes: set[str] = set()
+    for u in page_urls:
+        p = urllib.parse.urlparse(u)
+        routes.add(p.path + (f"#{p.fragment}" if p.fragment else ""))
+    return sorted(routes)
+
+
+def crawl(url: str, *, max_pages: int = 10, timeout_ms: int = 15000,
+          auth=None, insecure: bool = False) -> tuple[dict, list[str]]:
+    """Render `url` and follow same-origin in-app links up to `max_pages`.
+
+    Returns (info, errors) with info = {endpoints, routes, pages{url:html},
+    requests, console_errors}.
     """
     errors: list[str] = []
     if not is_available():
@@ -32,25 +81,54 @@ def crawl(url: str, *, timeout_ms: int = 15000) -> tuple[dict, list[str]]:
     except ImportError:
         return {}, ["playwright import failed"]
 
-    requests: list[str] = []
-    html = ""
+    host = urllib.parse.urlparse(url).netloc
+    requests: list[tuple] = []
+    console_errors: list[str] = []
+    pages: dict[str, str] = {}
+    seen: set[str] = set()
+    queue: list[str] = [url]
+
     try:
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
-            page = browser.new_page(user_agent="secscan/0.5 (+authorized security testing)")
-            page.on("request", lambda req: requests.append(req.url))
-            page.goto(url, wait_until="networkidle", timeout=timeout_ms)
-            html = page.content()
-            browser.close()
-    except Exception as e:  # playwright raises many runtime errors (no browser, nav, ...)
-        return {}, [f"playwright crawl failed: {e}"]
+            ctx_kwargs = {"user_agent": USER_AGENT, "ignore_https_errors": insecure}
+            if auth and getattr(auth, "headers", None):
+                ctx_kwargs["extra_http_headers"] = dict(auth.headers)
+            context = browser.new_context(**ctx_kwargs)
+            page = context.new_page()
+            page.on("request", lambda r: requests.append((r.method, r.url, r.resource_type)))
+            page.on("console", lambda m: console_errors.append(m.text[:300])
+                    if m.type == "error" else None)
 
-    # endpoints = same-host XHR/fetch-looking requests
-    import urllib.parse
-    host = urllib.parse.urlparse(url).netloc
-    endpoints = sorted({
-        r for r in requests
-        if urllib.parse.urlparse(r).netloc == host
-        and any(seg in r for seg in ("/api", "/graphql", "/v1", "/v2", "/rest"))
-    })
-    return {"requests": sorted(set(requests))[:300], "html": html, "endpoints": endpoints}, errors
+            while queue and len(pages) < max_pages:
+                u = queue.pop(0)
+                norm = u.split("#")[0]
+                if norm in seen:
+                    continue
+                seen.add(norm)
+                try:
+                    page.goto(u, wait_until="networkidle", timeout=timeout_ms)
+                    html = page.content()
+                except Exception as e:  # navigation/timeout/etc.
+                    errors.append(f"dynamic nav {u}: {str(e)[:120]}")
+                    continue
+                pages[page.url] = html
+                try:
+                    hrefs = page.eval_on_selector_all("a[href]", "els => els.map(e => e.href)")
+                except Exception:
+                    hrefs = []
+                for h in hrefs:
+                    if _same_host(h, host) and h.split("#")[0] not in seen:
+                        queue.append(h)
+            context.close()
+            browser.close()
+    except Exception as e:  # launch failure (no browser provisioned), etc.
+        return {}, [f"playwright crawl failed: {str(e)[:160]}"]
+
+    return {
+        "endpoints": extract_endpoints(requests, host),
+        "routes": extract_routes(list(pages.keys())),
+        "pages": pages,
+        "requests": sorted({u for _m, u, _t in requests})[:300],
+        "console_errors": console_errors[:50],
+    }, errors
