@@ -23,6 +23,7 @@ def assess_coverage(result: ScanResult, config: ScanConfig) -> dict:
     mark("web-headers", config.web)
     mark("dns", config.dns and not _is_ip(result))
     mark("tls", config.tls)
+    mark("robots/sitemap", config.robots and not _is_ip(result))
     mark("fingerprint", config.fingerprint)
     mark("subdomains", config.subdomains)
     mark("port-scan", config.ports)
