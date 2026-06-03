@@ -20,7 +20,7 @@ from .engine import ScanConfig, run_scan
 from .logsetup import setup_logging
 from .models import Severity
 
-BANNER = f"secscan {__version__} — service/version + CVE + web + code scanner"
+BANNER = f"Celsius {__version__} — service/version + CVE + web + code scanner (cli: secscan)"
 
 CONSENT_TEXT = """\
 ╭───────────────────────────────────────────────────────────────────────────╮
@@ -35,7 +35,7 @@ _SUBCOMMANDS = {"scan", "code", "serve", "history"}
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="secscan", description=BANNER)
-    p.add_argument("--version", action="version", version=f"secscan {__version__}")
+    p.add_argument("--version", action="version", version=f"Celsius {__version__} (secscan)")
     sub = p.add_subparsers(dest="command")
 
     # scan
@@ -417,7 +417,7 @@ def _cmd_serve(args) -> int:
               "then run:  .venv/bin/python -m secscan serve", file=sys.stderr)
         return 1
     mode = " (auto-reload)" if args.reload else ""
-    print(f"[*] secscan web app on http://{args.host}:{args.port}{mode}", file=sys.stderr)
+    print(f"[*] Celsius web app on http://{args.host}:{args.port}{mode}", file=sys.stderr)
     uvicorn.run("secscan.web.app:app", host=args.host, port=args.port,
                 log_level="info", reload=args.reload)
     return 0

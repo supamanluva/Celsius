@@ -34,7 +34,7 @@ from ..store import Store
 setup_logging()
 _log = get_logger("web")
 
-app = FastAPI(title="secscan", version="0.3.0")
+app = FastAPI(title="Celsius (secscan)", version="0.3.0")
 
 _STATIC = os.path.join(os.path.dirname(__file__), "static")
 _executor = ThreadPoolExecutor(max_workers=4)
