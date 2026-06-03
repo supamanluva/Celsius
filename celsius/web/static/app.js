@@ -317,7 +317,9 @@ function renderResult(res, scanId) {
   // but kept out of the headline severity counts so they don't cry wolf.
   let weakCount = 0;
   (res.cves || []).forEach((c) => { if (c.confidence === "weak") weakCount++; else counts[c.severity]++; });
-  (res.findings || []).forEach((f) => counts[f.severity]++);
+  // AI hypotheses are leads, not facts — kept out of the headline severity too.
+  let aiCount = 0;
+  (res.findings || []).forEach((f) => { if (f.category === "ai-hypothesis") aiCount++; else counts[f.severity]++; });
 
   const scannedHost = hostOf(res.url || res.target) || "";
   const apex = scannedHost.split(".").slice(-2).join(".");
@@ -326,6 +328,7 @@ function renderResult(res, scanId) {
   sum.innerHTML = ["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"]
     .map((s) => `<span class="chip sev-${s}">${s} ${counts[s]}</span>`).join("")
     + (weakCount ? `<span class="chip sev-UNCONFIRMED" title="Reported but not confirmed — verify before acting">⚠ UNCONFIRMED ${weakCount}</span>` : "")
+    + (aiCount ? `<span class="chip sev-AILEADS" title="AI hypotheses — unverified leads, not counted in severity">🤖 AI LEADS ${aiCount}</span>` : "")
     + (scanId ? `<a class="reportlink" href="/api/scans/${encodeURIComponent(scanId)}/report.html" target="_blank">📄 HTML report</a>` : "")
     + (apex ? `<a class="reportlink" href="/api/domain/${encodeURIComponent(apex)}/report.html" target="_blank" title="Aggregated report across ${esc(apex)} and its scanned subdomains">🌐 Domain report (${esc(apex)})</a>` : "");
 
@@ -427,12 +430,18 @@ function renderResult(res, scanId) {
     });
   } else html += `<p class="empty">none found for detected versions</p>`;
 
-  // findings
-  const finds = (res.findings || []).slice().sort((a, b) =>
-    SEV_ORDER[b.severity] - SEV_ORDER[a.severity]);
-  html += `<h2 class="section">Web / config findings (${finds.length})</h2>`;
+  // findings — confirmed findings first, AI hypotheses (leads, not facts) in a
+  // separate block below. Keep a single `finds` array so pocBtn data-i still maps.
+  const bySev = (a, b) => SEV_ORDER[b.severity] - SEV_ORDER[a.severity];
+  const realFinds = (res.findings || []).filter((f) => f.category !== "ai-hypothesis").sort(bySev);
+  const aiFinds = (res.findings || []).filter((f) => f.category === "ai-hypothesis").sort(bySev);
+  const finds = [...realFinds, ...aiFinds];
+  html += `<h2 class="section">Web / config findings (${realFinds.length})</h2>`;
   if (finds.length) {
     finds.forEach((f, i) => {
+      if (i === realFinds.length) {
+        html += `<h2 class="section">🤖 AI hypotheses (${aiFinds.length}) — unverified leads, not counted in severity. Verify before trusting.</h2>`;
+      }
       const conf = f.confidence ? ` <span class="conf">confidence: ${esc(f.confidence)}</span>` : "";
       const aiTag = f.category && f.category.startsWith("ai") ? ' <span class="ai-tag">AI</span>' : "";
       html += `<div class="card ${f.severity}">
