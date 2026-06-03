@@ -27,6 +27,9 @@ code**, with a **web UI** and **text-only proof-of-concept** generation. It:
 - **scans front-end content for exposed secrets** (HTML + linked JS);
 - **scans source code** for hardcoded secrets (regex + entropy) and risky
   patterns (SAST-lite), integrating `gitleaks`/`semgrep`/`trufflehog` if present;
+- **audits dependencies (SCA)** — parses lockfiles/manifests (npm, PyPI,
+  Packagist, RubyGems, Go, crates.io) and flags known-vulnerable versions via
+  the OSV.dev database (no API key), with CVE ids and fixed versions;
 - **assesses exploitability** — enriches every CVE/finding with EPSS (exploitation
   probability), CISA **KEV** (exploited in the wild), and reachability, into a
   verdict + priority and a *"how to check if exploitable"* decision tree;
@@ -170,6 +173,7 @@ Lab mode is **CLI-only by design** — active exploitation is not exposed in the
 |------|---------|
 | `--no-web` | skip HTTP header/CSP analysis |
 | `--no-cve` | skip the NVD CVE lookup |
+| `--full` / `--thorough` | enable every safe check at once (ports, nuclei, subdomains, crawl, API discovery, mail, CVE-verify, OS detect) |
 | `--mail` | check email security (SPF/DKIM/DMARC/MTA-STS/TLS-RPT/DNSSEC/BIMI), graded A–F |
 | `--ports` | run `nmap -sV` (off by default) |
 | `--top-ports N` / `--port-range "80,443"` | port selection for nmap |

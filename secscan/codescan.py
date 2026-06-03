@@ -226,7 +226,7 @@ def _trufflehog(root: str) -> tuple[list[CodeFinding], Optional[str]]:
 
 # ---- public API ---------------------------------------------------------------
 
-def scan_path(root: str, *, use_external: bool = True) -> CodeScanResult:
+def scan_path(root: str, *, use_external: bool = True, sca: bool = True) -> CodeScanResult:
     root = os.path.abspath(root)
     result = CodeScanResult(root=root, tools_used=["builtin"])
     if not os.path.exists(root):
@@ -255,6 +255,18 @@ def scan_path(root: str, *, use_external: bool = True) -> CodeScanResult:
                             result.tools_used.append(tool)
             except Exception as e:  # never let an optional tool break the scan
                 result.errors.append(f"external scanner error: {e}")
+
+    # Software-composition analysis: known-vulnerable dependencies (OSV.dev).
+    if sca:
+        try:
+            from . import sca as sca_mod
+            sca_findings, sca_errs = sca_mod.scan_dependencies(base if os.path.isdir(root) else root)
+            result.findings.extend(CodeFinding(**f) for f in sca_findings)
+            result.errors.extend(sca_errs)
+            if "osv" not in result.tools_used:
+                result.tools_used.append("osv")
+        except Exception as e:
+            result.errors.append(f"sca error: {e}")
 
     result.findings = _dedupe(result.findings)
     return result

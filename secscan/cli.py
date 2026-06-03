@@ -41,6 +41,9 @@ def build_parser() -> argparse.ArgumentParser:
     # scan
     s = sub.add_parser("scan", help="host/web scan")
     s.add_argument("target", help="URL, hostname, or IP")
+    s.add_argument("--full", "--thorough", action="store_true", dest="full",
+                   help="turn on every safe check at once (ports, nuclei, subdomains, "
+                        "crawl, API discovery, mail, CVE-verify, OS detect)")
     s.add_argument("--no-web", action="store_true", help="skip HTTP header/CSP analysis")
     s.add_argument("--no-cve", action="store_true", help="skip NVD CVE lookup")
     s.add_argument("--no-secrets", action="store_true", help="skip front-end secret scan")
@@ -104,6 +107,8 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("path", help="directory or file to scan")
     c.add_argument("--json", metavar="FILE")
     c.add_argument("--no-external", action="store_true", help="don't call gitleaks/semgrep/trufflehog")
+    c.add_argument("--no-sca", action="store_true",
+                   help="skip dependency vulnerability scan (OSV.dev; needs network)")
     c.add_argument("--ai", action="store_true", help="add an AI secure-code review pass")
     c.add_argument("--ai-provider", default="deepseek", help="deepseek|openai|anthropic|local|mock")
     c.add_argument("--ai-model", help="override the provider's default model")
@@ -137,6 +142,13 @@ def _cmd_scan(args) -> int:
     if not _confirm_authorization(args.target, args.yes):
         print("Aborted: authorization not confirmed.", file=sys.stderr)
         return 2
+
+    # --full / --thorough: enable the whole safe (passive + safe-active) battery.
+    # Lab/exploit and AI stay opt-in (they need attestation / an API key).
+    if args.full:
+        for attr in ("ports", "nuclei", "subdomains", "crawl", "api_discovery",
+                     "mail", "cve_verify", "os_detect"):
+            setattr(args, attr, True)
 
     # Lab-mode attestation gate (in addition to scope EXPLOIT + the auth prompt).
     lab_attest = None
@@ -249,7 +261,7 @@ _SEV_RANK = {"CRITICAL": 4, "HIGH": 3, "MEDIUM": 2, "LOW": 1, "INFO": 0}
 
 def _cmd_code(args) -> int:
     print(f"[*] scanning {args.path} ...", file=sys.stderr)
-    res = codescan.scan_path(args.path, use_external=not args.no_external)
+    res = codescan.scan_path(args.path, use_external=not args.no_external, sca=not args.no_sca)
     if getattr(args, "ai", False):
         _ai_code_review(args, res)
     print(f"\n secscan code scan — {res.root}")
