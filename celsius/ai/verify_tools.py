@@ -11,9 +11,10 @@ All tools are non-destructive: an HTTP GET, a DNS/CNAME lookup, a TCP connect.
 from __future__ import annotations
 
 import re
+import shlex
 import socket
 from typing import Callable, Optional
-from urllib.parse import urlparse
+from urllib.parse import urlencode, urlparse
 
 from .. import webchecks
 
@@ -47,6 +48,15 @@ TOOL_SPECS = [
      "args": {"host": "the scanned host"},
      "use": "resolve A/AAAA/CNAME/MX/TXT/CAA records (+ reverse DNS) — confirms DNS "
             "exposure, mail setup, missing CAA, dangling records"},
+    {"name": "poc",
+     "args": {"method": "GET|HEAD|OPTIONS|POST", "url": "absolute URL on the scanned host",
+              "headers": "optional request headers", "body": "optional POST form fields {key: value}"},
+     "use": "DEMONSTRATE exploitability by sending one crafted request and capturing "
+            "the result + a reproducible `curl`. Use the URL/headers/body to carry a "
+            "benign detection payload that PROVES impact: an open-redirect to a canary, "
+            "a unique XSS marker that comes back unescaped, an Origin that gets reflected "
+            "with credentials, fetching an exposed file's contents, an SSRF callback URL. "
+            "STRICTLY non-destructive: never delete/modify data, never brute-force creds."},
 ]
 
 
@@ -150,12 +160,66 @@ def _takeover_check(args: dict, lab) -> Optional[dict]:
     }
 
 
+def _curl(method: str, url: str, headers: Optional[dict], body: Optional[dict]) -> str:
+    """A copy-pasteable reproduction of the exact PoC request."""
+    parts = ["curl", "-sk", "-i"]
+    if method != "GET":
+        parts += ["-X", method]
+    for k, v in (headers or {}).items():
+        parts += ["-H", shlex.quote(f"{k}: {v}")]
+    if body:
+        parts += ["--data", shlex.quote(urlencode(body))]
+    parts.append(shlex.quote(url))
+    return " ".join(parts)
+
+
+_POC_METHODS = {"GET", "HEAD", "OPTIONS", "POST"}
+
+
+def _poc_request(args: dict, lab) -> Optional[dict]:
+    """Send ONE crafted PoC request through the harness and capture the proof.
+
+    Guarded: read-only/benign only (a destructive filter blocks SQL-write/OS-cmd
+    payloads), host-locked, and routed through the lab harness (scope, rate-limit,
+    request cap, attestation, kill-switch, dry-run preview)."""
+    from .agent import _DESTRUCTIVE  # lazy: avoids an import cycle
+    url = (args or {}).get("url")
+    method = str((args or {}).get("method") or "GET").upper()
+    headers = (args or {}).get("headers")
+    headers = headers if isinstance(headers, dict) else None
+    body = (args or {}).get("body")
+    body = body if isinstance(body, dict) else None
+    if method not in _POC_METHODS:
+        return {"tool": "poc", "error": f"method {method} not allowed"}
+    if not isinstance(url, str) or not _same_host(urlparse(url).hostname or "", lab.host):
+        return {"tool": "poc", "url": url, "error": "off-scope host refused"}
+    blob = " ".join([url, *(f"{k}:{v}" for k, v in (headers or {}).items()),
+                     *map(str, (body or {}).values())])
+    if _DESTRUCTIVE.search(blob):
+        return {"tool": "poc", "url": url, "error": "refused: request looks state-changing/destructive"}
+    resp = lab.send(url, method=method, data=body, headers=headers,
+                    purpose="ai-tool:poc", payload=True, follow=False)
+    curl = _curl(method, url, headers, body)
+    if resp is None:
+        return {"tool": "poc", "url": url, "curl": curl, "error": "no response / halted (or dry-run preview)"}
+    text = resp.body or ""
+    m = _TITLE.search(text)
+    return {
+        "tool": "poc", "method": method, "url": url, "status": resp.status,
+        "location": resp.location, "response_headers": resp.headers or {},
+        "title": (m.group(1).strip()[:120] if m else ""),
+        "snippet": re.sub(r"\s+", " ", text).strip()[:600],
+        "curl": curl,
+    }
+
+
 _TOOLS: dict[str, Callable[[dict, object], Optional[dict]]] = {
     "http_get": _http_get,
     "tcp_connect": _tcp_connect,
     "takeover_check": _takeover_check,
     "tls_probe": _tls_probe,
     "dns_lookup": _dns_lookup,
+    "poc": _poc_request,
 }
 
 

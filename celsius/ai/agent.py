@@ -187,7 +187,7 @@ def prove_hypotheses(result_dict: dict, hypotheses: list[dict], provider: LLMPro
             status = "inconclusive"
         verdicts.append({"index": idx, "status": status, "severity": v.get("severity"),
                          "reasoning": v.get("reasoning", ""), "evidence": v.get("evidence", ""),
-                         "tool": tool})
+                         "tool": tool, "poc": (evidence or {}).get("curl")})
         log(f"ai-prove: {status.upper()} — {hyp.get('title', '')[:60]} (via {tool})")
     return verdicts
 
@@ -227,6 +227,13 @@ def apply_verdicts(findings: list, verdicts: list[dict]) -> tuple[list, dict]:
             f.title = "[AI-verified] " + f.title.removeprefix("[AI] ")
             f.description = (f.description
                              + f" — CONFIRMED via {v.get('tool')}: {v.get('evidence', '')}").strip()
+            if v.get("poc"):
+                f.evidence = (f.evidence + " | " if f.evidence else "") + f"PoC: {v['poc']}"
+                f.recommendation = (f.recommendation + "  Reproduce the PoC above to "
+                                    "confirm, then remediate.").strip()
+            f.exploitability = {"verdict": "confirmed-exploitable", "priority": 90,
+                                "signals": {"actively_verified": True, "ai_planned": True,
+                                            "has_poc": bool(v.get("poc"))}}
         else:
             stats["needs_manual"] += 1
             f.description = f.description + f" — [unconfirmed: {v.get('tool', 'tool')} {st}]"

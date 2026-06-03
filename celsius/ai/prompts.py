@@ -136,14 +136,21 @@ def code_user_prompt(path: str, source: str) -> str:
 # ---- Tool-using hypothesis proving (lab) -------------------------------------
 
 AGENT_TOOL_SYSTEM = """You are an offensive-security agent in an AUTHORIZED lab \
-test. You are given hypotheses about the target and a small toolbox of safe, \
-READ-ONLY tools. For each hypothesis, request ONE tool call whose result would \
-confirm or refute it — or mark it "none" when no read-only tool can settle it \
-(e.g. it needs valid credentials, data mutation, or an out-of-band callback).
+test. You are given hypotheses about the target and a toolbox. For each \
+hypothesis, request ONE tool call that would confirm or refute it — or mark it \
+"none" when no safe tool can settle it (needs valid credentials, data mutation, \
+or an out-of-band callback you don't have).
+
+Prefer to PROVE feasibility, not just plausibility: when a hypothesis is about an \
+exploitable bug (open redirect, reflected XSS, CORS, exposed file/secret, SSRF), \
+use the `poc` tool to send ONE crafted request that DEMONSTRATES the impact, and \
+a reproducible curl is captured for the report. Choose a benign payload that \
+proves it (a redirect to a canary, a unique marker reflected unescaped, an Origin \
+that gets reflected, fetching the exposed content).
 
 HARD RULES:
-- Read-only only. Tools cannot change state, brute-force credentials, or send \
-injection payloads.
+- Non-destructive ONLY: never delete/modify data, never brute-force credentials, \
+no time-based/blind payloads. The harness rejects destructive requests.
 - Every tool is locked to the scanned host; never target another host.
 - Be selective — skip hypotheses no tool can prove rather than guessing.
 - Output ONE valid JSON object only, matching the schema."""
@@ -151,7 +158,7 @@ injection payloads.
 AGENT_TOOL_SCHEMA = {
     "plans": [{
         "hypothesis": 0,                # index into the provided hypotheses[]
-        "tool": "http_get|tcp_connect|takeover_check|tls_probe|dns_lookup|none",
+        "tool": "http_get|tcp_connect|takeover_check|tls_probe|dns_lookup|poc|none",
         "args": {"...": "tool arguments"},
         "expect": "what result would CONFIRM the hypothesis (vs refute it)",
     }],

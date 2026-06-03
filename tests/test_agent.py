@@ -59,6 +59,20 @@ def test_new_tools_validation_and_host_lock():
     assert "response_headers" in ok and ok["method"] == "GET"
 
 
+def test_poc_tool_guards_and_curl():
+    lab = _Lab()  # host = z.luhn.se
+    # destructive request refused
+    bad = verify_tools.run_tool("poc", {"method": "POST", "url": "https://z.luhn.se/x",
+                                        "body": {"q": "1; DROP TABLE users"}}, lab)
+    assert "destructive" in bad.get("error", "")
+    # off-scope refused
+    assert verify_tools.run_tool("poc", {"url": "https://evil.example/"}, lab).get("error")
+    # benign GET PoC returns a reproducible curl artifact
+    ok = verify_tools.run_tool("poc", {"method": "GET",
+                                       "url": "https://z.luhn.se/?next=https://canary.test"}, lab)
+    assert ok["curl"].startswith("curl") and "z.luhn.se" in ok["curl"] and "status" in ok
+
+
 def test_apply_verdicts_confirm_refute_keep():
     finds = [
         Finding(title="Missing CSP", severity=Severity.MEDIUM, category="csp"),
