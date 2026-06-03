@@ -111,9 +111,13 @@ class Store:
 
 
 def _worst_severity(cves: list[dict], findings: list[dict]) -> str:
+    # Low-confidence CVEs (over-broad NVD match or distro-backported package) are
+    # reported but must not drive the headline severity — otherwise an unconfirmed
+    # legacy CVE makes every box look CRITICAL.
+    firm_cves = [c for c in cves if c.get("confidence", "firm") != "weak"]
     worst, rank = "INFO", -1
-    for item in list(cves) + list(findings):
+    for item in list(firm_cves) + list(findings):
         s = item.get("severity", "INFO")
         if _SEV_RANK.get(s, 0) > rank:
             worst, rank = s, _SEV_RANK.get(s, 0)
-    return worst if (cves or findings) else "NONE"
+    return worst if (firm_cves or findings) else "NONE"

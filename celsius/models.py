@@ -73,6 +73,10 @@ class CVE:
     affects: str = ""  # which detected service this maps to
     references: list[dict[str, Any]] = field(default_factory=list)  # PoC/exploit refs
     verified: bool = False  # confirmed via nuclei template against the live target
+    confidence: str = "firm"  # "firm" | "weak" — weak = over-broad NVD match (no
+                              # version range) or distro-backported package; not a
+                              # confident hit and excluded from the headline severity
+    caveat: str = ""          # why a match is weak / how to confirm it
     exploitability: dict[str, Any] = field(default_factory=dict)  # M4: verdict/signals/howto
 
     def poc_refs(self) -> list[str]:
@@ -141,5 +145,9 @@ class ScanResult:
         }
 
     def all_severities_sorted(self) -> list[Severity]:
-        sev = {c.severity for c in self.cves} | {f.severity for f in self.findings}
+        # Weak (low-confidence) CVEs are reported but excluded from the headline
+        # severity / exit code, so an unconfirmed legacy match can't flip the
+        # whole result to CRITICAL.
+        sev = {c.severity for c in self.cves if c.confidence != "weak"} \
+            | {f.severity for f in self.findings}
         return sorted(sev, key=lambda s: s.rank, reverse=True)
