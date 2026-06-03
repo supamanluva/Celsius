@@ -70,7 +70,10 @@ class CVE:
     description: str
     url: str
     published: Optional[str] = None
-    affects: str = ""  # which detected service this maps to
+    affects: str = ""  # human-readable label, e.g. "nginx 1.29.8 (port 443/tcp)"
+    product: str = ""  # structured mapping back to the detected service, so CVEs
+    version: str = ""  # can be grouped/filtered/exported per component without
+    port: Optional[int] = None  # re-parsing the `affects` string
     references: list[dict[str, Any]] = field(default_factory=list)  # PoC/exploit refs
     verified: bool = False  # confirmed via nuclei template against the live target
     confidence: str = "firm"  # "firm" | "weak" — weak = over-broad NVD match (no
