@@ -196,6 +196,7 @@ class PortScan(Plugin):
             svcs, os_info, errs = portscan.scan(
                 ctx.target.host, top_ports=ctx.config.top_ports,
                 ports=ctx.config.port_range, os_detect=ctx.config.os_detect,
+                resolved_ip=ctx.result.ip,
             )
             ctx.result.services.extend(svcs)
             ctx.result.errors.extend(errs)

@@ -20,7 +20,7 @@ def test_host_of_variants():
 
 
 def _scan(host, cves=None, findings=None):
-    return {"target": f"https://{host}", "url": f"https://{host}/",
+    return {"target": f"https://{host}", "url": f"https://{host}/", "ip": "203.0.113.1",
             "finished_at": "2026-06-03T18:00:00Z",
             "services": [{"name": "nginx"}],
             "cves": cves or [], "findings": findings or []}
@@ -43,6 +43,7 @@ def test_rollup_aggregates_and_excludes_weak():
     assert "CRITICAL 1" in html
     # the weak one surfaces as UNCONFIRMED
     assert "UNCONFIRMED 1" in html
+    assert "203.0.113.1" in html and "unique IP" in html
 
 
 def test_rollup_empty_is_friendly():

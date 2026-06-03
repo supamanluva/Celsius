@@ -10,16 +10,60 @@ proceeds and a note is recorded.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import shutil
+import socket
 import subprocess
+import time
 import xml.etree.ElementTree as ET
+from dataclasses import asdict
+from pathlib import Path
 from typing import Optional
 
 from .logsetup import get_logger
 from .models import Service
 
 _log = get_logger("nmap")
+
+# Port state is an IP-level property, so scanning N hostnames that resolve to the
+# same IP (e.g. a domain + its subdomains behind one server) re-runs nmap for an
+# identical result. Cache parsed results per (IP, port-spec) and reuse them.
+_CACHE_DIR = Path(os.path.expanduser("~/.cache/celsius/portscan"))
+_CACHE_TTL = 6 * 3600
+
+
+def _resolve(host: str) -> Optional[str]:
+    try:
+        return socket.gethostbyname(host)
+    except (socket.gaierror, OSError):
+        return None
+
+
+def _cache_file(key: str) -> Path:
+    return _CACHE_DIR / (hashlib.sha256(key.encode()).hexdigest() + ".json")
+
+
+def _cache_get(key: str) -> Optional[dict]:
+    f = _cache_file(key)
+    try:
+        if not f.exists() or (time.time() - f.stat().st_mtime) > _CACHE_TTL:
+            return None
+        data = json.loads(f.read_text())
+        data["_age"] = int(time.time() - f.stat().st_mtime)
+        return data
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def _cache_put(key: str, services: list[Service], os_info: dict) -> None:
+    try:
+        _CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        _cache_file(key).write_text(json.dumps(
+            {"services": [asdict(s) for s in services], "os_info": os_info}))
+    except OSError:
+        pass
 
 
 class NmapNotInstalled(RuntimeError):
@@ -46,17 +90,33 @@ def scan(
     timeout: int = 300,
     os_detect: bool = False,
     extra_args: Optional[list[str]] = None,
+    resolved_ip: Optional[str] = None,
 ) -> tuple[list[Service], dict, list[str]]:
     """Run nmap service/version detection. Returns (services, os_info, errors).
 
     `ports` (e.g. "80,443,8080" or "1-1000") overrides `top_ports` if given.
     `os_detect` adds OS/device fingerprinting (`-O`); requires root, otherwise it
     is skipped with a note and `os_info` is empty.
+
+    Results are cached per resolved IP + port-spec, so scanning several hostnames
+    that share an IP only runs nmap once. Pass `resolved_ip` to reuse an
+    already-resolved address (else it resolves `host` itself).
     """
     errors: list[str] = []
     path = nmap_path()
     if not path:
         raise NmapNotInstalled("nmap is not installed or not on PATH")
+
+    # IP-level cache: reuse a recent scan of the same address.
+    ip = resolved_ip or _resolve(host)
+    cache_key = f"{ip}|{ports or 'top' + str(top_ports)}|os={int(bool(os_detect))}" if ip else None
+    if cache_key:
+        hit = _cache_get(cache_key)
+        if hit is not None:
+            services = [Service(**s) for s in hit.get("services", [])]
+            note = (f"port scan reused from a recent scan of {ip} "
+                    f"(shared by this host; cached {hit['_age']}s ago)")
+            return services, hit.get("os_info") or {}, [note]
 
     cmd = [path, "-sV", "-Pn", "-T4", "-oX", "-"]
     if os_detect:
@@ -103,6 +163,8 @@ def scan(
 
     services = _parse_xml(root)
     os_info = _parse_os(root) if os_detect else {}
+    if cache_key:
+        _cache_put(cache_key, services, os_info)
     return services, os_info, errors
 
 
@@ -118,7 +180,7 @@ def _parse_xml(root: ET.Element) -> list[Service]:
             svc = port.find("service")
             if svc is None:
                 services.append(Service(
-                    name=f"unknown",
+                    name="unknown",
                     port=int(portid) if portid else None,
                     protocol=protocol,
                     source="nmap",
