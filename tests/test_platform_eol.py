@@ -1,7 +1,7 @@
 """Tests for passive OS/platform inference and the EOL knowledge base.
 
-Pinned against the real example.com stack (Java/Tomcat + SiteVision behind an F5
-BIG-IP) and a curated set of EOL/ supported versions. Stdlib-only: run directly
+Pinned against a real-world stack (Java/Tomcat + SiteVision behind an F5 BIG-IP)
+and a curated set of EOL/ supported versions. Stdlib-only: run directly
 (`python tests/test_platform_eol.py`) or under pytest.
 """
 
@@ -69,7 +69,7 @@ def _platform(headers, body=""):
     return techs, platform
 
 
-def test_example_stack_inferred():
+def test_sitevision_f5_stack_inferred():
     headers = {
         "set-cookie": "JSESSIONID=ABC123; Path=/; Secure; HttpOnly; "
                       "SiteVisionLTM=!HUu/dEtzhiF0X9hc/EGK4Up6bd4mG9dqrg6/WJfzQVjJxkdb30HQ==; path=/",
@@ -97,7 +97,7 @@ def test_server_header_os_hint():
 
 
 def test_nodejs_openresty_weak_linux():
-    # secop.se shape: Next.js behind OpenResty, no cookies / OS hint -> low-conf Linux
+    # Next.js behind OpenResty, no cookies / OS hint -> low-conf Linux
     _techs, platform = _platform({"server": "openresty", "x-powered-by": "Next.js"})
     assert platform["runtime"] == "Node.js"
     assert platform["os"] == "Linux"
