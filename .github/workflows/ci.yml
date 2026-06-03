@@ -31,3 +31,19 @@ jobs:
         run: |
           pip install ruff
           ruff check celsius/ || true
+
+  # Verify the uv packaging path (build backend + lockfile) without undermining
+  # the stdlib-only proof above, which deliberately runs with plain Python.
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Build wheel + sdist (uv_build backend)
+        run: uv build
+
+      - name: Web extra resolves from lockfile + CLI runs under uv
+        run: uv run --extra web celsius --version
