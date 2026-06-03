@@ -4,6 +4,27 @@ const $ = (id) => document.getElementById(id);
 const SEV_ORDER = { CRITICAL: 4, HIGH: 3, MEDIUM: 2, LOW: 1, INFO: 0 };
 let lastUrl = null; // url of last scan, for PoC context
 
+// ---- theme (light / dark) ----------------------------------------------------
+(function initTheme() {
+  const KEY = "celsius_theme";
+  const root = document.documentElement;
+  function apply(theme) {
+    root.setAttribute("data-theme", theme);
+    const btn = $("themeToggle");
+    if (btn) btn.textContent = theme === "light" ? "☾" : "☀"; // ☾ / ☀
+  }
+  let saved = null;
+  try { saved = localStorage.getItem(KEY); } catch (e) { /* private mode */ }
+  apply(saved === "light" ? "light" : "dark"); // dark by default; light is opt-in
+  document.addEventListener("click", (e) => {
+    if (e.target && e.target.id === "themeToggle") {
+      const next = root.getAttribute("data-theme") === "light" ? "dark" : "light";
+      apply(next);
+      try { localStorage.setItem(KEY, next); } catch (_) { /* ignore */ }
+    }
+  });
+})();
+
 // ---- tabs --------------------------------------------------------------------
 document.querySelectorAll(".tab").forEach((t) => {
   t.addEventListener("click", () => {

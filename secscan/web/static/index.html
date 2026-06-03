@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>secscan — security scanner</title>
+  <title>Celsius — security scanner</title>
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
@@ -12,17 +12,18 @@
       <span class="brand-mark" aria-hidden="true">
         <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor"
              stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M12 2 4 5v6c0 5 3.4 8.5 8 11 4.6-2.5 8-6 8-11V5l-8-3Z"/>
-          <path d="m9 12 2 2 4-4"/>
+          <path d="M14 14.76V5a2 2 0 0 0-4 0v9.76a4 4 0 1 0 4 0Z"/>
+          <line x1="10" y1="9" x2="14" y2="9"/>
         </svg>
       </span>
       <div class="brand-text">
-        <span class="brand-name">secscan</span>
+        <span class="brand-name">Celsius</span>
         <span class="brand-sub">security scanner</span>
       </div>
     </div>
     <div class="topbar-meta">
       <span class="pill-soft">passive · active · AI</span>
+      <button id="themeToggle" class="theme-toggle" title="Toggle light / dark" aria-label="Toggle theme"></button>
     </div>
   </header>
 
@@ -124,7 +125,7 @@
   </div>
 
   <footer>
-    For authorized security testing only · CVE data: NVD + MITRE · PoC steps are non-destructive
+    <strong>Celsius</strong> · for authorized security testing only · CVE data: NVD + MITRE · PoC steps are non-destructive
   </footer>
 
   <script src="/static/app.js"></script>

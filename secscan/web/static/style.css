@@ -64,11 +64,19 @@ body {
 .brand-text { display: flex; flex-direction: column; line-height: 1.05; }
 .brand-name { font-weight: 700; font-size: 1.05rem; letter-spacing: -.01em; }
 .brand-sub { font-size: .72rem; color: var(--faint); letter-spacing: .04em; text-transform: uppercase; }
+.topbar-meta { display: flex; align-items: center; gap: .6rem; }
 .pill-soft {
   font-size: .72rem; color: var(--accent-ink); letter-spacing: .03em;
   padding: .3rem .65rem; border-radius: 999px;
   background: rgba(91,130,247,.10); border: 1px solid rgba(91,130,247,.25);
 }
+.theme-toggle {
+  display: grid; place-items: center; width: 34px; height: 34px; padding: 0;
+  font-size: 1rem; line-height: 1; background: var(--surface-2); color: var(--muted);
+  border: 1px solid var(--border); border-radius: 9px; box-shadow: none;
+  transition: color .15s, border-color .15s, background .15s;
+}
+.theme-toggle:hover { filter: none; color: var(--text); border-color: var(--faint); background: var(--surface-3); }
 
 /* ---- layout ---------------------------------------------------------------- */
 .container { max-width: 1080px; margin: 0 auto; padding: 1.5rem; }
@@ -290,6 +298,54 @@ table.svc tr:hover td { background: var(--surface-2); }
 
 /* ---- footer ---------------------------------------------------------------- */
 footer { color: var(--faint); font-size: .78rem; text-align: center; margin-top: 2.5rem; padding: 0 1.5rem; }
+
+/* ============================================================================
+   light theme
+   ========================================================================== */
+:root[data-theme="light"] {
+  --bg: #f5f7fb;
+  --surface: #ffffff;
+  --surface-2: #f1f4f9;
+  --surface-3: #e7ecf3;
+  --border: #d8e0ea;
+  --border-soft: #e6ebf2;
+  --text: #1a2230;
+  --muted: #56657c;
+  --faint: #8593a8;
+  --accent: #4f6ef0;
+  --accent-2: #7c5cff;
+  --accent-ink: #4357c4;
+
+  --crit: #d92d36;
+  --high: #e8590c;
+  --med:  #b67900;
+  --low:  #2f6df0;
+  --info: #64748b;
+  --ok:   #18794e;
+
+  --shadow: 0 1px 2px rgba(20,30,50,.06), 0 12px 28px -18px rgba(20,30,50,.25);
+  --shadow-sm: 0 1px 2px rgba(20,30,50,.07);
+  --ring: 0 0 0 3px rgba(79,110,240,.22);
+}
+:root[data-theme="light"] body {
+  background:
+    radial-gradient(1100px 500px at 12% -8%, rgba(79,110,240,.08), transparent 60%),
+    radial-gradient(900px 500px at 100% 0%, rgba(124,92,255,.07), transparent 55%),
+    var(--bg);
+}
+:root[data-theme="light"] .topbar { background: rgba(245,247,251,.8); }
+/* keep the log/terminal dark in both themes */
+:root[data-theme="light"] .log { background: #0b0f17; color: #c9d4e3; border-color: #1c2434; }
+/* re-tint summary chips + accents for a light background */
+:root[data-theme="light"] .summary .chip.sev-CRITICAL { color: #b3232b; }
+:root[data-theme="light"] .summary .chip.sev-HIGH { color: #c2480a; }
+:root[data-theme="light"] .summary .chip.sev-MEDIUM { color: #8a5d00; }
+:root[data-theme="light"] .summary .chip.sev-LOW { color: #2a5fd0; }
+:root[data-theme="light"] .card .fix { color: #15824a; }
+:root[data-theme="light"] .mail-score.grade-A .grade { color: #18794e; }
+:root[data-theme="light"] .mail-score.grade-B .grade { color: #3f8f25; }
+:root[data-theme="light"] .card a, :root[data-theme="light"] .poc-refs a { color: var(--accent-ink); }
+:root[data-theme="light"] .sev-MEDIUM { color: #1a1205; }
 
 /* ---- responsive ------------------------------------------------------------ */
 @media (max-width: 640px) {
