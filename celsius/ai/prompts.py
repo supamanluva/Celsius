@@ -151,7 +151,7 @@ injection payloads.
 AGENT_TOOL_SCHEMA = {
     "plans": [{
         "hypothesis": 0,                # index into the provided hypotheses[]
-        "tool": "http_get|tcp_connect|takeover_check|none",
+        "tool": "http_get|tcp_connect|takeover_check|tls_probe|dns_lookup|none",
         "args": {"...": "tool arguments"},
         "expect": "what result would CONFIRM the hypothesis (vs refute it)",
     }],

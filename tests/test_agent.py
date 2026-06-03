@@ -45,6 +45,20 @@ def test_tools_are_host_locked():
     assert bad.get("error")
 
 
+def test_new_tools_validation_and_host_lock():
+    lab = _Lab()  # host = z.luhn.se
+    # only read-only HTTP methods allowed
+    bad = verify_tools.run_tool("http_get", {"url": "https://z.luhn.se/", "method": "POST"}, lab)
+    assert "not allowed" in bad.get("error", "")
+    # tls_probe / dns_lookup are host-locked (refused before any network)
+    assert verify_tools.run_tool("tls_probe", {"host": "evil.example"}, lab).get("error")
+    assert verify_tools.run_tool("dns_lookup", {"host": "evil.example"}, lab).get("error")
+    # custom request headers accepted; full response headers returned
+    ok = verify_tools.run_tool("http_get", {"url": "https://z.luhn.se/",
+                                            "headers": {"Origin": "https://evil.test"}}, lab)
+    assert "response_headers" in ok and ok["method"] == "GET"
+
+
 def test_apply_verdicts_confirm_refute_keep():
     finds = [
         Finding(title="Missing CSP", severity=Severity.MEDIUM, category="csp"),
