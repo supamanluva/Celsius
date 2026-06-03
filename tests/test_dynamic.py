@@ -11,7 +11,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from secscan.recon import dynamic as D  # noqa: E402
+from celsius.recon import dynamic as D  # noqa: E402
 
 
 def test_extract_endpoints_same_host_api_only():

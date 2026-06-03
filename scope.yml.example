@@ -1,6 +1,6 @@
-# secscan authorization scope.
+# celsius authorization scope.
 # Copy to scope.yml and pass with `--scope scope.yml` (CLI) to gate what may be
-# scanned and how. Without a scope file, secscan uses a permissive default that
+# scanned and how. Without a scope file, celsius uses a permissive default that
 # allows passive + safe-active for any target (exploit mode always requires an
 # explicit entry here). The CLI authorization prompt / web checkbox still applies.
 #

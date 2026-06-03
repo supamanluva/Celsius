@@ -12,7 +12,7 @@ import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from secscan import sca  # noqa: E402
+from celsius import sca  # noqa: E402
 
 
 def _write(d: str, name: str, content: str) -> None:

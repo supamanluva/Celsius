@@ -1,8 +1,8 @@
 # Celsius
 
-> CLI / Python package: **`secscan`** (the command is `python3 -m secscan`).
+> CLI / Python package: **`celsius`** (the command is `python3 -m celsius`).
 > "Celsius" is the product name (web UI, branding); the importable package and
-> CLI keep the `secscan` name.
+> CLI keep the `celsius` name.
 
 A lightweight vulnerability scanner for web pages, public IPs, **and source
 code**, with a **web UI** and **text-only proof-of-concept** generation. It:
@@ -63,7 +63,7 @@ needs `fastapi`/`uvicorn` (see `requirements.txt`).
 ```bash
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
-.venv/bin/python -m secscan serve            # http://127.0.0.1:8000
+.venv/bin/python -m celsius serve            # http://127.0.0.1:8000
 ```
 
 The UI has two tabs — **Host/Web scan** (target + options, live log, colour-coded
@@ -83,42 +83,42 @@ you are authorized. Only point it at your own systems or sanctioned engagements
 
 ```bash
 # Host/web scan — headers + CVE lookup + front-end secrets (default)
-python3 -m secscan https://example.com           # = `secscan scan https://example.com`
+python3 -m celsius https://example.com           # = `celsius scan https://example.com`
 
 # Add nmap service scan, nuclei, and print PoC/reproduction steps
-python3 -m secscan example.com --ports --nuclei --poc
+python3 -m celsius example.com --ports --nuclei --poc
 
 # Specific ports, JSON + HTML output
-python3 -m secscan 203.0.113.10 --ports --port-range 80,443,8080 \
+python3 -m celsius 203.0.113.10 --ports --port-range 80,443,8080 \
     --json report.json --html report.html
 
 # Non-interactive (e.g. CI) — asserts authorization
-python3 -m secscan https://mysite.example --yes --json out.json
+python3 -m celsius https://mysite.example --yes --json out.json
 
 # Static code / secret scan of a repo (or a single file)
-python3 -m secscan code /path/to/repo --json code-report.json
+python3 -m celsius code /path/to/repo --json code-report.json
 
 # Launch the web app
-python3 -m secscan serve --host 127.0.0.1 --port 8000
+python3 -m celsius serve --host 127.0.0.1 --port 8000
 
 # Authorize targets/modes with a scope file; disable active checks
-python3 -m secscan scan scan.example.com --scope scope.yml --no-active
+python3 -m celsius scan scan.example.com --scope scope.yml --no-active
 
 # List past scans (stored locally in SQLite)
-python3 -m secscan history
+python3 -m celsius history
 
 # Attack surface: DNS + TLS + fingerprint run by default; add subdomain enum
-python3 -m secscan scan https://example.com --subdomains
+python3 -m celsius scan https://example.com --subdomains
 
 # Crawl + JS analysis (endpoints, DOM sinks, source-map recovery) + API discovery
-python3 -m secscan scan https://example.com --crawl --api-discovery
+python3 -m celsius scan https://example.com --crawl --api-discovery
 
 # AI analysis (DeepSeek by default) — triage + attack-surface hypotheses
 export DEEPSEEK_API_KEY=sk-...
-python3 -m secscan scan https://example.com --ai
+python3 -m celsius scan https://example.com --ai
 
 # AI secure-code review (pluggable provider; offline 'mock' needs no key)
-python3 -m secscan code /path/to/repo --ai --ai-provider deepseek
+python3 -m celsius code /path/to/repo --ai --ai-provider deepseek
 ```
 
 Subcommands: `scan <target>` (default), `code <path>`, `serve`, `history`.
@@ -144,7 +144,7 @@ send is recorded in the audit log with `masked` (was masking applied) and
 
 #### Local / on-prem AI (Ollama) — nothing leaves the machine
 
-secscan speaks the OpenAI-compatible API, so any local server works. With
+celsius speaks the OpenAI-compatible API, so any local server works. With
 [Ollama](https://ollama.com):
 
 ```bash
@@ -152,9 +152,9 @@ ollama pull llama3.1            # or qwen2.5, mistral, … (any model you have)
 # Ollama auto-serves an OpenAI-compatible API at http://localhost:11434/v1
 
 # CLI:
-python3 -m secscan scan https://example.com --ai --ai-provider local --ai-model llama3.1
+python3 -m celsius scan https://example.com --ai --ai-provider local --ai-model llama3.1
 # non-default host/port:
-python3 -m secscan scan ... --ai --ai-provider local --ai-base-url http://192.168.1.5:11434/v1
+python3 -m celsius scan ... --ai --ai-provider local --ai-base-url http://192.168.1.5:11434/v1
 ```
 
 **In the web UI:** tick **AI analysis**, choose **Local (Ollama)** in the provider
@@ -166,7 +166,7 @@ URL** fields. Blank ⇒ defaults `llama3.1` at `http://localhost:11434/v1`. Then
 Scans run as a **phase-ordered plugin pipeline** (recon → detect → enrich), are
 **persisted** to a local SQLite store (browse via `history` or the web History
 tab), and every active probe is written to an append-only **audit log**
-(`~/.local/share/secscan/audit.log`). A `scope.yml` (see `scope.yml.example`)
+(`~/.local/share/celsius/audit.log`). A `scope.yml` (see `scope.yml.example`)
 authorizes which hosts may be scanned and in which **mode**:
 
 - `passive` — ordinary HTTP + third-party lookups (NVD)
@@ -189,11 +189,11 @@ It is gated by a layered safety harness — **all** must hold:
 3. a per-run attestation (`--lab-attest "..."` or the interactive prompt).
 
 Plus: `--dry-run` previews every payload without sending it; a kill-switch file
-`~/.secscan-stop` halts immediately; `--exploit-max-requests`/`--exploit-rate-limit`
+`~/.celsius-stop` halts immediately; `--exploit-max-requests`/`--exploit-rate-limit`
 bound the activity; and **every** active request is written to the audit log.
 
 ```bash
-python3 -m secscan scan https://lab.local/ --lab --scope scope.yml \
+python3 -m celsius scan https://lab.local/ --lab --scope scope.yml \
     --lab-attest "I am authorized to actively test lab.local" --dry-run   # preview first
 ```
 
@@ -208,11 +208,11 @@ sends each request under the guardrails above; then the model *judges* the real
 response and only **proven** issues become `[AI-verified]` findings
 (`confirmed-exploitable`). The model never sends a request itself, payloads are
 validated read-only (no DROP/DELETE/OS-commands/time-based), and the request
-cap/rate-limit/kill-switch/audit all still apply. This is secscan's take on
+cap/rate-limit/kill-switch/audit all still apply. This is celsius's take on
 "no exploit, no report".
 
 ```bash
-python3 -m secscan scan https://lab.local/?q=test --lab --ai --scope scope.yml \
+python3 -m celsius scan https://lab.local/?q=test --lab --ai --scope scope.yml \
     --lab-attest "I am authorized to actively test lab.local"
 ```
 
@@ -235,7 +235,7 @@ python3 -m secscan scan https://lab.local/?q=test --lab --ai --scope scope.yml \
 | `-v, --verbose` | show per-step progress on stderr even when piped |
 | `--debug` | verbose + debug detail (tool commands, nmap/nuclei stderr) |
 | `--quiet` | only show errors on stderr |
-| `--log-file PATH` | override the trace file (default `~/.local/share/secscan/scan.log`) |
+| `--log-file PATH` | override the trace file (default `~/.local/share/celsius/scan.log`) |
 | `-y, --yes` | skip the authorization prompt |
 
 Exit code encodes the worst severity found (30 CRITICAL / 20 HIGH / 10 MEDIUM /
@@ -243,17 +243,17 @@ Exit code encodes the worst severity found (30 CRITICAL / 20 HIGH / 10 MEDIUM /
 
 ### Authenticated scanning
 
-By default secscan scans as an anonymous, logged-out visitor. To reach surfaces
+By default celsius scans as an anonymous, logged-out visitor. To reach surfaces
 behind a login, attach a session — the crawler, secret scan, API discovery,
 nuclei and active checks all run as that user:
 
 ```bash
 # reuse a session you grabbed from the browser
-secscan scan https://app.example.com --full --cookie "session=abc; csrf=xyz" -y
+celsius scan https://app.example.com --full --cookie "session=abc; csrf=xyz" -y
 # or a bearer token
-secscan scan https://api.example.com --bearer "$TOKEN" --crawl -y
-# or let secscan log in via the form (CSRF hidden fields are auto-filled)
-secscan scan https://app.example.com --full \
+celsius scan https://api.example.com --bearer "$TOKEN" --crawl -y
+# or let celsius log in via the form (CSRF hidden fields are auto-filled)
+celsius scan https://app.example.com --full \
   --login-url https://app.example.com/login --login-user alice --login-pass secret -y
 ```
 
@@ -264,13 +264,13 @@ that carries a session is recorded in the audit log.
 ### Logging
 
 Every scan is always traced to a rotating log at
-`~/.local/share/secscan/scan.log` (DEBUG level, independent of whether stderr is
+`~/.local/share/celsius/scan.log` (DEBUG level, independent of whether stderr is
 a terminal) — so there is a durable record of what ran and what errored, including
 the exact `nmap`/`nuclei` command lines and their stderr at `--debug`. The console
 shows per-step progress on a TTY by default; `-v` forces it when piped, `--debug`
 adds tool detail, `--quiet` limits it to errors. Scans launched from the web app
 write to the same file. This is separate from the append-only **audit log**
-(`~/.local/share/secscan/audit.log`), which records the accountability trail of
+(`~/.local/share/celsius/audit.log`), which records the accountability trail of
 active probes.
 
 ## How CVE matching works (and why it's not just one API call)
@@ -278,7 +278,7 @@ active probes.
 Freshly published CVEs sit in NVD as *"Awaiting Analysis"* for days/weeks with
 **no CPE configuration**, and their descriptions rarely name the exact affected
 version. A naive `cpeName=`/keyword query therefore **misses the recent,
-high-impact CVEs you care about most**. So secscan:
+high-impact CVEs you care about most**. So celsius:
 
 1. **Discovers** candidate CVEs for a product via one cached NVD keyword search.
 2. **Version-matches each candidate client-side**:
@@ -306,7 +306,7 @@ which are increasingly polluted with AI-invented "CVEs".
 ## Layout
 
 ```
-secscan/
+celsius/
   cli.py            CLI + subcommands (scan/code/serve/history) + auth gate
   engine.py         plugin-pipeline orchestration (run_scan) + scope/audit/persist
   config.py         ScanConfig dataclass

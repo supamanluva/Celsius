@@ -17,16 +17,16 @@ env/
 .idea/
 .vscode/
 
-# secscan local data (defaults live in ~/.local/share & ~/.cache)
+# celsius local data (defaults live in ~/.local/share & ~/.cache)
 *.db
 *.sqlite
 *.sqlite3
-.secscan-stop
+.celsius-stop
 scope.yml          # keep scope.yml.example; never commit a real scope
 
 # Web server runtime (run.sh / kill.sh)
-.secscan-serve.pid
-secscan-serve.log
+.celsius-serve.pid
+celsius-serve.log
 
 # Generated reports
 *.sarif
