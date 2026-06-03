@@ -358,6 +358,16 @@ footer { color: var(--faint); font-size: .78rem; text-align: center; margin-top:
 .ts-stack { margin-left: .55rem; font-size: .76rem; color: var(--muted); }
 .ts-focus { margin-top: .25rem; font-size: .82rem; color: var(--muted); line-height: 1.45; }
 
+/* ---- follow-up scan (discovered hosts) ------------------------------------- */
+.followup .fu-list { display: flex; flex-direction: column; gap: .3rem; margin: .6rem 0; }
+.fu-item { display: flex; align-items: center; gap: .5rem; font-size: .9rem;
+  font-family: ui-monospace, Menlo, Consolas, monospace; color: var(--text); cursor: pointer; }
+.fu-item input { accent-color: var(--accent); width: 14px; height: 14px; }
+.fu-actions { display: flex; gap: .6rem; margin-top: .6rem; }
+#fuScan { background: var(--accent); color: #fff; border: none; border-radius: 6px;
+  padding: 5px 14px; font-weight: 600; cursor: pointer; }
+#fuScan:hover { filter: brightness(1.08); }
+
 /* ---- responsive ------------------------------------------------------------ */
 @media (max-width: 640px) {
   .masthead { padding: 1.8rem 1rem 1.3rem; }

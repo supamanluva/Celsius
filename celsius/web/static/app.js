@@ -170,39 +170,40 @@ function exploitMeta(ex) {
 }
 
 // ---- host/web scan -----------------------------------------------------------
-$("scanForm").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  if (!$("authorized").checked) {
-    alert("Please confirm you are authorized to scan this target.");
-    return;
-  }
-  const target = $("target").value.trim();
-  if (!target) return;
+let _scanQueue = [];     // follow-up targets waiting to be scanned
+let _scanning = false;
 
+function currentScanOptions() {
+  return {
+    web: $("opt-web").checked, cve: $("opt-cve").checked,
+    web_secrets: $("opt-secrets").checked, ports: $("opt-ports").checked,
+    nuclei: $("opt-nuclei").checked,
+    dns: $("opt-dns").checked, tls: $("opt-tls").checked,
+    fingerprint: $("opt-fingerprint").checked, subdomains: $("opt-subdomains").checked,
+    crawl: $("opt-crawl").checked, api_discovery: $("opt-apidisco").checked,
+    cve_verify: $("opt-cveverify").checked,
+    ai: $("opt-ai").checked, ai_provider: $("opt-ai-provider").value,
+    ai_api_key: $("opt-ai-key").value.trim() || null,
+    ai_model: $("opt-ai-model").value.trim() || null,
+    ai_base_url: $("opt-ai-base").value.trim() || null,
+  };
+}
+
+function queueNote() { return _scanQueue.length ? ` · ${_scanQueue.length} queued` : ""; }
+
+async function runScan(target) {
+  _scanning = true;
   $("scanBtn").disabled = true;
+  $("target").value = target;
   $("results").innerHTML = "";
   $("summary").classList.add("hidden");
-  setStatus("scanStatus", "Starting scan…", false);
+  setStatus("scanStatus", `Starting scan of ${target}…${queueNote()}`, false);
   $("scanLog").classList.remove("hidden");
   $("scanLog").textContent = "";
-
   try {
     const resp = await fetch("/api/scan", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        target, authorized: true,
-        web: $("opt-web").checked, cve: $("opt-cve").checked,
-        web_secrets: $("opt-secrets").checked, ports: $("opt-ports").checked,
-        nuclei: $("opt-nuclei").checked,
-        dns: $("opt-dns").checked, tls: $("opt-tls").checked,
-        fingerprint: $("opt-fingerprint").checked, subdomains: $("opt-subdomains").checked,
-        crawl: $("opt-crawl").checked, api_discovery: $("opt-apidisco").checked,
-        cve_verify: $("opt-cveverify").checked,
-        ai: $("opt-ai").checked, ai_provider: $("opt-ai-provider").value,
-        ai_api_key: $("opt-ai-key").value.trim() || null,
-        ai_model: $("opt-ai-model").value.trim() || null,
-        ai_base_url: $("opt-ai-base").value.trim() || null,
-      }),
+      body: JSON.stringify({ target, authorized: true, ...currentScanOptions() }),
     });
     if (!resp.ok) {
       const err = await resp.json().catch(() => ({}));
@@ -212,8 +213,39 @@ $("scanForm").addEventListener("submit", async (e) => {
     pollJob(job_id);
   } catch (err) {
     setStatus("scanStatus", "Error: " + err.message, true);
+    nextScan();
+  }
+}
+
+// Advance the queue: run the next target, or go idle.
+function nextScan() {
+  if (_scanQueue.length) {
+    runScan(_scanQueue.shift());
+  } else {
+    _scanning = false;
     $("scanBtn").disabled = false;
   }
+}
+
+function enqueueScans(targets) {
+  _scanQueue.push(...targets);
+  if (!_scanning) nextScan();
+}
+
+$("scanForm").addEventListener("submit", (e) => {
+  e.preventDefault();
+  if (!$("authorized").checked) {
+    alert("Please confirm you are authorized to scan this target.");
+    return;
+  }
+  const target = $("target").value.trim();
+  if (!target) return;
+  if (_scanning) {
+    _scanQueue.push(target);
+    setStatus("scanStatus", `Queued ${target}…${queueNote()}`, false);
+    return;
+  }
+  runScan(target);
 });
 
 async function pollJob(jobId) {
@@ -227,16 +259,16 @@ async function pollJob(jobId) {
       setStatus("scanStatus", "Scanning… " + ((job.log || []).slice(-1)[0] || ""), false);
       setTimeout(() => pollJob(jobId), 800);
     } else if (job.status === "done") {
-      setStatus("scanStatus", "Scan complete.", false);
-      $("scanBtn").disabled = false;
+      setStatus("scanStatus", "Scan complete." + queueNote(), false);
       renderResult(job.result, job.scan_id);
+      nextScan();
     } else {
       setStatus("scanStatus", "Scan failed: " + (job.error || "unknown"), true);
-      $("scanBtn").disabled = false;
+      nextScan();
     }
   } catch (err) {
     setStatus("scanStatus", "Error polling job: " + err.message, true);
-    $("scanBtn").disabled = false;
+    nextScan();
   }
 }
 
@@ -245,6 +277,37 @@ function setStatus(id, msg, isErr) {
   el.classList.remove("hidden");
   el.classList.toggle("err", !!isErr);
   el.textContent = msg;
+}
+
+function hostOf(u) {
+  try {
+    if (!/^https?:\/\//.test(u)) {
+      if (!u || u.startsWith("/")) return null;  // path or empty, not a host
+      u = "http://" + u;
+    }
+    return new URL(u).hostname.toLowerCase();
+  } catch (e) { return null; }
+}
+function originOf(u) {
+  try { return /^https?:\/\//.test(u) ? new URL(u).origin : null; } catch (e) { return null; }
+}
+
+// Distinct in-scope hosts (≠ the scanned host) referenced by this scan — derived
+// from same-site crawl endpoints and any enumerated subdomains. These are full
+// targets you can queue follow-up scans against.
+function followupHosts(res) {
+  const scanned = hostOf(res.url || res.target);
+  const byHost = new Map();   // host -> target string (origin if known, else host)
+  const recon = res.recon || {};
+  ((recon.crawl || {}).endpoints || []).forEach((e) => {
+    const h = hostOf(e);
+    if (h && h !== scanned && !byHost.has(h)) byHost.set(h, originOf(e) || h);
+  });
+  (recon.subdomains || []).forEach((s) => {
+    const h = (s || "").toLowerCase();
+    if (h && h !== scanned && !byHost.has(h)) byHost.set(h, h);
+  });
+  return [...byHost.values()].sort();
 }
 
 function renderResult(res, scanId) {
@@ -371,6 +434,23 @@ function renderResult(res, scanId) {
     });
   } else html += `<p class="empty">none</p>`;
 
+  // Follow-up: in-scope hosts discovered during this scan, offered as new targets
+  const followup = followupHosts(res);
+  if (followup.length) {
+    html += `<h2 class="section">Discovered hosts — scan them too? (${followup.length})</h2>`;
+    html += `<div class="card INFO followup">
+      <p class="meta">In-scope hosts referenced by ${esc(res.target)}. Select any to queue a full
+        scan of each (uses the scan options above). Authorized targets only.</p>
+      <div class="fu-list">${followup.slice(0, 50).map((t) =>
+        `<label class="fu-item"><input type="checkbox" class="fu-chk" value="${esc(t)}"> ${esc(t)}</label>`).join("")}
+      </div>${followup.length > 50 ? `<p class="meta">… and ${followup.length - 50} more (not shown)</p>` : ""}
+      <div class="fu-actions">
+        <button type="button" id="fuAll" class="secondary">Select all</button>
+        <button type="button" id="fuScan">Scan selected</button>
+      </div>
+    </div>`;
+  }
+
   if ((res.errors || []).length) {
     html += `<h2 class="section">Notes</h2>`;
     res.errors.forEach((e) => { html += `<div class="meta">! ${esc(e)}</div>`; });
@@ -385,6 +465,26 @@ function renderResult(res, scanId) {
       showPoc(kind, item, item.exploitability);
     });
   });
+
+  // wire follow-up scan controls
+  const fuScan = $("fuScan");
+  if (fuScan) {
+    $("fuAll").addEventListener("click", () => {
+      const boxes = [...$("results").querySelectorAll(".fu-chk")];
+      const turnOn = boxes.some((b) => !b.checked);
+      boxes.forEach((b) => (b.checked = turnOn));
+    });
+    fuScan.addEventListener("click", () => {
+      if (!$("authorized").checked) {
+        alert("Please confirm you are authorized to scan these targets.");
+        return;
+      }
+      const sel = [...$("results").querySelectorAll(".fu-chk:checked")].map((b) => b.value);
+      if (!sel.length) return;
+      enqueueScans(sel);
+      setStatus("scanStatus", `Queued ${sel.length} follow-up scan(s)…${queueNote()}`, false);
+    });
+  }
 }
 
 // ---- PoC modal ---------------------------------------------------------------
