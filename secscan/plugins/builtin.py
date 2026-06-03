@@ -7,7 +7,7 @@ plugins handle orchestration, phase ordering, and mode classification.
 from __future__ import annotations
 
 from .. import cve as cve_mod
-from .. import http_analysis, nuclei_scan, portscan, websecrets
+from .. import http_analysis, nuclei_scan, portscan, webchecks, websecrets
 from ..models import Finding, Service, Severity
 from ..recon import apidisco as api_mod
 from ..recon import crawler as crawler_mod
@@ -352,6 +352,66 @@ class ActiveVerification(Plugin):
                             "NOT sent. Re-run without --dry-run to execute.",
                 recommendation="Review the previewed payloads before executing.",
             ))
+
+
+@register
+class WebHardening(Plugin):
+    id = "web-hardening"
+    title = "CSP deep-eval, JWT analysis, security.txt"
+    phase = Phase.DETECT
+    mode = Mode.PASSIVE
+    category = "hardening"
+
+    def enabled(self, ctx: ScanContext) -> bool:
+        return ctx.config.web
+
+    def run(self, ctx: ScanContext) -> None:
+        http = ctx.http_result
+        if http is not None:
+            ctx.result.findings.extend(webchecks.analyze_csp(http.headers))
+            ctx.result.findings.extend(webchecks.analyze_jwt(http.headers, getattr(http, "body", "")))
+        base = ctx.result.url or ctx.target.web_url()
+        ctx.result.findings.extend(
+            webchecks.check_security_txt(base, insecure=ctx.config.insecure, auth=ctx.config.auth))
+
+
+@register
+class Cors(Plugin):
+    id = "cors"
+    title = "CORS misconfiguration probe"
+    phase = Phase.DETECT
+    mode = Mode.SAFE_ACTIVE       # sends a few requests with crafted Origin headers
+    category = "cors"
+
+    def enabled(self, ctx: ScanContext) -> bool:
+        return ctx.config.web
+
+    def run(self, ctx: ScanContext) -> None:
+        base = ctx.result.url or ctx.target.web_url()
+        ctx.audit.active_probe(self.id, ctx.target.host, self.mode.value, detail="CORS Origin probe")
+        ctx.result.findings.extend(
+            webchecks.check_cors(base, insecure=ctx.config.insecure, auth=ctx.config.auth))
+
+
+@register
+class SubdomainTakeover(Plugin):
+    id = "subdomain-takeover"
+    title = "dangling-CNAME subdomain takeover"
+    phase = Phase.DETECT          # runs after subdomain enumeration (RECON)
+    mode = Mode.SAFE_ACTIVE
+    category = "takeover"
+
+    def enabled(self, ctx: ScanContext) -> bool:
+        return ctx.config.subdomains and not ctx.target.is_ip
+
+    def run(self, ctx: ScanContext) -> None:
+        subs = ctx.result.recon.get("subdomains") or []
+        if not subs:
+            return
+        ctx.audit.active_probe(self.id, ctx.target.host, self.mode.value,
+                               detail=f"{len(subs)} subdomains")
+        ctx.log(f"checking {min(len(subs), 40)} subdomain(s) for takeover ...")
+        ctx.result.findings.extend(webchecks.check_takeover(subs, insecure=ctx.config.insecure))
 
 
 @register
