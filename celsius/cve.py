@@ -84,7 +84,27 @@ _PRODUCT_MAP: dict[str, _Map] = {
     "postgresql": _Map("postgresql", "postgresql", "postgresql", r"postgresql"),
     "redis": _Map("redis", "redis", "redis", r"\bredis\b"),
     "bind": _Map("isc", "bind", "isc bind", r"\bbind\b"),
+    "dovecot": _Map("dovecot", "dovecot", "dovecot", r"dovecot"),
+    "pure-ftpd": _Map("pureftpd", "pure-ftpd", "pure-ftpd", r"pure.?ftpd"),
 }
+
+
+def _resolve_mapping(name: str) -> Optional[_Map]:
+    """Map a detected product/service name to a CVE mapping, tolerating the
+    decorations nmap adds. nmap reports e.g. "ISC BIND", "Exim smtpd",
+    "Dovecot imapd" — an exact key lookup misses, so fall back to matching a
+    single-word map key that appears as a whole token in the name.
+    """
+    key = (name or "").strip().lower()
+    if not key:
+        return None
+    if key in _PRODUCT_MAP:
+        return _PRODUCT_MAP[key]
+    tokens = {t for t in re.split(r"[^a-z0-9.+-]+", key) if t}
+    for mk, mapping in _PRODUCT_MAP.items():
+        if " " not in mk and mk in tokens:
+            return mapping
+    return None
 
 
 # ---- HTTP + cache -------------------------------------------------------------
@@ -332,8 +352,7 @@ def lookup_for_service(
     if not svc.version:
         return [], "no version detected — skipped CVE lookup (would be too noisy)"
 
-    name_key = (svc.product or svc.name or "").strip().lower()
-    mapping = _PRODUCT_MAP.get(name_key)
+    mapping = _resolve_mapping(svc.product or svc.name or "")
     if not mapping:
         return [], (f"unknown product '{svc.name}' — no CPE/keyword mapping; "
                     "verify manually at nvd.nist.gov")
