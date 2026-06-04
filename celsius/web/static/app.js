@@ -419,9 +419,16 @@ function renderResult(res, scanId) {
 
   // Recon (attack surface)
   const recon = res.recon || {};
-  const hasRecon = recon.tls || recon.dns || (recon.subdomains && recon.subdomains.length) || (recon.tech && recon.tech.length);
+  const hasRecon = recon.tls || recon.dns || recon.os || (recon.subdomains && recon.subdomains.length) || (recon.tech && recon.tech.length);
   if (hasRecon) {
     html += `<h2 class="section">Attack surface</h2>`;
+    if (recon.os && recon.os.best_match) {
+      const o = recon.os;
+      const alt = (o.matches || []).slice(1, 4).map((m) => `${esc(m.name)} (${m.accuracy}%)`).join(" · ");
+      html += `<div class="card INFO"><div class="title">OS / device fingerprint</div>
+        <div class="meta">${esc(o.best_match)} · ${o.best_accuracy}% match · type: ${esc((o.device_types || []).join(", ") || "?")} · vendor: ${esc((o.vendors || []).join(", ") || "?")}</div>
+        ${alt ? `<div class="meta">other guesses: ${alt}</div>` : ""}</div>`;
+    }
     if (recon.tls && recon.tls.protocol) {
       const t = recon.tls;
       html += `<div class="card INFO"><div class="title">TLS</div>
