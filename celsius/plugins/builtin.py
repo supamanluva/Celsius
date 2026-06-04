@@ -10,6 +10,7 @@ from .. import cve as cve_mod
 from .. import http_analysis, nuclei_scan, portscan, webchecks, websecrets
 from ..models import Finding, Severity
 from ..recon import apidisco as api_mod
+from ..recon import cohost as cohost_mod
 from ..recon import content_discovery as cd_mod
 from ..recon import crawler as crawler_mod
 from ..recon import dns as dns_mod
@@ -413,6 +414,41 @@ class ContentDiscovery(Plugin):
         ctx.result.errors.extend(errs[:10])
         if paths:
             ctx.result.recon["exposed_paths"] = paths
+
+
+@register
+class CoHostDiscovery(Plugin):
+    id = "cohost"
+    title = "co-hosted hosts on the same IP (cert SANs + reverse-IP)"
+    phase = Phase.DETECT      # after TLS (SANs) + IP resolution
+    mode = Mode.PASSIVE       # cert already fetched; reverse-IP is a passive 3rd-party lookup
+    category = "cohost"
+
+    def run(self, ctx: ScanContext) -> None:
+        sans = (ctx.result.recon.get("tls") or {}).get("san", [])
+        # reverse-IP is an external lookup — tie it to the "enumerate more hosts"
+        # intent (subdomains opt-in); cert-SAN harvest is free and always runs.
+        info = cohost_mod.discover(ctx.target.host, ctx.result.ip, sans,
+                                   do_reverse_ip=ctx.config.subdomains)
+        if info.get("error"):
+            ctx.result.errors.append(f"cohost: {info['error']}")
+        sibs = info.get("siblings", [])
+        if sibs:
+            ctx.result.recon["cohosted"] = info
+            shown = ", ".join(sibs[:25]) + (" …" if len(sibs) > 25 else "")
+            srcs = []
+            if info.get("from_san"):
+                srcs.append("cert SAN")
+            if info.get("from_reverse_ip"):
+                srcs.append("reverse-IP")
+            ctx.result.findings.append(Finding(
+                title=f"Co-hosted hostnames on {ctx.result.ip or 'this IP'} ({len(sibs)})",
+                severity=Severity.INFO, category="cohost",
+                description=f"Other hostnames served from the same IP (via {', '.join(srcs)}): {shown}. "
+                            "Each is a separate service on the same box — scan the ones in scope.",
+                recommendation="Queue scans of these hosts too; one reverse proxy often fronts many apps.",
+                evidence=", ".join(sibs[:40]),
+            ))
 
 
 @register

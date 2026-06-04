@@ -318,6 +318,11 @@ function followupHosts(res) {
     const h = (s || "").toLowerCase();
     if (h && h !== scanned && !byHost.has(h)) byHost.set(h, h);
   });
+  // co-hosted siblings on the same IP (cert SANs + reverse-IP)
+  ((recon.cohosted || {}).siblings || []).forEach((s) => {
+    const h = (s || "").toLowerCase();
+    if (h && h !== scanned && !byHost.has(h)) byHost.set(h, h);
+  });
   return [...byHost.values()].sort();
 }
 
