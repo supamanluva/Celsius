@@ -343,6 +343,25 @@ def html_report(data: dict) -> str:
                   f"<table><tr><th>Severity</th><th>Hypothesis</th><th>Rationale</th></tr>{rows_ai}</table>"
                   if _ai_finds else "")
 
+    from . import grade as _grade
+    asmt = _grade.assess(data)
+    gcolor = _GRADE_COLOR.get(str(asmt["grade"])[0], "#888")
+    if asmt["clean"]:
+        fix_html = ("<p style='color:#2e9e44;font-weight:600;margin:.2rem 0'>"
+                    "✅ No confident security issues found.</p>")
+    else:
+        lis = "".join(
+            f"<li>{sev_badge(it['severity'])}"
+            f"{' <strong style=color:#1a7d33>✔ verified</strong>' if it.get('verified') else ''} "
+            f"<strong>{e(it['title'])}</strong>"
+            f"{('<br><em>↳ ' + e(it['fix']) + '</em>') if it.get('fix') else ''}</li>"
+            for it in asmt["fix_first"])
+        fix_html = (f"<p style='font-weight:600;margin:.2rem 0'>Fix these first "
+                    f"({asmt['total_actionable']} total):</p><ol class='fixlist'>{lis}</ol>")
+    grade_banner = (
+        f"<div class='gradebar'><span class='gletter' style='color:{gcolor}'>{e(asmt['grade'])}</span>"
+        f"<span class='gscore'>{asmt['score']}<small>/100</small></span></div>{fix_html}")
+
     return f"""<!doctype html><html><head><meta charset="utf-8">
 <title>celsius — {e(data.get('target',''))}</title>
 <style>
@@ -353,11 +372,16 @@ def html_report(data: dict) -> str:
  th{{background:#f0f0f0}}
  .badge{{color:#fff;padding:2px 8px;border-radius:4px;font-size:12px;font-weight:600}}
  a{{color:#2d7dd2}}
+ .gradebar{{display:inline-flex;align-items:baseline;gap:.6rem;margin:.4rem 0 .6rem}}
+ .gletter{{font-size:2.6rem;font-weight:800;line-height:1}}
+ .gscore{{font-size:1.2rem;color:#444;font-weight:700}} .gscore small{{color:#888;font-weight:400}}
+ .fixlist{{margin:.3rem 0 1.2rem}} .fixlist li{{margin:.3rem 0;line-height:1.5}}
  @media print{{body{{margin:0}}}}
 </style></head><body>
 <h1>celsius report</h1>
 <div class="meta">{e(data.get('target',''))} &middot; URL: {e(data.get('url') or '-')} &middot; IP: {e(data.get('ip') or '-')}
  &middot; {e(data.get('started_at',''))} → {e(data.get('finished_at',''))}</div>
+{grade_banner}
 <h2>Detected services</h2>
 <table><tr><th>Product</th><th>Version</th><th>Port</th><th>Source</th></tr>{rows_services}</table>
 <h2>Known CVEs</h2>
