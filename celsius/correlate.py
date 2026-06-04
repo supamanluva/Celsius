@@ -11,9 +11,8 @@ chains (clearly labeled, never auto-trusted).
 
 from __future__ import annotations
 
-from typing import Optional
 
-from .models import ScanResult, Severity
+from .models import ScanResult
 
 _SEV_RANK = {"CRITICAL": 4, "HIGH": 3, "MEDIUM": 2, "LOW": 1, "INFO": 0}
 
