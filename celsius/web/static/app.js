@@ -182,6 +182,13 @@ function currentScanOptions() {
     fingerprint: $("opt-fingerprint").checked, subdomains: $("opt-subdomains").checked,
     crawl: $("opt-crawl").checked, api_discovery: $("opt-apidisco").checked,
     cve_verify: $("opt-cveverify").checked,
+    dynamic: $("opt-dynamic").checked, wayback: $("opt-wayback").checked,
+    content_discovery: $("opt-content").checked, os_detect: $("opt-osdetect").checked,
+    subdomain_bruteforce: $("opt-subbrute").checked, nuclei_full: $("opt-nucleifull").checked,
+    nuclei_tags: $("opt-nucleitags").value.trim() || null,
+    allow_exploit: $("opt-exploit").checked,
+    lab_attestation: $("opt-attest").value.trim() || null,
+    dry_run: $("opt-dryrun").checked,
     ai: $("opt-ai").checked, ai_provider: $("opt-ai-provider").value,
     ai_api_key: $("opt-ai-key").value.trim() || null,
     ai_model: $("opt-ai-model").value.trim() || null,
@@ -240,6 +247,10 @@ $("scanForm").addEventListener("submit", (e) => {
   }
   const target = $("target").value.trim();
   if (!target) return;
+  if ($("opt-exploit").checked && $("opt-attest").value.trim().length < 10) {
+    alert("Lab mode needs an authorization attestation (≥10 characters) before active exploitation.");
+    return;
+  }
   if (_scanning) {
     _scanQueue.push(target);
     setStatus("scanStatus", `Queued ${target}…${queueNote()}`, false);

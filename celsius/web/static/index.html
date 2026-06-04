@@ -43,12 +43,19 @@
         <label><input type="checkbox" id="opt-dns" checked> DNS</label>
         <label><input type="checkbox" id="opt-tls" checked> TLS</label>
         <label><input type="checkbox" id="opt-fingerprint" checked> fingerprint</label>
-        <label><input type="checkbox" id="opt-subdomains"> subdomains</label>
         <label><input type="checkbox" id="opt-crawl"> crawl + JS</label>
+        <label title="Render single-page apps with a headless browser (needs the 'dynamic' extra)"><input type="checkbox" id="opt-dynamic"> dynamic (SPA)</label>
         <label><input type="checkbox" id="opt-apidisco"> API discovery</label>
+        <label title="Harvest historical URLs/params from archive.org (passive)"><input type="checkbox" id="opt-wayback"> wayback</label>
+        <label title="Probe for exposed sensitive files (.git/.env/backups)"><input type="checkbox" id="opt-content"> content discovery</label>
+        <label><input type="checkbox" id="opt-subdomains"> subdomains</label>
+        <label title="Also DNS-bruteforce a subdomain wordlist"><input type="checkbox" id="opt-subbrute"> subdomain brute</label>
         <label><input type="checkbox" id="opt-ports"> nmap ports</label>
+        <label title="nmap OS/device fingerprint (-O; needs sudo/root)"><input type="checkbox" id="opt-osdetect"> OS detect</label>
         <label><input type="checkbox" id="opt-nuclei"> nuclei</label>
+        <label title="Run the ENTIRE nuclei set (slow)"><input type="checkbox" id="opt-nucleifull"> nuclei full</label>
         <label title="Confirm detected CVEs with matching nuclei templates"><input type="checkbox" id="opt-cveverify"> verify CVEs</label>
+        <input type="text" id="opt-nucleitags" class="aikey" placeholder="nuclei tags (optional, e.g. cve,exposure)" autocomplete="off">
         <label class="opt-ai"><input type="checkbox" id="opt-ai"> AI analysis</label>
         <select id="opt-ai-provider" title="AI provider">
           <option value="deepseek">DeepSeek</option>
@@ -61,6 +68,18 @@
         <input type="text" id="opt-ai-model" class="aikey" placeholder="model (optional, e.g. llama3.1)" autocomplete="off">
         <input type="text" id="opt-ai-base" class="aikey" placeholder="base URL (local Ollama: http://localhost:11434/v1)" autocomplete="off">
       </div>
+
+      <details id="labmode" class="labmode">
+        <summary>⚠️ Lab mode — active exploitation (advanced)</summary>
+        <p class="or">Non-destructive active <strong>verification</strong> — reflected-XSS, open-redirect,
+          path-traversal and SQLi probes that send <em>real payloads</em>. Rate-limited and request-capped.
+          Use only on systems you are explicitly authorized to <em>actively</em> test.</p>
+        <label class="lab-enable"><input type="checkbox" id="opt-exploit"> Enable lab-mode active verification</label>
+        <input type="text" id="opt-attest" class="lab-attest"
+          placeholder="Authorization attestation (≥10 chars) — e.g. &quot;I am authorized to actively test this target&quot;"
+          autocomplete="off">
+        <label><input type="checkbox" id="opt-dryrun"> dry-run (preview payloads, send nothing)</label>
+      </details>
 
       <details id="testsites" class="testsites">
         <summary>Need a legal target? Authorized vulnerable test sites ▾</summary>
