@@ -25,6 +25,8 @@ from ..recon import wayback as wayback_mod
 from ..recon import tls as tls_mod
 from .base import Mode, Phase, Plugin, ScanContext, register
 
+_SEV_BY_NAME = {s.name: s for s in Severity}   # "HIGH" -> Severity.HIGH
+
 
 @register
 class WebAnalysis(Plugin):
@@ -299,6 +301,28 @@ class Crawler(Plugin):
                 description="; ".join(sorted(endpoints)[:25]),
                 recommendation="Review for undocumented/internal endpoints; test those in scope.",
             ))
+
+        # client-side SCA: known JS libraries + versions -> OSV.dev (no source needed)
+        try:
+            from .. import sca as sca_mod
+            from ..recon import clientsca
+            libs = clientsca.detect_libraries(cr.js_urls, js_sources, pages=cr.pages)
+            if libs:
+                ctx.result.recon["client_libs"] = sorted(f"{d.name}@{d.version}" for d in libs)
+                cfindings, cerrs = sca_mod.audit_deps(libs)
+                ctx.result.errors.extend(cerrs)
+                for f in cfindings:
+                    ctx.result.findings.append(Finding(
+                        title=f["title"].replace("Vulnerable dependency:",
+                                                 "Outdated client-side library:"),
+                        severity=_SEV_BY_NAME.get(f.get("severity", "MEDIUM"), Severity.MEDIUM),
+                        category="client-sca",
+                        description=f.get("evidence", ""),
+                        recommendation=f.get("recommendation", ""),
+                        evidence=f.get("rule_id", ""), confidence="firm",
+                    ))
+        except Exception as e:                       # never let recon crash the scan
+            ctx.result.errors.append(f"client-sca: {e}")
 
 
 @register
