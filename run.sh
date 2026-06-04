@@ -12,12 +12,14 @@ RELOAD_ARG=""
 PIDFILE="$DIR/.celsius-serve.pid"
 LOGFILE="$DIR/celsius-serve.log"
 
-# Launch command: prefer uv (`uv run` syncs the [web] extra on demand), fall back
-# to a classic .venv. Override with LAUNCHER if you want a specific interpreter.
+# Launch command: prefer uv (`uv run` syncs the web + dynamic extras on demand —
+# dynamic adds Playwright for SPA rendering; run `uv run playwright install
+# chromium` once to fetch the browser). Fall back to a classic .venv. Override
+# with LAUNCHER if you want a specific interpreter.
 if [ -n "${LAUNCHER:-}" ]; then
     RUN=($LAUNCHER -m celsius)
 elif command -v uv >/dev/null 2>&1; then
-    RUN=(uv run --extra web --project "$DIR" celsius)
+    RUN=(uv run --extra web --extra dynamic --project "$DIR" celsius)
 elif [ -x "$DIR/.venv/bin/python" ]; then
     RUN=("$DIR/.venv/bin/python" -m celsius)
 else
