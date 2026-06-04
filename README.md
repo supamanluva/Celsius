@@ -104,12 +104,15 @@ uv run celsius https://example.com
 # Or install the CLI as a tool on your PATH
 uv tool install .                # then: celsius https://example.com
 
-# Web app needs the `web` extra (fastapi/uvicorn)
-uv run --extra web celsius serve            # http://127.0.0.1:8000
+# Web app — the `web` extra (fastapi/uvicorn) + `dynamic` (Playwright for SPAs)
+uv run --extra web --extra dynamic celsius serve   # http://127.0.0.1:8000
 
-# Optional: dynamic SPA analysis (--dynamic) needs the `dynamic` extra + Chromium
-uv sync --extra dynamic && uv run playwright install chromium
+# Dynamic SPA analysis also needs the Chromium binary (one-time):
+uv run --extra dynamic playwright install chromium
 ```
+
+> A plain `uv run <cmd>` re-syncs to the base env and drops the extras, so always
+> pass `--extra web --extra dynamic` for the server (or just use `./run.sh`).
 
 No uv? The stdlib core still runs with plain Python — `python3 -m celsius
 <target>` — and the web app works under a classic venv:
@@ -118,7 +121,7 @@ No uv? The stdlib core still runs with plain Python — `python3 -m celsius
 ## Web app
 
 ```bash
-uv run --extra web celsius serve            # http://127.0.0.1:8000
+uv run --extra web --extra dynamic celsius serve   # http://127.0.0.1:8000
 # convenience wrapper (detached, PID + logs): ./run.sh   (prefers uv, falls back to venv)
 ```
 
