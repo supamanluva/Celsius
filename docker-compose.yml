@@ -1,0 +1,28 @@
+# Celsius web app in a container.
+#
+#   docker compose up -d --build      # build + start
+#   docker compose logs -f            # follow logs
+#   docker compose down               # stop (data persists in the volume)
+#
+# OS-detect works here: the process is root inside the container and the
+# NET_RAW/NET_ADMIN caps below give nmap raw sockets — without --privileged and
+# without a root service on the host.
+services:
+  celsius:
+    build: .
+    image: celsius:local
+    container_name: celsius
+    # host 8011 -> container 8000 (8000 is taken by docker-proxy on this host).
+    # Prefix with an IP to bind one interface, e.g. "192.168.1.102:8011:8000".
+    ports:
+      - "8011:8000"
+    # Bind-mount the existing host data so the 12 stored scans + caches carry
+    # over and stay on the host (where backups live). $HOME is /data in the
+    # image, so the app reads/writes these exact paths.
+    volumes:
+      - /home/oldirty/.local/share/celsius:/data/.local/share/celsius
+      - /home/oldirty/.cache/celsius:/data/.cache/celsius
+    cap_add:
+      - NET_RAW      # nmap -sS / -O raw packets
+      - NET_ADMIN    # OS fingerprinting robustness
+    restart: unless-stopped
