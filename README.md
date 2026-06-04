@@ -11,13 +11,14 @@
   <img src="https://img.shields.io/badge/python-3.10%2B-3776AB?logo=python&logoColor=white" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/license-MIT-3fb96b" alt="MIT License">
   <img src="https://img.shields.io/badge/core-stdlib--only-5b82f7" alt="stdlib-only core">
+  <img src="https://img.shields.io/badge/deploy-docker-2496ED?logo=docker&logoColor=white" alt="Docker deploy">
   <img src="https://img.shields.io/badge/UI-light%20%2F%20dark-7c5cff" alt="light / dark UI">
 </p>
 
-Passive recon · OS/platform &amp; EOL fingerprinting · CVE + dependency (SCA) ·
-authenticated &amp; headless-browser scanning · CORS/JWT/takeover checks ·
-email security · an **agentic AI proof loop** — with a polished web UI and a
-stdlib-only core.
+Passive recon · OS/platform &amp; EOL fingerprinting · CVE + dependency (SCA) with
+**public-PoC enrichment** · authenticated &amp; headless-browser scanning ·
+CORS/JWT/takeover checks · email security · an **agentic AI proof loop** —
+**one-command Docker deploy**, a polished web UI, and a stdlib-only core.
 
 </div>
 
@@ -37,60 +38,99 @@ stdlib-only core.
 
 ---
 
-**Celsius** is a lightweight vulnerability scanner for web pages, public IPs, **and source
-code**, with a **web UI**, an **agentic AI proof loop**, and **text-only proof-of-concept**
-generation. It:
+**Celsius** is a lightweight vulnerability scanner for web pages, public IPs, **and
+source code** — with a polished **web UI**, an **agentic AI proof loop**, and
+**text-only proof-of-concept** generation. Its scanning core is **stdlib-only**
+(the CLI needs no third-party packages); `nmap`/`nuclei` are optional,
+auto-discovered binaries, and the web app adds only FastAPI/uvicorn.
 
-- **maps the attack surface** — DNS records (via DoH), subdomains (crt.sh CT
-  logs), TLS/certificate analysis, and tech/CDN/WAF/CMS fingerprinting, plus a
-  **temporal diff** flagging what's new since the last scan;
-- **detects running services and versions** — from HTTP `Server`/`X-Powered-By`
-  headers, **tech fingerprinting** (with versions), and (optionally) an
-  `nmap -sV` port scan;
-- **looks up known CVEs** for those versions against the **NVD**, with
-  client-side version-range matching that also catches *freshly published* CVEs
-  NVD hasn't enriched yet (via the MITRE CNA records);
-- **audits web security headers** — CSP, HSTS, X-Frame-Options,
-  X-Content-Type-Options, Referrer-Policy, cookie flags, version disclosure;
-- **deep web checks** — evaluates CSP *content* (unsafe-inline/eval, wildcards,
-  missing base-uri/frame-ancestors), analyses JWTs (alg=none, weak HMAC, no
-  expiry), probes **CORS** misconfiguration (reflected/`null` origin with
-  credentials), checks `security.txt`, and detects dangling-CNAME **subdomain
-  takeover**;
-- **checks email security** (`--mail`) — SPF, DKIM, DMARC, MTA-STS, TLS-RPT,
-  DNSSEC and BIMI for a domain, graded A–F, each gap reported with the exact DNS
-  record to add and which mailserver it applies to (passive: DoH lookups only);
-- **infers OS/platform passively** — derives OS family + server-side runtime from
-  headers/cookies (JSESSIONID→Java/Tomcat, ASP.NET→Windows/IIS, Server-header OS
-  hints, F5/CDN/LB edge), and flags **end-of-life** software (PHP, IIS→Windows
-  Server, Apache, Tomcat, OpenSSL, CentOS) that no longer gets security patches;
-- **crawls & analyzes client-side code** — discovers API endpoints/routes in JS,
-  detects DOM-XSS sinks, recovers **hidden original source from exposed source
-  maps** (and scans it for secrets), and finds OpenAPI/Swagger + GraphQL APIs;
-- **dynamic SPA analysis** (`--dynamic`, needs Playwright) — drives a headless
-  browser to render single-page apps, follow client-side routes, capture the
-  XHR/fetch endpoints they actually call, and scan the post-JS DOM for sinks the
-  static HTML never contains (honours the authenticated session);
-- **scans front-end content for exposed secrets** (HTML + linked JS);
-- **scans source code** for hardcoded secrets (regex + entropy) and risky
-  patterns (SAST-lite), integrating `gitleaks`/`semgrep`/`trufflehog` if present;
-- **audits dependencies (SCA)** — parses lockfiles/manifests (npm, PyPI,
-  Packagist, RubyGems, Go, crates.io) and flags known-vulnerable versions via
-  the OSV.dev database (no API key), with CVE ids and fixed versions;
-- **assesses exploitability** — enriches every CVE/finding with EPSS (exploitation
-  probability), CISA **KEV** (exploited in the wild), and reachability, into a
-  verdict + priority and a *"how to check if exploitable"* decision tree;
-- **correlates exploit chains** — composes individual findings into scored attack
-  paths (e.g. exposed source map → leaked credential → reachable API), plus a
-  completeness critic and blue-team detection-rule generation;
-- generates **non-destructive PoC / reproduction steps** for each finding/CVE;
-- optionally runs **nuclei** web-vulnerability templates;
-- ships a **web app** (FastAPI) and produces **terminal, JSON, HTML, SARIF, and
-  Markdown** reports (`--sarif`/`--markdown` for CI/IDE ingestion).
+**Contents:**
+[Why Celsius](#why-celsius) · [What it does](#what-it-does) ·
+[Run in Docker](#run-in-docker) · [Install](#install) · [Web app](#web-app) ·
+[CLI usage](#cli-usage) · [AI layer](#ai-layer-m2) · [Governance](#governance-m0) ·
+[Lab mode](#lab-mode-m5--active-verification) ·
+[CVE matching](#how-cve-matching-works-and-why-its-not-just-one-api-call) ·
+[Layout](#layout)
 
-Stdlib-only scanning core — the CLI needs no dependencies. `nmap`/`nuclei` are
-optional external binaries (auto-discovered, incl. `~/go/bin`). The **web app**
-needs `fastapi`/`uvicorn`, pulled in by the `web` extra.
+## Why Celsius
+
+- 🐳 **Deploy in one command** — `docker compose up -d` brings up the web UI *and*
+  working `nmap -O`/`-sS` (the process is root **inside** the container —
+  namespaced, so no host-root service and no `sudo nmap` privilege hole).
+- 🧱 **stdlib-only core** — the engine and CLI run on a bare Python install; there's
+  zero third-party supply chain to vet for the part that touches your targets.
+- 🔭 **Catches fresh CVEs others miss** — client-side **MITRE-CNA** semver matching
+  flags just-published CVEs while NVD still says *"Awaiting Analysis"*, then links
+  the confirmed ones to **public exploit PoCs** (trickest/cve).
+- 🧪 **"No exploit, no report"** — an agentic AI loop confirms findings with benign,
+  guard-railed probes before anything is labelled exploitable.
+
+## What it does
+
+**🗺️ Attack surface &amp; recon** — DNS (DoH), subdomain enum (crt.sh CT logs),
+TLS/certificate analysis, and tech/CDN/WAF/CMS fingerprinting, plus a **temporal
+diff** of what changed since the last scan.
+
+**🔌 Services, OS &amp; lifecycle** — service/version detection from headers + tech
+fingerprints + optional `nmap -sV`; **passive OS/runtime inference**
+(JSESSIONID→Java/Tomcat, ASP.NET→Windows/IIS, `Server`-header &amp; edge hints);
+**active OS/device fingerprint** (`nmap -O`); and **end-of-life** flagging for
+software that no longer gets security patches (PHP, IIS, Apache, Tomcat, OpenSSL…).
+
+**🛡️ CVE &amp; dependency intelligence** — CVE lookup against **NVD + MITRE CNA** with
+client-side version-range matching (catches freshly-published CVEs); **public
+exploit-PoC enrichment** linking confirmed CVEs to working PoC repos
+([trickest/cve](https://github.com/trickest/cve)); **dependency audit (SCA)** of
+lockfiles/manifests (npm, PyPI, Packagist, RubyGems, Go, crates.io) via OSV.dev;
+and **exploitability** scoring (EPSS + CISA **KEV** + reachability → verdict,
+priority, and a "how to check" decision tree).
+
+**🌐 Web security** — security-header audit (CSP, HSTS, X-Frame-Options, cookie
+flags, version disclosure); deep **CSP content** analysis (unsafe-inline/eval,
+wildcards, missing base-uri/frame-ancestors); **JWT** analysis (alg=none, weak
+HMAC, no expiry); **CORS** misconfiguration; `security.txt`; dangling-CNAME
+**subdomain takeover**; and an **email-security scorecard** (`--mail`) —
+SPF/DKIM/DMARC/MTA-STS/TLS-RPT/DNSSEC/BIMI graded **A–F** with the exact DNS
+record to add.
+
+**🧭 Client-side &amp; crawl** — crawl + JS intel (API endpoints/routes, DOM-XSS
+sinks), **source-map recovery** (reconstruct hidden original source → scan it for
+secrets), OpenAPI/Swagger + GraphQL discovery, and optional **headless-browser
+SPA analysis** (`--dynamic`, Playwright) that captures the XHR/fetch endpoints a
+single-page app actually calls.
+
+**🔑 Source code &amp; secrets** — front-end secret scan (HTML + linked JS) and a
+static code scan (regex + Shannon entropy + SAST-lite), integrating
+`gitleaks`/`semgrep`/`trufflehog` when present.
+
+**🤖 AI layer** (`--ai`) — triage + attack-surface hypotheses, and an **agentic
+proof loop** (plan → guard-railed send → judge) so only proven issues are
+reported. Pluggable providers incl. **local Ollama** — nothing need leave the box.
+
+**📤 Reporting &amp; integration** — exploit-chain **correlation** (findings → scored
+attack paths), non-destructive **PoC/repro** steps per finding, optional
+**nuclei** templates, and **terminal / JSON / HTML / SARIF / Markdown** output.
+The exit code encodes the worst severity for CI gates.
+
+## Run in Docker
+
+The recommended way to run the web app — and the cleanest way to get **working OS
+and port fingerprinting**. `nmap` requires `euid 0` for raw sockets (`-O`/`-sS`)
+and does **not** honour file capabilities; a namespaced container root grants that
+without a root-running host service or a passwordless `sudo nmap` (which is itself
+a trivial privilege-escalation hole).
+
+```bash
+docker compose up -d --build     # build + start  →  http://localhost:8011
+docker compose logs -f           # follow logs
+docker compose down              # stop (data persists on the host)
+```
+
+The image bundles `nmap` + `nuclei` and publishes port **8011** (host) → 8000
+(container) with just the `NET_RAW`/`NET_ADMIN` caps (no `--privileged`). Scan
+history and caches bind-mount to `~/.local/share/celsius` and `~/.cache/celsius`
+on the host, so they survive rebuilds. Edit `docker-compose.yml` to change the
+port or pin one interface (e.g. `"192.168.1.102:8011:8000"`).
 
 ## Install
 
@@ -284,6 +324,7 @@ python3 -m celsius scan https://lab.local/?q=test --lab --ai --scope scope.yml \
 |------|---------|
 | `--no-web` | skip HTTP header/CSP analysis |
 | `--no-cve` | skip the NVD CVE lookup |
+| `--no-cve-pocs` | skip public exploit-PoC enrichment (trickest/cve) |
 | `--full` / `--thorough` | enable every safe check at once (ports, nuclei, subdomains, crawl, API discovery, mail, CVE-verify, OS detect) |
 | `--cookie` / `--bearer` / `--header` | authenticated scan: attach a session/token to every request |
 | `--login-url` (+ `--login-user`/`--login-pass`) | form login: log in first, then scan as that user |
@@ -354,6 +395,13 @@ high-impact CVEs you care about most**. So celsius:
 Only authoritative sources (NVD + MITRE) are used — never search-engine results,
 which are increasingly polluted with AI-invented "CVEs".
 
+**Public-PoC enrichment.** Confirmed (firm-confidence) CVEs are then linked to
+real, working proof-of-concept repositories from the community
+[trickest/cve](https://github.com/trickest/cve) database — so a finding ships with
+*"here's how it's exploited"* rather than just an identifier. Lookups are cached
+and parallelised, and only firm matches are enriched (weak/AI matches are skipped
+to avoid noise). Disable with `--no-cve-pocs`.
+
 > Worked example: nginx **1.29.6** is affected by **CVE-2026-42945** (range
 > `0.6.27`–`<1.30.1`) but **not** CVE-2026-9256, whose real affected ranges
 > (`0.1.17`–`0.9.7`, `1.30.0`–`1.30.1`, `1.31.0`) exclude 1.29.6 — even though
@@ -361,9 +409,11 @@ which are increasingly polluted with AI-invented "CVEs".
 
 ## Requirements
 
+- **Docker** (recommended for the web app + working OS detection) — everything
+  else is bundled in the image; just `docker compose up -d --build`.
 - Python 3.10+
 - [uv](https://docs.astral.sh/uv/) (recommended) — `curl -LsSf https://astral.sh/uv/install.sh | sh`
-- `nmap` (optional, for `--ports`)
+- `nmap` (optional, for `--ports`/OS detect; OS detect needs root or a container)
 - `nuclei` (optional, for `--nuclei`) — `go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest`
 
 ## Layout
@@ -390,8 +440,8 @@ celsius/
                     (recover hidden source), apidisco.py (OpenAPI/GraphQL), dynamic.py
   targets.py        URL/host/IP parsing & resolution
   http_analysis.py  header fetch, service detection, security-header audit
-  portscan.py       nmap -sV wrapper (XML parsing)
-  cve.py            NVD + MITRE CNA CVE lookup with version-range matching
+  portscan.py       nmap -sV / -O wrapper (XML parsing, per-IP result cache)
+  cve.py            NVD + MITRE CNA CVE lookup, version-range matching, trickest PoCs
   version.py        version comparison / range checks
   nuclei_scan.py    optional nuclei wrapper
   secrets.py        secret signatures (regex) + Shannon entropy
