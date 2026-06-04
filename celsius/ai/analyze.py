@@ -120,6 +120,51 @@ def triage_scan(result_dict: dict, provider: LLMProvider, *, redact_secrets: boo
     return findings, summary
 
 
+def security_advisor(result_dict: dict, provider: LLMProvider, *, redact_secrets: bool = False,
+                     budget: Optional[cache_mod.Budget] = None, use_cache: bool = True,
+                     audit=None) -> dict:
+    """Plain-language, prioritized remediation plan for the site owner.
+
+    Grounded strictly in CONFIRMED signals — firm CVEs and real (non-AI-hypothesis,
+    non-INFO) findings — plus the computed health grade. Returns the advisory dict
+    {headline, steps[], doing_well[]} (empty {} on failure/clean)."""
+    from .. import grade as grade_mod
+    g = grade_mod.assess(result_dict)
+
+    firm_cves = [c for c in result_dict.get("cves", []) if c.get("confidence", "firm") != "weak"]
+    real_finds = [f for f in result_dict.get("findings", [])
+                  if f.get("category") not in ("ai-hypothesis", "ai-summary")
+                  and f.get("severity") != "INFO"]
+    if g.get("clean") and not firm_cves and not real_finds:
+        return {"headline": "No confident security issues were found — nice work.",
+                "steps": [], "doing_well": []}
+
+    context = {
+        "target": result_dict.get("target"), "url": result_dict.get("url"),
+        "client_libraries": (result_dict.get("recon") or {}).get("client_libs", []),
+        "confirmed_cves": [{"id": c.get("id"), "severity": c.get("severity"),
+                            "affects": c.get("affects"), "verified": c.get("verified"),
+                            "fix": (c.get("references") or [{}])[0].get("url", "")}
+                           for c in firm_cves],
+        "findings": [{"title": f.get("title"), "severity": f.get("severity"),
+                      "category": f.get("category"), "detail": (f.get("description") or "")[:200],
+                      "recommendation": f.get("recommendation", "")} for f in real_finds],
+    }
+    raw = json.dumps(context)
+    red = redact(raw, enabled=redact_secrets)
+    messages = [Message("system", prompts.ADVISOR_SYSTEM),
+                Message("user", prompts.advisor_prompt(g, json.loads(red.text)))]
+    resp = _call(provider, messages, json_mode=True, budget=budget, use_cache=use_cache,
+                 audit=audit, redaction=red)
+    data = parse_json(resp) or {}
+    return {
+        "headline": data.get("headline", ""),
+        "steps": [s for s in (data.get("steps") or []) if s.get("title")][:12],
+        "doing_well": [w for w in (data.get("doing_well") or []) if w][:8],
+        "grade": g.get("grade"), "score": g.get("score"),
+    }
+
+
 # ---- code review --------------------------------------------------------------
 
 def review_code_file(path: str, source: str, provider: LLMProvider, *,

@@ -266,3 +266,47 @@ def cve_judge_prompt(cve: dict, evidence: dict) -> str:
     return ("CVE:\n" + json.dumps(view, indent=2)
             + "\n\nProbe evidence:\n" + json.dumps(evidence, indent=2)[:6000]
             + "\n\n" + _schema_block(CVE_JUDGE_SCHEMA))
+
+
+# ---- security advisor (plain-language, prioritized remediation for the owner) --
+
+ADVISOR_SYSTEM = """You are a trusted security advisor writing for the OWNER of \
+this website — assume a capable developer, not a security specialist. You are \
+given the scan's CONFIRMED findings (firm CVEs, vulnerable client-side libraries, \
+and real misconfigurations) plus a computed health grade. Turn them into a calm, \
+honest, prioritized action plan.
+
+For every step:
+- say plainly WHAT is wrong and WHY it matters to THIS site (concrete impact, not \
+generic theory),
+- give the EXACT fix: the header to add, the config directive, the command, the \
+version to upgrade to — copy-pasteable where possible,
+- rate the effort (quick | moderate | involved).
+
+RULES:
+- Ground STRICTLY in the findings provided. Never invent a CVE, finding, or \
+version. If something is only a lead/low-confidence, do not present it as fact.
+- Order steps by real risk to the owner (verified + high impact first).
+- Also call out what they're already doing RIGHT — it builds trust and tells them \
+not to "fix" things that are fine.
+- Be concise and practical. Output ONE valid JSON object only, matching the schema."""
+
+ADVISOR_SCHEMA = {
+    "headline": "one honest sentence on overall security posture for the owner",
+    "steps": [{
+        "title": "short imperative, e.g. 'Add a Content-Security-Policy'",
+        "severity": "CRITICAL|HIGH|MEDIUM|LOW",
+        "why": "plain-language impact specific to this site",
+        "fix": "exact, copy-pasteable remediation (header/config/command/version)",
+        "effort": "quick|moderate|involved",
+    }],
+    "doing_well": ["short notes on controls already in place / done right"],
+}
+
+
+def advisor_prompt(grade: dict, context: dict) -> str:
+    return ("Authorized scan of the owner's own site. Write their remediation plan.\n\n"
+            "HEALTH GRADE:\n" + json.dumps(grade, indent=2)[:3000]
+            + "\n\nCONFIRMED FINDINGS (ground strictly in these):\n"
+            + json.dumps(context, indent=2)[:16000]
+            + "\n\n" + _schema_block(ADVISOR_SCHEMA))
