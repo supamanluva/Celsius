@@ -362,6 +362,21 @@ def html_report(data: dict) -> str:
         f"<div class='gradebar'><span class='gletter' style='color:{gcolor}'>{e(asmt['grade'])}</span>"
         f"<span class='gscore'>{asmt['score']}<small>/100</small></span></div>{fix_html}")
 
+    adv = (data.get("recon") or {}).get("advisor") or {}
+    advisor_html = ""
+    if adv.get("headline") or adv.get("steps"):
+        steps = "".join(
+            f"<li>{sev_badge(s.get('severity', 'LOW'))} <strong>{e(s.get('title', ''))}</strong>"
+            f"{(' — <em>' + e(s.get('effort')) + '</em>') if s.get('effort') else ''}"
+            f"{('<br>' + e(s.get('why'))) if s.get('why') else ''}"
+            f"{('<br><code>' + e(s.get('fix')) + '</code>') if s.get('fix') else ''}</li>"
+            for s in adv.get("steps", []))
+        well = (f"<p class='adv-well'><strong>Already doing well:</strong> "
+                f"{e(' · '.join(adv.get('doing_well', [])))}</p>" if adv.get("doing_well") else "")
+        advisor_html = (f"<h2>🛡️ Your action plan <span class='aitag'>AI advisor</span></h2>"
+                        f"<p>{e(adv.get('headline', ''))}</p>"
+                        f"<ol class='advlist'>{steps}</ol>{well}")
+
     return f"""<!doctype html><html><head><meta charset="utf-8">
 <title>celsius — {e(data.get('target',''))}</title>
 <style>
@@ -376,12 +391,16 @@ def html_report(data: dict) -> str:
  .gletter{{font-size:2.6rem;font-weight:800;line-height:1}}
  .gscore{{font-size:1.2rem;color:#444;font-weight:700}} .gscore small{{color:#888;font-weight:400}}
  .fixlist{{margin:.3rem 0 1.2rem}} .fixlist li{{margin:.3rem 0;line-height:1.5}}
+ .advlist li{{margin:.4rem 0;line-height:1.5}} .advlist code{{display:block;white-space:pre-wrap;background:#f3f3f3;padding:.4rem .6rem;border-radius:4px;margin-top:.2rem;font-size:13px}}
+ .aitag{{font-size:11px;color:#7c5cff;border:1px solid #cdbcff;border-radius:999px;padding:1px 7px;vertical-align:middle}}
+ .adv-well{{color:#2e9e44}}
  @media print{{body{{margin:0}}}}
 </style></head><body>
 <h1>celsius report</h1>
 <div class="meta">{e(data.get('target',''))} &middot; URL: {e(data.get('url') or '-')} &middot; IP: {e(data.get('ip') or '-')}
  &middot; {e(data.get('started_at',''))} → {e(data.get('finished_at',''))}</div>
 {grade_banner}
+{advisor_html}
 <h2>Detected services</h2>
 <table><tr><th>Product</th><th>Version</th><th>Port</th><th>Source</th></tr>{rows_services}</table>
 <h2>Known CVEs</h2>

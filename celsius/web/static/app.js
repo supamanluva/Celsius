@@ -367,6 +367,23 @@ function renderResult(res, scanId) {
     }
   }
 
+  // AI security advisor — grounded, plain-language action plan for the owner
+  const adv = (res.recon || {}).advisor;
+  if (adv && (adv.headline || (adv.steps || []).length)) {
+    const steps = (adv.steps || []).map((s, i) => `<li>
+        <span class="badge sev-${s.severity || "LOW"}">${esc(s.severity || "")}</span>
+        <strong>${esc(s.title || "")}</strong>${s.effort ? ` <span class="adv-effort">${esc(s.effort)}</span>` : ""}
+        ${s.why ? `<div class="adv-why">${esc(s.why)}</div>` : ""}
+        ${s.fix ? `<div class="adv-fix"><code>${esc(s.fix)}</code></div>` : ""}</li>`).join("");
+    const well = (adv.doing_well || []).length
+      ? `<div class="adv-well"><strong>Already doing well:</strong> ${(adv.doing_well).map(esc).join(" · ")}</div>` : "";
+    html += `<div class="advisor">
+        <div class="adv-head">🛡️ Your action plan <span class="adv-tag">AI advisor</span></div>
+        ${adv.headline ? `<p class="adv-headline">${esc(adv.headline)}</p>` : ""}
+        ${steps ? `<ol class="adv-list">${steps}</ol>` : ""}
+        ${well}</div>`;
+  }
+
   // Exploit chains — headline correlated attack paths
   const chains = res.chains || [];
   if (chains.length) {

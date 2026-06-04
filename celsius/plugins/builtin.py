@@ -542,7 +542,7 @@ class AiActiveVerify(Plugin):
 
         base = ctx.result.url or ctx.target.web_url()
         ctx.log(f"ai-active-verify: agentic proof loop on {base} ...")
-        budget = Budget()
+        budget = Budget(max_tokens=2_000_000)   # don't starve the analysis of tokens
         try:
             # 1. Injection proof loop on discovered parameters (XSS/redirect/SQLi/…)
             points = discover_points(base, lab)
@@ -559,7 +559,7 @@ class AiActiveVerify(Plugin):
             if hyps:
                 verdicts = agent.prove_hypotheses(
                     ctx.result.to_dict(), [f.to_dict() for f in hyps], provider, lab,
-                    budget=budget, audit=ctx.audit, log=ctx.log)
+                    budget=budget, audit=ctx.audit, log=ctx.log, max_calls=30)
                 ctx.result.findings, vstats = agent.apply_verdicts(ctx.result.findings, verdicts)
                 ctx.log(f"ai-prove: {vstats.get('confirmed', 0)} confirmed, "
                         f"{vstats.get('refuted', 0)} refuted, "
@@ -791,7 +791,8 @@ class AiCveVerify(Plugin):
         try:
             verdicts = agent.verify_cves(
                 ctx.result.to_dict(), [c.to_dict() for c in ctx.result.cves],
-                provider, lab, budget=Budget(), audit=ctx.audit, log=ctx.log)
+                provider, lab, budget=Budget(max_tokens=2_000_000), audit=ctx.audit,
+                log=ctx.log, max_cves=20)
         except AIError as e:
             ctx.result.errors.append(f"ai-cve-verify failed: {e}")
             return
@@ -855,11 +856,14 @@ class AIAnalysis(Plugin):
             ctx.result.errors.append(f"ai-analysis: provider '{cfg.ai_provider}' unavailable ({why})")
             return
 
+        # Generous budget — we don't hold the analysis back (active-exploit safety
+        # rails are enforced separately by the lab harness, not by token budget).
+        budget = Budget(max_tokens=2_000_000)
         ctx.log(f"AI triage via {provider.name}/{provider.model} ...")
         try:
             findings, summary = analyze.triage_scan(
                 ctx.result.to_dict(), provider,
-                redact_secrets=cfg.ai_redact, budget=Budget(), audit=ctx.audit,
+                redact_secrets=cfg.ai_redact, budget=budget, audit=ctx.audit,
             )
         except AIError as e:
             ctx.result.errors.append(f"ai-analysis failed: {e}")
@@ -873,6 +877,19 @@ class AIAnalysis(Plugin):
                 recommendation="AI-generated; treat hypotheses as leads to verify, not facts.",
             ))
         ctx.result.findings.extend(findings)
+
+        # Security advisor — a grounded, plain-language, prioritized fix plan for
+        # the site owner (built from the confirmed findings + the health grade).
+        ctx.log("AI security advisor: drafting the owner's remediation plan ...")
+        try:
+            advisory = analyze.security_advisor(
+                ctx.result.to_dict(), provider,
+                redact_secrets=cfg.ai_redact, budget=budget, audit=ctx.audit,
+            )
+            if advisory:
+                ctx.result.recon["advisor"] = advisory
+        except AIError as e:
+            ctx.result.errors.append(f"ai-advisor failed: {e}")
 
 
 @register
