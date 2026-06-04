@@ -19,6 +19,13 @@ logic, chained exploits, auth/IDOR, SSRF, misconfig combinations).
 
 Rules:
 - Be precise and evidence-driven. Do not invent CVEs or findings.
+- A CVE marked confidence="weak" is an UNCONFIRMED upstream version-range guess. \
+Linux distros (Debian/Ubuntu/RHEL) routinely backport security fixes WITHOUT \
+changing the upstream version, so a weak match may already be patched (e.g. an \
+OpenSSH banner like "9.6p1 Ubuntu-3ubuntu13.16" carries fixes 9.6p1 alone does \
+not reveal). Treat weak CVEs as low-confidence leads: do NOT build HIGH/CRITICAL \
+hypotheses on them or present them as exploitable, and list them under \
+likely_false_positives when the banner shows a patched distro build.
 - Every hypothesis must include a NON-DESTRUCTIVE way to check it.
 - Output ONE valid JSON object, no prose outside it, matching the schema."""
 
