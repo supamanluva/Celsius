@@ -43,6 +43,8 @@ _STATIC_EXT = re.compile(
 # well-known namespace / schema hosts that look like URLs but never are endpoints
 _NOISE_HOST = re.compile(r"(?:^|\.)(?:w3\.org|w3\.org\.|purl\.org|schema\.org)$|"
                          r"ns\.adobe\.com|xmlns", re.I)
+# leading HTTP method on dynamic (network-captured) endpoints, e.g. "GET https://…"
+_METHOD_PREFIX = re.compile(r"^(?:GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\s+", re.I)
 
 
 def _base_domain(host: Optional[str]) -> str:
@@ -60,7 +62,10 @@ def _clean_endpoint(e: str, base: str) -> Optional[str]:
     assets, and malformed/absurd tokens. `base` is the target's base domain
     ('' = unknown, in which case only obvious namespace hosts are dropped).
     """
-    e = e.replace("\\/", "/").rstrip("\\").strip()
+    # drop a method prefix from network-captured endpoints, then normalise the
+    # escaped/trailing backslash artifact, so dynamic and static endpoints share
+    # one format and go through the same scoping + dedup.
+    e = _METHOD_PREFIX.sub("", e).replace("\\/", "/").rstrip("\\").strip()
     if not (3 < len(e) < 200):
         return None
     if e.startswith("http"):
