@@ -718,6 +718,92 @@ class CveVerification(Plugin):
 
 
 @register
+class AiCveVerify(Plugin):
+    id = "ai-cve-verify"
+    title = "AI-planned benign verification of detected CVEs (lab mode)"
+    phase = Phase.ENRICH      # after cve-lookup + nuclei cve-verify
+    mode = Mode.EXPLOIT       # sends crafted probes; engine gates on allow_exploit + scope
+    category = "ai-cve-verify"
+
+    def enabled(self, ctx: ScanContext) -> bool:
+        return ctx.config.ai and ctx.config.allow_exploit and bool(ctx.result.cves)
+
+    def run(self, ctx: ScanContext) -> None:
+        from ..active.harness import LabContext
+        from ..ai import agent, get_provider
+        from ..ai.cache import Budget
+        from ..ai.provider import AIError
+
+        cfg = ctx.config
+        # Only firm, not-yet-verified CVEs are worth a probe; nuclei (cve-verify)
+        # may have already confirmed some, and weak matches are likely FPs.
+        todo = [c for c in ctx.result.cves if c.confidence != "weak" and not c.verified]
+        if not todo:
+            return
+        try:
+            provider = get_provider(cfg.ai_provider, model=cfg.ai_model,
+                                    api_key=cfg.ai_api_key, base_url=cfg.ai_base_url)
+        except AIError as e:
+            ctx.result.errors.append(f"ai-cve-verify: {e}")
+            return
+        ok, why = provider.available()
+        if not ok:
+            ctx.result.errors.append(f"ai-cve-verify: provider unavailable ({why})")
+            return
+
+        lab = LabContext(
+            host=ctx.target.host, enabled=cfg.allow_exploit,
+            attested=bool(cfg.lab_attestation), audit=ctx.audit, dry_run=cfg.dry_run,
+            rate_limit_rps=cfg.exploit_rate_limit, max_requests=cfg.exploit_max_requests,
+            insecure=cfg.insecure, log=ctx.log, auth=cfg.auth,
+        )
+        ready, why = lab.ready()
+        if not ready:
+            ctx.result.errors.append(f"ai-cve-verify: skipped ({why})")
+            ctx.audit.skipped(self.id, ctx.target.host, why)
+            return
+
+        ctx.log(f"ai-cve-verify: planning benign probes for {len(todo)} firm CVE(s) ...")
+        try:
+            verdicts = agent.verify_cves(
+                ctx.result.to_dict(), [c.to_dict() for c in ctx.result.cves],
+                provider, lab, budget=Budget(), audit=ctx.audit, log=ctx.log)
+        except AIError as e:
+            ctx.result.errors.append(f"ai-cve-verify failed: {e}")
+            return
+
+        by_id = {c.id: c for c in ctx.result.cves}
+        for v in verdicts:
+            if v.get("status") != "confirmed":
+                continue
+            c = by_id.get(v.get("cve"))
+            if c:
+                c.verified = True
+            ctx.result.findings.append(Finding(
+                title=f"CVE CONFIRMED by AI probe: {v.get('cve')}",
+                severity=(c.severity if c else Severity.HIGH),
+                category="ai-cve-verify",
+                description=(v.get("reasoning", "") + " Confirmed by an AI-planned, "
+                             "non-destructive probe on an authorized lab target.").strip(),
+                recommendation="Verified present & reachable — patch urgently. "
+                               "Reproduce with the captured request.",
+                evidence=(f"{v.get('evidence', '')}  {v.get('curl', '')}").strip()[:300],
+                confidence="high",
+                exploitability={"verdict": "confirmed-exploitable", "priority": 92,
+                                "signals": {"reachable": True, "actively_verified": True,
+                                            "ai_planned": True}},
+            ))
+        counts = {s: sum(1 for v in verdicts if v.get("status") == s)
+                  for s in ("confirmed", "refuted", "inconclusive", "needs-manual")}
+        ctx.log(f"ai-cve-verify: {counts['confirmed']} confirmed, {counts['refuted']} refuted, "
+                f"{counts['inconclusive']} inconclusive, {counts['needs-manual']} need manual")
+        ctx.result.recon["ai_cve_verify"] = {
+            "candidates": len(todo), "verdicts": counts,
+            "requests_sent": lab._count, "halted": lab.stopped_reason or None,
+        }
+
+
+@register
 class AIAnalysis(Plugin):
     id = "ai-analysis"
     title = "AI triage + attack-surface hypotheses (DeepSeek by default)"
