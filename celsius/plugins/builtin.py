@@ -738,6 +738,10 @@ class CveLookup(Plugin):
         )
         ctx.result.cves.extend(cves)
         ctx.result.errors.extend(notes)
+        if ctx.config.cve_pocs and cves:
+            n = cve_mod.enrich_pocs(ctx.result.cves)
+            if n:
+                ctx.log(f"exploit-PoC enrichment: linked {n} CVE(s) to public PoCs (trickest/cve)")
 
 
 @register
