@@ -114,6 +114,7 @@ def analyze(target: Target, *, insecure: bool = False, auth=None) -> tuple[
 
     services = detect_services(result)
     findings = audit_security_headers(result)
+    findings += reconcile_server_identity(result, services)
     return result, services, findings, errors
 
 
@@ -144,6 +145,54 @@ def detect_services(result: HttpResult) -> list[Service]:
                 )
             )
     return services
+
+
+def _fronting_proxy(result: HttpResult) -> Optional[str]:
+    """Name of a reverse proxy / CDN sitting in front of the origin, if the headers
+    betray one (a Via header, or a CDN's signature header). None if direct."""
+    via = result.headers.get("via")
+    if via:
+        for name, pat in _SERVER_PATTERNS:
+            if pat.search(via):
+                return name
+        tok = via.split(",")[0].split()        # "1.1 vegur" -> "vegur"
+        return tok[-1] if tok else "a proxy"
+    if result.headers.get("cf-ray"):
+        return "Cloudflare"
+    if result.headers.get("x-served-by") or result.headers.get("fastly-debug-digest"):
+        return "Fastly"
+    return None
+
+
+def reconcile_server_identity(result: HttpResult, services: list[Service]) -> list[Finding]:
+    """A reverse proxy/CDN in front of the origin means the ``Server`` header version
+    may belong to an upstream behind it — or be a spoofed/pass-through value — rather
+    than the software that actually terminates the connection. Flag the ambiguity so
+    version-based CVEs on that origin aren't read as confirmed-exploitable on the
+    reachable edge. Annotates the origin service in place; returns 0/1 findings."""
+    proxy = _fronting_proxy(result)
+    if not proxy:
+        return []
+    origin = next((s for s in services if s.source == "http-header:server"), None)
+    if origin is None or origin.name == proxy:        # direct, or proxy IS the origin
+        return []
+    origin.extra["behind_proxy"] = proxy
+    ver = f" {origin.version}" if origin.version else ""
+    return [Finding(
+        title=f"Server identity ambiguous — {origin.name}{ver} behind {proxy}",
+        severity=Severity.LOW,
+        category="fingerprint",
+        description=(
+            f"The edge answers via {proxy} (Via/CDN header), but the Server header "
+            f"advertises {origin.name}{ver}. That version may belong to an upstream "
+            f"behind {proxy}, or be a spoofed/pass-through header — so version-based "
+            f"CVEs for {origin.name} are NOT confirmed exploitable on the reachable edge."),
+        recommendation=(
+            f"Confirm what actually terminates the connection (e.g. compare an nmap -sV "
+            f"of ports 80/443 against the Server header) before trusting {origin.name} "
+            f"CVEs; if {origin.name} is a real upstream, verify it's reachable through {proxy}."),
+        confidence="medium",
+    )]
 
 
 # ---- Security header auditing -------------------------------------------------
