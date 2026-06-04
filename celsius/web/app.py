@@ -28,7 +28,10 @@ from .. import codescan, poc, report
 from ..engine import ScanConfig, run_scan
 from ..logsetup import get_logger, setup_logging
 from ..models import CVE, Finding, Severity
+from ..plugins.base import Mode
+from ..scope import Scope
 from ..store import Store
+from ..targets import parse_target
 
 # Ensure scans launched from the web UI are traced to the persistent log file
 # too (the per-job in-memory log only lives as long as the process).
@@ -65,6 +68,18 @@ class ScanRequest(BaseModel):
     crawl: bool = False
     api_discovery: bool = False
     cve_verify: bool = False
+    # extended recon (opt-in)
+    wayback: bool = False
+    content_discovery: bool = False
+    dynamic: bool = False
+    os_detect: bool = False
+    subdomain_bruteforce: bool = False
+    nuclei_full: bool = False
+    nuclei_tags: Optional[str] = None
+    # lab-mode active exploitation (guardrailed — needs an attestation)
+    allow_exploit: bool = False
+    lab_attestation: Optional[str] = None
+    dry_run: bool = False
     ai: bool = False
     ai_provider: str = "deepseek"
     ai_model: Optional[str] = None
@@ -87,7 +102,7 @@ class PocRequest(BaseModel):
 
 # ---- scan jobs ----------------------------------------------------------------
 
-def _run_job(job_id: str, config: ScanConfig) -> None:
+def _run_job(job_id: str, config: ScanConfig, scope: "Optional[Scope]" = None) -> None:
     def log(msg: str) -> None:
         _log.info("[job %s] %s", job_id, msg)
         with _jobs_lock:
@@ -95,7 +110,7 @@ def _run_job(job_id: str, config: ScanConfig) -> None:
 
     _log.info("[job %s] scan starting: target=%s", job_id, config.target)
     try:
-        result = run_scan(config, log=log, store=_store)
+        result = run_scan(config, log=log, store=_store, scope=scope)
         for e in result.errors:
             _log.warning("[job %s] note/error: %s", job_id, e)
         with _jobs_lock:
@@ -117,20 +132,36 @@ def start_scan(req: ScanRequest) -> dict:
     if not req.target.strip():
         raise HTTPException(status_code=400, detail="Target is required.")
 
+    # Lab mode (active exploitation) is permissive-scope-blocked by default; it
+    # needs an attestation and an explicit scope authorizing EXPLOIT for the host.
+    scope: Optional[Scope] = None
+    if req.allow_exploit:
+        if len((req.lab_attestation or "").strip()) < 10:
+            raise HTTPException(
+                status_code=400,
+                detail="Lab mode requires a meaningful authorization attestation (≥10 characters).")
+        host = parse_target(req.target.strip()).host.lower()
+        scope = Scope(targets={host: {Mode.PASSIVE.value, Mode.SAFE_ACTIVE.value,
+                                      Mode.EXPLOIT.value}})
+
     job_id = uuid.uuid4().hex[:12]
     config = ScanConfig(
         target=req.target.strip(), web=req.web, cve=req.cve, web_secrets=req.web_secrets,
-        ports=req.ports, nuclei=req.nuclei, top_ports=req.top_ports,
-        port_range=req.port_range, insecure=req.insecure,
+        ports=req.ports, nuclei=req.nuclei, nuclei_full=req.nuclei_full,
+        nuclei_tags=req.nuclei_tags, top_ports=req.top_ports,
+        port_range=req.port_range, insecure=req.insecure, os_detect=req.os_detect,
         dns=req.dns, tls=req.tls, mailsec=req.mailsec,
         fingerprint=req.fingerprint, subdomains=req.subdomains,
-        crawl=req.crawl, api_discovery=req.api_discovery, cve_verify=req.cve_verify,
+        subdomain_bruteforce=req.subdomain_bruteforce, wayback=req.wayback,
+        crawl=req.crawl, api_discovery=req.api_discovery, content_discovery=req.content_discovery,
+        dynamic=req.dynamic, cve_verify=req.cve_verify,
+        allow_exploit=req.allow_exploit, lab_attestation=req.lab_attestation, dry_run=req.dry_run,
         ai=req.ai, ai_provider=req.ai_provider, ai_model=req.ai_model,
         ai_base_url=req.ai_base_url, ai_api_key=req.ai_api_key, ai_redact=req.ai_redact,
     )
     with _jobs_lock:
         _jobs[job_id] = {"status": "running", "log": [], "result": None, "error": None}
-    _executor.submit(_run_job, job_id, config)
+    _executor.submit(_run_job, job_id, config, scope)
     return {"job_id": job_id}
 
 
