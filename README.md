@@ -106,6 +106,9 @@ uv tool install .                # then: celsius https://example.com
 
 # Web app needs the `web` extra (fastapi/uvicorn)
 uv run --extra web celsius serve            # http://127.0.0.1:8000
+
+# Optional: dynamic SPA analysis (--dynamic) needs the `dynamic` extra + Chromium
+uv sync --extra dynamic && uv run playwright install chromium
 ```
 
 No uv? The stdlib core still runs with plain Python — `python3 -m celsius

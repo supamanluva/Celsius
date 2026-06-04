@@ -282,8 +282,8 @@ class Crawler(Plugin):
             }
         elif ctx.config.dynamic:
             ctx.result.errors.append(
-                "dynamic: Playwright not installed (pip install playwright && "
-                "playwright install chromium) — used static crawl only")
+                "dynamic: Playwright not installed (uv sync --extra dynamic && "
+                "uv run playwright install chromium) — used static crawl only")
 
         ctx.result.recon["crawl"] = {
             "pages": len(cr.pages),
