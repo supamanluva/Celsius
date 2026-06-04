@@ -361,6 +361,27 @@ footer { color: var(--faint); font-size: .78rem; text-align: center; margin-top:
 .ts-stack { margin-left: .55rem; font-size: .76rem; color: var(--muted); }
 .ts-focus { margin-top: .25rem; font-size: .82rem; color: var(--muted); line-height: 1.45; }
 
+/* ---- security-health banner ------------------------------------------------ */
+.healthcard {
+  display: flex; gap: 1rem; align-items: flex-start; margin: 1rem 0 1.4rem;
+  padding: 1rem 1.2rem; background: var(--surface); border: 1px solid var(--border);
+  border-left: 5px solid var(--muted); border-radius: var(--r); box-shadow: var(--shadow-sm);
+}
+.healthcard .hc-grade { font-size: 2.8rem; font-weight: 800; line-height: 1; letter-spacing: -.02em; }
+.healthcard .hc-body { flex: 1; }
+.hc-score { font-size: 1.05rem; color: var(--muted); }
+.hc-score strong { color: var(--text); font-size: 1.4rem; }
+.hc-msg { margin: .35rem 0 .2rem; color: var(--text); font-weight: 600; }
+.hc-list { margin: .4rem 0 0; padding-left: 1.2rem; display: flex; flex-direction: column; gap: .5rem; }
+.hc-list li { line-height: 1.5; }
+.hc-fix { color: var(--muted); font-size: .88rem; margin-top: .15rem; }
+.hc-more { color: var(--faint); font-size: .84rem; margin-top: .5rem; }
+.healthcard.grade-A { border-left-color: var(--ok); } .healthcard.grade-A .hc-grade { color: #5fd083; }
+.healthcard.grade-B { border-left-color: #74c34a; } .healthcard.grade-B .hc-grade { color: #93d65f; }
+.healthcard.grade-C { border-left-color: var(--med); } .healthcard.grade-C .hc-grade { color: var(--med); }
+.healthcard.grade-D { border-left-color: var(--high); } .healthcard.grade-D .hc-grade { color: var(--high); }
+.healthcard.grade-F { border-left-color: var(--crit); } .healthcard.grade-F .hc-grade { color: #ff7a80; }
+
 /* ---- lab mode (active exploitation) ---------------------------------------- */
 .labmode { margin: .5rem 0 1rem; border: 1px solid var(--high); border-radius: var(--r);
   background: rgba(255,122,61,.06); padding: .4rem .9rem; }

@@ -345,6 +345,28 @@ function renderResult(res, scanId) {
 
   let html = "";
 
+  // Security-health banner — honest top-line + "fix these first"
+  const a = res.assessment;
+  if (a) {
+    const g = (a.grade || "?")[0];
+    if (a.clean) {
+      html += `<div class="healthcard grade-${g}">
+        <div class="hc-grade">${esc(a.grade)}</div>
+        <div class="hc-body"><div class="hc-score"><strong>${a.score}</strong>/100</div>
+          <div class="hc-msg">✅ No confident security issues found. (Leads/low-confidence items, if any, are listed below — verify, don't panic.)</div></div></div>`;
+    } else {
+      const items = (a.fix_first || []).map((it) =>
+        `<li><span class="badge sev-${it.severity}">${it.severity}</span>${it.verified ? ' <span class="verdict v-high">✔ verified</span>' : ""}
+          <strong>${esc(it.title)}</strong>${it.fix ? `<div class="hc-fix">↳ ${esc(it.fix)}</div>` : ""}</li>`).join("");
+      const more = a.total_actionable > (a.fix_first || []).length
+        ? `<div class="hc-more">+${a.total_actionable - a.fix_first.length} more below</div>` : "";
+      html += `<div class="healthcard grade-${g}">
+        <div class="hc-grade">${esc(a.grade)}</div>
+        <div class="hc-body"><div class="hc-score"><strong>${a.score}</strong>/100 · ${a.total_actionable} to fix</div>
+          <div class="hc-msg">Fix these first:</div><ol class="hc-list">${items}</ol>${more}</div></div>`;
+    }
+  }
+
   // Exploit chains — headline correlated attack paths
   const chains = res.chains || [];
   if (chains.length) {

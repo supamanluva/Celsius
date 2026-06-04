@@ -24,7 +24,7 @@ from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from .. import codescan, poc, report
+from .. import codescan, grade, poc, report
 from ..engine import ScanConfig, run_scan
 from ..logsetup import get_logger, setup_logging
 from ..models import CVE, Finding, Severity
@@ -113,9 +113,11 @@ def _run_job(job_id: str, config: ScanConfig, scope: "Optional[Scope]" = None) -
         result = run_scan(config, log=log, store=_store, scope=scope)
         for e in result.errors:
             _log.warning("[job %s] note/error: %s", job_id, e)
+        d = result.to_dict()
+        d["assessment"] = grade.assess(d)
         with _jobs_lock:
             _jobs[job_id]["status"] = "done"
-            _jobs[job_id]["result"] = result.to_dict()
+            _jobs[job_id]["result"] = d
             _jobs[job_id]["scan_id"] = getattr(result, "scan_id", None)
     except Exception as e:  # surface failures to the UI instead of 500-ing silently
         _log.exception("[job %s] scan crashed", job_id)
@@ -186,6 +188,7 @@ def get_scan(scan_id: str) -> dict:
     result = _store.get_scan(scan_id)
     if result is None:
         raise HTTPException(status_code=404, detail="Unknown scan id.")
+    result.setdefault("assessment", grade.assess(result))
     return result
 
 
