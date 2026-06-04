@@ -64,6 +64,18 @@ def test_scope_endpoints_filters_existing_set():
     assert kept == {"https://example.com", "https://sub.example.com/api"}
 
 
+def test_method_prefix_stripped_and_scoped():
+    # dynamic (network-captured) endpoints arrive as "METHOD url" — the method is
+    # dropped and the URL still goes through same-site scoping.
+    raw = {"GET https://example.com/api/checkToken.php?value=abc",
+           "POST https://example.com/api/login",
+           "GET https://tracker.evil.com/collect"}   # third-party -> dropped
+    kept = j.scope_endpoints(raw, "example.com")
+    assert kept == {"https://example.com/api/checkToken.php?value=abc",
+                    "https://example.com/api/login"}
+    assert not any(e.startswith(("GET ", "POST ")) for e in kept)
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     failed = 0
