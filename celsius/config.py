@@ -15,6 +15,7 @@ class ScanConfig:
     # phase/check toggles
     web: bool = True
     cve: bool = True
+    cve_pocs: bool = True             # link CVEs to public exploits/PoCs (trickest/cve)
     web_secrets: bool = True
     ports: bool = False
     nuclei: bool = False

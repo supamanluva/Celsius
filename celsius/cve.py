@@ -158,6 +158,99 @@ def _get_json(url: str, *, api_key: Optional[str] = None, retries: int = 3) -> O
     return None
 
 
+# ---- Public exploit / PoC enrichment (trickest/cve) ---------------------------
+
+TRICKEST_BASE = "https://raw.githubusercontent.com/trickest/cve/main"
+
+
+def _get_text(url: str) -> Optional[str]:
+    """Cached GET returning text. A 404 (CVE not in the DB) is cached as a miss."""
+    cached = _cache_get(url)
+    if cached is not None:
+        return cached.get("text", "")
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            text = resp.read().decode("utf-8", "replace")
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            _cache_put(url, {"text": ""})
+        return ""
+    except (urllib.error.URLError, OSError):
+        return None
+    _cache_put(url, {"text": text})
+    return text
+
+
+def trickest_pocs(cve_id: str) -> list[str]:
+    """Public exploit/PoC repo URLs for a CVE from the trickest/cve database.
+
+    Parses the markdown's `#### Github` section — a curated list of GitHub repos
+    holding a working PoC/exploit for the CVE.
+    """
+    parts = cve_id.split("-")
+    if len(parts) < 3 or not parts[1].isdigit():
+        return []
+    text = _get_text(f"{TRICKEST_BASE}/{parts[1]}/{cve_id}.md")
+    if not text:
+        return []
+    pocs: list[str] = []
+    seen: set[str] = set()
+    in_github = False
+    for line in text.splitlines():
+        s = line.strip()
+        if s.startswith("####"):
+            in_github = "github" in s.lower()
+            continue
+        if s.startswith("###"):
+            in_github = False
+            continue
+        if in_github and s.startswith("- ") and s[2:].strip().startswith("http"):
+            url = s[2:].strip()
+            if url not in seen:
+                seen.add(url)
+                pocs.append(url)
+    return pocs[:15]
+
+
+def enrich_pocs(cves: list[CVE], *, max_fetch: int = 40) -> int:
+    """Append public-exploit references (from trickest/cve) to FIRM CVEs.
+
+    Weak (low-confidence) CVEs are skipped — they're likely false positives and
+    don't warrant exploit links. Returns the number of CVEs enriched.
+    """
+    ids: list[str] = []
+    seen: set[str] = set()
+    for c in cves:
+        if c.confidence != "weak" and c.id not in seen:
+            seen.add(c.id)
+            ids.append(c.id)
+    ids = ids[:max_fetch]
+    if not ids:
+        return 0
+    poc_map: dict[str, list[str]] = {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
+        for cid, pocs in zip(ids, ex.map(trickest_pocs, ids)):
+            if pocs:
+                poc_map[cid] = pocs
+    enriched = 0
+    for c in cves:
+        if c.confidence == "weak":
+            continue
+        pocs = poc_map.get(c.id)
+        if not pocs:
+            continue
+        existing = {r.get("url") for r in c.references}
+        added = False
+        for u in pocs:
+            if u not in existing:
+                c.references.append({"url": u, "tags": ["Exploit"], "poc": True, "source": "trickest"})
+                added = True
+        if added:
+            enriched += 1
+    return enriched
+
+
 # ---- CVSS extraction ----------------------------------------------------------
 
 def _extract_cvss(metrics: dict) -> tuple[Optional[float], Severity]:

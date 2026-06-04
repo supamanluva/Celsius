@@ -45,6 +45,7 @@ def build_parser() -> argparse.ArgumentParser:
                         "crawl, API discovery, mail, CVE-verify, OS detect)")
     s.add_argument("--no-web", action="store_true", help="skip HTTP header/CSP analysis")
     s.add_argument("--no-cve", action="store_true", help="skip NVD CVE lookup")
+    s.add_argument("--no-cve-pocs", action="store_true", help="skip public-exploit/PoC links (trickest/cve)")
     s.add_argument("--no-secrets", action="store_true", help="skip front-end secret scan")
     s.add_argument("--no-dns", action="store_true", help="skip DNS recon")
     s.add_argument("--no-tls", action="store_true", help="skip TLS/certificate analysis")
@@ -231,6 +232,7 @@ def _cmd_scan(args) -> int:
     log = lambda m: logger.info("%s", m)  # noqa: E731  (engine progress callback)
     config = ScanConfig(
         target=args.target, web=not args.no_web, cve=not args.no_cve,
+        cve_pocs=not args.no_cve_pocs,
         web_secrets=not args.no_secrets, ports=args.ports, nuclei=args.nuclei,
         nuclei_full=args.nuclei_full, top_ports=args.top_ports, port_range=args.port_range,
         os_detect=args.os_detect,
