@@ -291,7 +291,14 @@ def scan_dependencies(root: str) -> tuple[list[dict], list[str]]:
     root = os.path.abspath(root)
     if os.path.isfile(root):
         root = os.path.dirname(root)
-    deps = discover_deps(root)
+    return audit_deps(discover_deps(root))
+
+
+def audit_deps(deps: list[Dep]) -> tuple[list[dict], list[str]]:
+    """Query OSV.dev for a list of Deps and return (finding_dicts, errors).
+
+    Shared by manifest scanning (scan_dependencies) and client-side library
+    auditing — anything that can name (ecosystem, package, version)."""
     if not deps:
         return [], []
 
