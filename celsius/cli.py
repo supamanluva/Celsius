@@ -18,7 +18,6 @@ from . import __version__
 from . import codescan, poc, report
 from .engine import ScanConfig, run_scan
 from .logsetup import setup_logging
-from .models import Severity
 
 BANNER = f"Celsius {__version__} — service/version + CVE + web + code scanner"
 

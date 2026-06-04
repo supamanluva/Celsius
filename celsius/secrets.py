@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import math
 import re
-from typing import Iterable, Optional
 
 # Each rule: (id, human title, compiled regex, severity hint).
 # Patterns favour precision; the entropy pass catches the long tail.

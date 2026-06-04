@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from .. import cve as cve_mod
 from .. import http_analysis, nuclei_scan, portscan, webchecks, websecrets
-from ..models import Finding, Service, Severity
+from ..models import Finding, Severity
 from ..recon import apidisco as api_mod
 from ..recon import content_discovery as cd_mod
 from ..recon import crawler as crawler_mod
@@ -23,7 +23,6 @@ from ..recon import sourcemaps as sm_mod
 from ..recon import subdomains as subs_mod
 from ..recon import wayback as wayback_mod
 from ..recon import tls as tls_mod
-from ..targets import is_private_or_local
 from .base import Mode, Phase, Plugin, ScanContext, register
 
 

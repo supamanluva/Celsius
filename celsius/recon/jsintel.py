@@ -48,7 +48,7 @@ _NOISE_HOST = re.compile(r"(?:^|\.)(?:w3\.org|w3\.org\.|purl\.org|schema\.org)$|
 def _base_domain(host: Optional[str]) -> str:
     """eTLD+1 approximation: the last two labels (good enough for .com/.se/...)."""
     host = (host or "").split("@")[-1].split(":")[0].strip().strip(".").lower()
-    labels = [l for l in host.split(".") if l]
+    labels = [lbl for lbl in host.split(".") if lbl]
     return ".".join(labels[-2:]) if len(labels) >= 2 else host
 
 

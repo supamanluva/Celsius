@@ -11,7 +11,6 @@ import json
 import os
 import threading
 from datetime import datetime, timezone
-from typing import Optional
 
 DEFAULT_PATH = os.path.expanduser("~/.local/share/celsius/audit.log")
 

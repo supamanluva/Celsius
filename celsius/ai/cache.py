@@ -8,7 +8,6 @@ to send once a per-run ceiling is exceeded, so an AI pass can't run away.
 from __future__ import annotations
 
 import hashlib
-import json
 import os
 import time
 from pathlib import Path
