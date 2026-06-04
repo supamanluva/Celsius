@@ -25,6 +25,34 @@ def _to_sev(v) -> Severity:
     return _SEV.get(str(v).upper(), Severity.INFO)
 
 
+def _demote_weak_cve_hypotheses(findings: list[Finding], cves: list[dict]) -> None:
+    """Cap AI hypotheses that hang off a weak (unconfirmed) version-range CVE.
+
+    Distro packages (Debian/Ubuntu/RHEL) routinely backport security fixes WITHOUT
+    bumping the upstream version a weak match keyed on — e.g. OpenSSH
+    ``9.6p1 Ubuntu-3ubuntu13.16`` carries the regreSSHion (CVE-2024-6387) fix while
+    still looking like vulnerable 9.6p1. So a model hypothesis built on such a CVE
+    must not carry a HIGH/CRITICAL headline. We cap it to MEDIUM, mark it low
+    confidence, and say why. Deterministic backstop — runs regardless of whether
+    the model honoured the prompt. Edits findings in place."""
+    weak_ids = {c.get("id") for c in cves if c.get("confidence") == "weak" and c.get("id")}
+    if not weak_ids:
+        return
+    for f in findings:
+        if f.severity.rank < Severity.HIGH.rank:
+            continue
+        hay = f"{f.title} {f.description}"
+        hit = next((cid for cid in weak_ids if cid in hay), None)
+        if not hit:
+            continue
+        f.severity = Severity.MEDIUM
+        f.confidence = "low"
+        note = (f"[severity capped: based on {hit}, a weak/unconfirmed version match — "
+                "a distro backport may already patch the installed build; verify the "
+                "exact package version before treating this as exploitable]")
+        f.description = (f.description + "  " if f.description else "") + note
+
+
 def parse_json(text: str) -> Optional[dict]:
     """Extract the first JSON object from a model reply (tolerates code fences/prose)."""
     text = text.strip()
@@ -89,7 +117,8 @@ def triage_scan(result_dict: dict, provider: LLMProvider, *, redact_secrets: boo
         "target": result_dict.get("target"),
         "url": result_dict.get("url"),
         "services": result_dict.get("services", []),
-        "cves": [{"id": c.get("id"), "severity": c.get("severity"), "affects": c.get("affects")}
+        "cves": [{"id": c.get("id"), "severity": c.get("severity"), "affects": c.get("affects"),
+                  "confidence": c.get("confidence", "firm")}
                  for c in result_dict.get("cves", [])],
         "findings": [{"title": f.get("title"), "severity": f.get("severity"),
                       "category": f.get("category")} for f in result_dict.get("findings", [])],
@@ -112,6 +141,7 @@ def triage_scan(result_dict: dict, provider: LLMProvider, *, redact_secrets: boo
             recommendation=f"Verify (non-destructive): {h.get('safe_probe', '')}",
             confidence=str(h.get("confidence", "low")),
         ))
+    _demote_weak_cve_hypotheses(findings, result_dict.get("cves", []))
     summary = data.get("summary", "")
     fps = data.get("likely_false_positives", []) or []
     if fps:
