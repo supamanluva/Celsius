@@ -34,6 +34,12 @@ web = [
     "uvicorn[standard]>=0.27",
     "python-multipart>=0.0.9",
 ]
+# Dynamic SPA rendering for `--dynamic` / the "crawl + JS" option: a headless
+# Chromium driven by Playwright, for JavaScript-rendered apps. After installing
+# this extra, fetch the browser once with `uv run playwright install chromium`.
+dynamic = [
+    "playwright>=1.40",
+]
 
 [project.scripts]
 celsius = "celsius.cli:main"
