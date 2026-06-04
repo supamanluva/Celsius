@@ -239,3 +239,72 @@ def apply_verdicts(findings: list, verdicts: list[dict]) -> tuple[list, dict]:
             f.description = f.description + f" — [unconfirmed: {v.get('tool', 'tool')} {st}]"
         out.append(f)
     return out, stats
+
+
+# ---- CVE verification: AI plans a benign detection probe per matched CVE -------
+
+_RANK = {"CRITICAL": 4, "HIGH": 3, "MEDIUM": 2, "LOW": 1, "INFO": 0}
+
+
+def _poc_refs(cve: dict) -> list:
+    return [r.get("url") for r in (cve.get("references") or [])
+            if r.get("poc") and r.get("url")][:6]
+
+
+def cve_candidates(cves: list, max_cves: int = 6) -> list:
+    """The CVEs worth an active AI probe: firm (not weak/distro-downgraded) and
+    not already verified, highest severity first, those with a public PoC first,
+    capped. Weak matches are skipped — they're likely backport-patched FPs."""
+    cand = [c for c in cves
+            if c.get("confidence", "firm") != "weak" and not c.get("verified")]
+    cand.sort(key=lambda c: (_RANK.get(c.get("severity"), 0), len(_poc_refs(c))), reverse=True)
+    return cand[:max_cves]
+
+
+def verify_cves(result_dict: dict, cves: list, provider: LLMProvider, lab, *,
+                budget: Optional[cache_mod.Budget] = None, audit=None,
+                log=lambda _m: None, max_cves: int = 6) -> list[dict]:
+    """For each firm, reachable CVE, have the model plan ONE benign detection
+    probe (grounded in the CVE's PoC references), run it host-locked + lab-gated,
+    and judge whether the CVE is present. Returns verdicts:
+    {"cve", "status": confirmed|refuted|inconclusive|needs-manual,
+     "severity", "reasoning", "evidence", "tool", "curl"}.
+    """
+    from . import verify_tools
+    cand = cve_candidates(cves, max_cves)
+    if not cand:
+        return []
+    context = {"url": result_dict.get("url") or result_dict.get("target"),
+               "host": getattr(lab, "host", "")}
+    verdicts: list[dict] = []
+    for c in cand:
+        ok, _why = lab.can_send()
+        if not ok:
+            break
+        plan = parse_json(_call(provider, [
+            Message("system", prompts.CVE_VERIFY_SYSTEM),
+            Message("user", prompts.cve_verify_prompt(c, context, verify_tools.TOOL_SPECS))],
+            json_mode=True, budget=budget, use_cache=True, audit=audit)) or {}
+        tool = plan.get("tool")
+        if tool in (None, "", "none"):
+            verdicts.append({"cve": c.get("id"), "status": "needs-manual", "tool": "none",
+                             "reasoning": plan.get("rationale")
+                             or "no safe automated probe distinguishes vulnerable from patched"})
+            continue
+        evidence = verify_tools.run_tool(tool, plan.get("args") or {}, lab)
+        if evidence is None:
+            verdicts.append({"cve": c.get("id"), "status": "inconclusive", "tool": tool,
+                             "reasoning": "invalid tool call"})
+            continue
+        v = parse_json(_call(provider, [
+            Message("system", prompts.CVE_JUDGE_SYSTEM),
+            Message("user", prompts.cve_judge_prompt(c, evidence))],
+            json_mode=True, budget=budget, use_cache=True, audit=audit)) or {}
+        status = str(v.get("status", "inconclusive")).lower()
+        if status not in ("confirmed", "refuted", "inconclusive"):
+            status = "inconclusive"
+        verdicts.append({"cve": c.get("id"), "status": status, "severity": v.get("severity"),
+                         "reasoning": v.get("reasoning", ""), "evidence": v.get("evidence", ""),
+                         "tool": tool, "curl": (evidence or {}).get("curl", "")})
+        log(f"ai-cve-verify: {c.get('id')} -> {status}")
+    return verdicts

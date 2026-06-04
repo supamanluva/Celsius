@@ -193,3 +193,76 @@ def prove_judge_prompt(hypothesis: dict, evidence: dict) -> str:
     return ("Hypothesis:\n" + json.dumps(hypothesis, indent=2)
             + "\n\nTool evidence:\n" + json.dumps(evidence, indent=2)[:6000]
             + "\n\n" + _schema_block(AGENT_PROVE_JUDGE_SCHEMA))
+
+
+# ---- CVE verification (AI plans a benign detection probe per matched CVE) ------
+
+CVE_VERIFY_SYSTEM = """You verify a SPECIFIC CVE on an AUTHORIZED lab target by \
+planning ONE benign, detection-grade probe — enough to tell a VULNERABLE host \
+from a PATCHED one, never an exploit that does harm.
+
+You get the CVE id, its description, the detected product/version/port, and real \
+PoC/reference URLs. Use them to understand the trigger, then choose the SAFEST \
+tool call that observes the vulnerable behaviour or a reliable fingerprint of it \
+(a telltale response header/body, an endpoint that only exists when vulnerable, a \
+banner/version corroboration, a crafted-but-benign request whose response \
+distinguishes patched from unpatched).
+
+HARD RULES:
+- Non-destructive ONLY: no data deletion/mutation, no DoS, no credential brute \
+force, no blind/time-based payloads, no fetching real secrets. The harness \
+rejects destructive requests.
+- The probe is locked to the scanned host; never target another host or the \
+PoC's own example domains.
+- Distro-backported packages (e.g. "...ubuntu...", "...deb...") often keep the \
+version but ARE patched — a version match alone is NOT proof; require behaviour.
+- If no safe probe can distinguish vulnerable from patched, return tool "none" \
+with a one-line rationale. Don't guess.
+- Output ONE valid JSON object only, matching the schema."""
+
+CVE_VERIFY_SCHEMA = {
+    "tool": "http_get|tcp_connect|tls_probe|dns_lookup|poc|none",
+    "args": {"...": "tool arguments (host-locked)"},
+    "expect": "what result would CONFIRM the CVE is present (vs show it's patched)",
+    "rationale": "if tool=none, why no safe probe settles it",
+}
+
+CVE_JUDGE_SYSTEM = """You decide whether a probe's evidence shows a SPECIFIC CVE \
+is present and reachable. Be strict and behaviour-driven:
+- confirmed: the evidence concretely matches the vulnerable behaviour/fingerprint \
+the CVE describes (not merely a version string).
+- refuted: the evidence shows it is patched / not present / not reachable.
+- inconclusive: the probe cannot settle it (e.g. version-only, blocked, ambiguous).
+A bare version match WITHOUT corroborating behaviour is inconclusive, never \
+confirmed — distros backport fixes silently. Never over-claim. Output ONE valid \
+JSON object only."""
+
+CVE_JUDGE_SCHEMA = {
+    "status": "confirmed|refuted|inconclusive",
+    "severity": "CRITICAL|HIGH|MEDIUM|LOW|INFO",
+    "evidence": "the concrete fact from the probe that decides it",
+    "reasoning": "one or two sentences",
+}
+
+
+def cve_verify_prompt(cve: dict, context: dict, tools: list) -> str:
+    view = {
+        "id": cve.get("id"), "severity": cve.get("severity"), "cvss": cve.get("cvss"),
+        "affects": cve.get("affects"), "product": cve.get("product"),
+        "version": cve.get("version"), "port": cve.get("port"),
+        "description": (cve.get("description") or "")[:800],
+        "poc_references": [r.get("url") for r in (cve.get("references") or [])
+                           if r.get("poc") and r.get("url")][:6],
+    }
+    return ("Authorized lab target.\n\nTOOLBOX:\n" + json.dumps(tools, indent=2)
+            + "\n\nTARGET CONTEXT:\n" + json.dumps(context, indent=2)[:2000]
+            + "\n\nCVE to verify:\n" + json.dumps(view, indent=2)[:4000]
+            + "\n\n" + _schema_block(CVE_VERIFY_SCHEMA))
+
+
+def cve_judge_prompt(cve: dict, evidence: dict) -> str:
+    view = {"id": cve.get("id"), "affects": cve.get("affects"),
+            "description": (cve.get("description") or "")[:600]}
+    return ("CVE:\n" + json.dumps(view, indent=2)
+            + "\n\nProbe evidence:\n" + json.dumps(evidence, indent=2)[:6000]
+            + "\n\n" + _schema_block(CVE_JUDGE_SCHEMA))
