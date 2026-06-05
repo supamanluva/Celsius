@@ -12,6 +12,7 @@ Pure stdlib: IP classification via `ipaddress`, resolution via the DoH helper.
 
 from __future__ import annotations
 
+import base64
 import concurrent.futures
 import ipaddress
 import json
@@ -157,6 +158,35 @@ def shodan_search(query: str, api_key: str, *, limit: int = 25) -> tuple[list[st
     ips: list[str] = []
     for m in data.get("matches", []) or []:
         ip = m.get("ip_str")
+        if ip and ip not in ips:
+            ips.append(ip)
+        if len(ips) >= limit:
+            break
+    return ips, None
+
+
+def censys_search(query: str, api_id: str, api_secret: str, *,
+                  limit: int = 25) -> tuple[list[str], Optional[str]]:
+    """Run a Censys v2 hosts search; return (candidate_ips, error). The free tier
+    can run cert searches — a good keyless-Shodan alternative."""
+    if not (api_id and api_secret):
+        return [], "no CENSYS_API_ID/SECRET"
+    url = ("https://search.censys.io/api/v2/hosts/search?per_page=50&q="
+           + urllib.parse.quote(query))
+    token = base64.b64encode(f"{api_id}:{api_secret}".encode()).decode()
+    try:
+        req = urllib.request.Request(url, headers={
+            "User-Agent": dns_mod.USER_AGENT, "Accept": "application/json",
+            "Authorization": f"Basic {token}"})
+        with urllib.request.urlopen(req, timeout=25) as resp:
+            data = json.loads(resp.read().decode())
+    except urllib.error.HTTPError as e:
+        return [], f"Censys HTTP {e.code}"
+    except (urllib.error.URLError, OSError, json.JSONDecodeError) as e:
+        return [], f"Censys request failed: {e}"
+    ips: list[str] = []
+    for hit in ((data.get("result") or {}).get("hits", []) or []):
+        ip = hit.get("ip")
         if ip and ip not in ips:
             ips.append(ip)
         if len(ips) >= limit:

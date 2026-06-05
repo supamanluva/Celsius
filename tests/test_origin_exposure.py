@@ -66,6 +66,11 @@ def test_shodan_search_without_key():
     assert ips == [] and "SHODAN_API_KEY" in err
 
 
+def test_censys_search_without_creds():
+    assert origin.censys_search("q", "", "") == ([], "no CENSYS_API_ID/SECRET")
+    assert origin.censys_search("q", "id", "")[0] == []
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     failed = 0

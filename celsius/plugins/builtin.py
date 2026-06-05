@@ -555,29 +555,35 @@ class OriginExposure(Plugin):
             description=("The origin IP isn't in any HTTP response, but an IP serving the same "
                          "TLS cert / favicon directly is indexed by Shodan/Censys. Run these to "
                          "find it: " + " · ".join(f"{p['engine']}: {p['query']}" for p in pivots)),
-            recommendation="Open the queries (Shodan/Censys) and scan any non-Cloudflare IP that "
-                           "serves the same site; set SHODAN_API_KEY to let celsius do it automatically.",
+            recommendation="Open the queries (Shodan/Censys) and scan any non-CDN IP that serves the "
+                           "same site; set SHODAN_API_KEY or CENSYS_API_ID/CENSYS_API_SECRET to let "
+                           "celsius look them up and Host-verify automatically.",
             evidence="  ".join(p["url"] for p in pivots)))
 
-        key = os.environ.get("SHODAN_API_KEY", "")
-        if not key:
+        shodan_key = os.environ.get("SHODAN_API_KEY", "")
+        censys_id = os.environ.get("CENSYS_API_ID", "")
+        censys_secret = os.environ.get("CENSYS_API_SECRET", "")
+        if not (shodan_key or (censys_id and censys_secret)):
             return
         candidates: list = []
         for p in pivots:
-            if p["engine"] != "Shodan":
+            if p["engine"] == "Shodan" and shodan_key:
+                ips, err = origin_mod.shodan_search(p["query"], shodan_key)
+            elif p["engine"] == "Censys" and censys_id and censys_secret:
+                ips, err = origin_mod.censys_search(p["query"], censys_id, censys_secret)
+            else:
                 continue
-            ips, err = origin_mod.shodan_search(p["query"], key)
             if err:
                 ctx.result.errors.append(f"origin-exposure: {err}")
-                break
+                continue   # one engine/query failing shouldn't stop the others
             for ip in ips:
                 if ip not in candidates and not origin_mod.cdn_for_ip(ip):
                     candidates.append(ip)
-        candidates = candidates[:15]
-        recon["origin_exposure"]["shodan_candidates"] = candidates
+        candidates = candidates[:20]
+        recon["origin_exposure"]["candidates"] = candidates
         if not candidates or not ctx.config.allow_active:
             if candidates:
-                ctx.log(f"origin-exposure: {len(candidates)} Shodan candidate(s); "
+                ctx.log(f"origin-exposure: {len(candidates)} candidate IP(s) from Shodan/Censys; "
                         "skipping live Host-verification (safe-active not allowed)")
             return
         confirmed = []
