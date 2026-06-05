@@ -22,25 +22,37 @@ from typing import Optional
 
 USER_AGENT = "celsius-scanner/1.1 (+https://github.com/supamanluva/celsius)"
 
-# (app, path, json_field [dotted] | None, regex | None) — first match wins per path.
+# Each probe: app, path, and a JSON `field` (dotted) and/or `regex` to pull the
+# version. `marker` (optional) is a substring that must be in the body to confirm
+# the app — used for generic paths (/health, /version, /status) so one app's
+# endpoint can't be mislabelled as another's.
 PROBES = [
-    ("Overseerr/Jellyseerr", "/api/v1/status", "version", None),
-    ("Gitea/Forgejo", "/api/v1/version", "version", None),
-    ("Grafana", "/api/health", "version", None),
-    ("Jellyfin/Emby", "/System/Info/Public", "Version", None),
-    ("Nextcloud", "/status.php", "versionstring", None),
-    ("Prometheus", "/api/v1/status/buildinfo", "data.version", None),
-    ("Portainer", "/api/system/version", "ServerVersion", None),
-    ("Home Assistant", "/api/config", "version", None),
-    ("Uptime Kuma", "/api/entry-page", "version", None),
-    ("Readeck", "/api/info", "version.canonical", None),
-    ("Vikunja", "/api/v1/info", "version", None),
-    ("Immich", "/api/server-info/version", None,
-     r'"major":\s*(\d+).*?"minor":\s*(\d+).*?"patch":\s*(\d+)'),
-    ("Plex", "/identity", None, r'\bversion="([^"]+)"'),
+    {"app": "Overseerr/Jellyseerr", "path": "/api/v1/status", "field": "version"},
+    {"app": "Gitea/Forgejo", "path": "/api/v1/version", "field": "version"},
+    {"app": "Grafana", "path": "/api/health", "field": "version", "marker": "commit"},
+    {"app": "Jellyfin/Emby", "path": "/System/Info/Public", "field": "Version"},
+    {"app": "Nextcloud", "path": "/status.php", "field": "versionstring"},
+    {"app": "Prometheus", "path": "/api/v1/status/buildinfo", "field": "data.version"},
+    {"app": "Portainer", "path": "/api/system/version", "field": "ServerVersion"},
+    {"app": "Home Assistant", "path": "/api/config", "field": "version", "marker": "location_name"},
+    {"app": "Uptime Kuma", "path": "/api/entry-page", "field": "version"},
+    {"app": "Readeck", "path": "/api/info", "field": "version.canonical"},
+    {"app": "Vikunja", "path": "/api/v1/info", "field": "version", "marker": "vikunja"},
+    {"app": "Linkding", "path": "/health", "field": "version", "marker": "healthy"},
+    {"app": "Immich", "path": "/api/server-info/version",
+     "regex": r'"major":\s*(\d+).*?"minor":\s*(\d+).*?"patch":\s*(\d+)'},
+    {"app": "Plex", "path": "/identity", "regex": r'\bversion="([^"]+)"', "marker": "MediaContainer"},
     # Vaultwarden's /api/version body is ONLY the version (e.g. "1.30.1") — anchor to
     # the whole body so a generic 200 from another app can't false-positive.
-    ("Vaultwarden", "/api/version", None, r'^\s*"?([0-9]+\.[0-9]+\.[0-9]+)"?\s*$'),
+    {"app": "Vaultwarden", "path": "/api/version", "regex": r'^\s*"?([0-9]+\.[0-9]+\.[0-9]+)"?\s*$'},
+    # broader self-hosted coverage — known public version endpoints, marker-guarded.
+    {"app": "Audiobookshelf", "path": "/status", "field": "serverVersion", "marker": "audiobookshelf"},
+    {"app": "Mealie", "path": "/api/app/about", "field": "version", "marker": "production"},
+    {"app": "Gotify", "path": "/version", "field": "version", "marker": "buildDate"},
+    {"app": "Mastodon", "path": "/api/v1/instance", "field": "version", "marker": "\"uri\""},
+    {"app": "Matrix/Synapse", "path": "/_matrix/federation/v1/version", "field": "server.version",
+     "marker": "server"},
+    {"app": "Miniflux", "path": "/version", "regex": r'^\s*([0-9]+\.[0-9]+\.[0-9]+)\s*$'},
 ]
 
 _VER = re.compile(r"\d+\.\d+")
@@ -97,12 +109,13 @@ def probe(base_url: str, *, insecure: bool = False, auth=None) -> list[dict]:
         return []
 
     def one(pr):
-        app, path, field, regex = pr
-        status, body = _fetch(base + path, insecure=insecure, auth=auth)
+        status, body = _fetch(base + pr["path"], insecure=insecure, auth=auth)
         if status != 200 or not body:
             return None
-        ver = extract_version(body, field, regex)
-        return {"app": app, "version": ver, "path": path} if ver else None
+        if pr.get("marker") and pr["marker"].lower() not in body.lower():
+            return None
+        ver = extract_version(body, pr.get("field"), pr.get("regex"))
+        return {"app": pr["app"], "version": ver, "path": pr["path"]} if ver else None
 
     out = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=10) as ex:
