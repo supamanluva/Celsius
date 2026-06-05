@@ -10,7 +10,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from celsius.recon import appversion as av  # noqa: E402
 
-_VW = next(p for p in av.PROBES if p[0] == "Vaultwarden")[3]
+_VW = next(p for p in av.PROBES if p["app"] == "Vaultwarden")["regex"]
 
 
 def test_json_field_and_nested():
@@ -36,9 +36,18 @@ def test_no_version_returns_none():
 
 
 def test_probes_well_formed():
-    for app, path, field, regex in av.PROBES:
-        assert app and path.startswith("/")
-        assert field or regex
+    for pr in av.PROBES:
+        assert pr["app"] and pr["path"].startswith("/")
+        assert pr.get("field") or pr.get("regex")
+
+
+def test_marker_gates_generic_paths():
+    # a Linkding-style /health (has "healthy") matches; a foreign /health with a
+    # version but no marker must NOT be mislabelled as Linkding
+    lk = next(p for p in av.PROBES if p["app"] == "Linkding")
+    assert lk.get("marker") == "healthy"
+    # extraction itself still works on the right body
+    assert av.extract_version('{"version":"1.45.0","status":"healthy"}', "version", None) == "1.45.0"
 
 
 if __name__ == "__main__":
