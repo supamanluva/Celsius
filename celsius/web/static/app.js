@@ -316,6 +316,7 @@ function originOf(u) {
 // targets you can queue follow-up scans against.
 function followupHosts(res) {
   const scanned = hostOf(res.url || res.target);
+  const apex = scanned ? scanned.split(".").slice(-2).join(".") : null;
   const byHost = new Map();   // host -> target string (origin if known, else host)
   const recon = res.recon || {};
   ((recon.crawl || {}).endpoints || []).forEach((e) => {
@@ -331,7 +332,12 @@ function followupHosts(res) {
     const h = (s || "").toLowerCase();
     if (h && h !== scanned && !byHost.has(h)) byHost.set(h, h);
   });
-  return [...byHost.values()].sort();
+  // The target's OWN subdomains (same apex) are the most relevant follow-ups —
+  // list them first so they're always visible, then unrelated co-hosted siblings.
+  const sameSite = (h) => !!apex && (h === apex || h.endsWith("." + apex));
+  return [...byHost.entries()]
+    .sort((a, b) => (sameSite(b[0]) - sameSite(a[0])) || a[0].localeCompare(b[0]))
+    .map((e) => e[1]);
 }
 
 function renderResult(res, scanId) {
