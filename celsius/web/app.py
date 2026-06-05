@@ -229,24 +229,27 @@ def _safe_name(s: str) -> str:
 
 
 @app.get("/api/scans/{scan_id}/report.html")
-def scan_report(scan_id: str) -> HTMLResponse:
+def scan_report(scan_id: str, download: bool = False) -> HTMLResponse:
     result = _store.get_scan(scan_id)
     if result is None:
         raise HTTPException(status_code=404, detail="Unknown scan id.")
     fname = f"celsius-{_safe_name(result.get('target', scan_id))}.html"
+    disp = "attachment" if download else "inline"   # ?download=1 forces a save
     return HTMLResponse(
         report.html_report(result),
-        headers={"Content-Disposition": f'inline; filename="{fname}"'},
+        headers={"Content-Disposition": f'{disp}; filename="{fname}"'},
     )
 
 
 @app.get("/api/domain/{domain}/report.html")
-def domain_report(domain: str) -> HTMLResponse:
+def domain_report(domain: str, download: bool = False) -> HTMLResponse:
     """Aggregate rollup across the latest stored scan per host for a domain."""
     scans = _store.scans_for_domain(domain)
+    fname = f"celsius-{_safe_name(domain)}-domain.html"
+    disp = "attachment" if download else "inline"   # ?download=1 forces a save
     return HTMLResponse(
         report.domain_rollup_html(domain, scans),
-        headers={"Content-Disposition": f'inline; filename="celsius-{_safe_name(domain)}-domain.html"'},
+        headers={"Content-Disposition": f'{disp}; filename="{fname}"'},
     )
 
 

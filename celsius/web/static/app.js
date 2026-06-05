@@ -360,7 +360,9 @@ function renderResult(res, scanId) {
     + (weakCount ? `<span class="chip sev-UNCONFIRMED" title="Reported but not confirmed — verify before acting">⚠ UNCONFIRMED ${weakCount}</span>` : "")
     + (aiCount ? `<span class="chip sev-AILEADS" title="AI hypotheses — unverified leads, not counted in severity">🤖 AI LEADS ${aiCount}</span>` : "")
     + (scanId ? `<a class="reportlink" href="/api/scans/${encodeURIComponent(scanId)}/report.html" target="_blank">📄 HTML report</a>` : "")
-    + (apex ? `<a class="reportlink" href="/api/domain/${encodeURIComponent(apex)}/report.html" target="_blank" title="Aggregated report across ${esc(apex)} and its scanned subdomains">🌐 Domain report (${esc(apex)})</a>` : "");
+    + (scanId ? `<a class="reportlink" href="/api/scans/${encodeURIComponent(scanId)}/report.html?download=1" download title="Download the scan report (.html)">⬇</a>` : "")
+    + (apex ? `<a class="reportlink" href="/api/domain/${encodeURIComponent(apex)}/report.html" target="_blank" title="Aggregated report across ${esc(apex)} and its scanned subdomains">🌐 Domain report (${esc(apex)})</a>` : "")
+    + (apex ? `<a class="reportlink" href="/api/domain/${encodeURIComponent(apex)}/report.html?download=1" download title="Download the domain report (.html)">⬇</a>` : "");
 
   let html = "";
 
