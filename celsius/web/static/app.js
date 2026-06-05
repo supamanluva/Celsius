@@ -437,7 +437,7 @@ function renderResult(res, scanId) {
 
   // Recon (attack surface)
   const recon = res.recon || {};
-  const hasRecon = recon.tls || recon.dns || recon.os || (recon.subdomains && recon.subdomains.length) || (recon.tech && recon.tech.length);
+  const hasRecon = recon.tls || recon.dns || recon.os || recon.origin_exposure || (recon.subdomains && recon.subdomains.length) || (recon.tech && recon.tech.length);
   if (hasRecon) {
     html += `<h2 class="section">Attack surface</h2>`;
     if (recon.os && recon.os.best_match) {
@@ -475,6 +475,19 @@ function renderResult(res, scanId) {
       if (a.openapi) bits.push(`OpenAPI: ${esc(a.openapi.url)} (${(a.openapi.paths||[]).length} paths)`);
       if (a.graphql) bits.push(`GraphQL introspection: ${esc(a.graphql.url)} (${a.graphql.types} types)`);
       html += `<div class="card INFO"><div class="title">API</div><div class="meta">${bits.join(" · ")}</div></div>`;
+    }
+    if (recon.origin_exposure) {
+      const oe = recon.origin_exposure;
+      const lines = [`behind <strong>${esc(oe.cdn || "a CDN")}</strong>`];
+      (oe.exposed || []).forEach((e) =>
+        lines.push(`possible origin: <strong>${esc(e.host)}</strong> → ${esc((e.origin_ips || []).join(", "))}`));
+      (oe.verified || []).forEach((v) =>
+        lines.push(`origin IP <strong>${esc(v.ip)}</strong>${v.matched ? " ✓ confirmed" : ""}${v.server ? " · Server: " + esc(v.server) : ""}`));
+      const pivots = (oe.pivots || []).map((p) =>
+        `<a href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.engine)}: ${esc(p.label || p.query)}</a>`).join(" · ");
+      html += `<div class="card INFO"><div class="title">Origin / CDN-bypass</div>
+        <div class="meta">${lines.join(" · ")}</div>
+        ${pivots ? `<div class="meta">🔎 Origin hunt — click to search: ${pivots}</div>` : ""}</div>`;
     }
   }
 
