@@ -507,10 +507,6 @@ class OriginExposure(Plugin):
             return
         exposed = origin_mod.find_exposed_origins(sorted(candidates))
         recon["origin_exposure"] = {"cdn": cdn, "checked": len(candidates), "exposed": exposed}
-        if not exposed:
-            ctx.log(f"origin-exposure: behind {cdn}; no hostname bypasses it "
-                    "(origin not exposed via DNS)")
-            return
         for e in exposed:
             is_mail = e["host"] in mailish and e["host"] not in web
             ips = ", ".join(e["origin_ips"])
@@ -536,8 +532,79 @@ class OriginExposure(Plugin):
                                 f"origin to accept only {cdn}'s published IP ranges."),
                 evidence=f"{e['host']} A/AAAA: {', '.join(e['ips'])}"))
         n_web = sum(1 for e in exposed if not (e["host"] in mailish and e["host"] not in web))
-        ctx.log(f"origin-exposure: {len(exposed)} host(s) bypass {cdn} "
-                f"({n_web} possible web origin(s)) → candidate IP(s)")
+        if exposed:
+            ctx.log(f"origin-exposure: {len(exposed)} host(s) bypass {cdn} "
+                    f"({n_web} possible web origin(s)) → candidate IP(s)")
+        else:
+            ctx.log(f"origin-exposure: behind {cdn}; no hostname bypasses it via DNS")
+
+        self._origin_hunt(ctx, recon, cdn, apex)
+
+    def _origin_hunt(self, ctx: ScanContext, recon: dict, cdn: str, apex: str) -> None:
+        """Beyond DNS: generate Shodan/Censys pivots from the favicon hash + cert, and
+        (with SHODAN_API_KEY) look up candidate IPs and confirm each by connecting with
+        a Host: header — getting the origin's REAL Server header the CDN hides."""
+        import os
+        fav = recon.get("favicon_hash")
+        sans = (recon.get("tls") or {}).get("san") or []
+        pivots = origin_mod.pivot_queries(ctx.target.host, favicon_hash=fav, sans=sans)
+        recon["origin_exposure"]["pivots"] = pivots
+        ctx.result.findings.append(Finding(
+            title=f"Hunt the origin behind {cdn} — {len(pivots)} ready search(es)",
+            severity=Severity.INFO, category="origin-exposure",
+            description=("The origin IP isn't in any HTTP response, but an IP serving the same "
+                         "TLS cert / favicon directly is indexed by Shodan/Censys. Run these to "
+                         "find it: " + " · ".join(f"{p['engine']}: {p['query']}" for p in pivots)),
+            recommendation="Open the queries (Shodan/Censys) and scan any non-Cloudflare IP that "
+                           "serves the same site; set SHODAN_API_KEY to let celsius do it automatically.",
+            evidence="  ".join(p["url"] for p in pivots)))
+
+        key = os.environ.get("SHODAN_API_KEY", "")
+        if not key:
+            return
+        candidates: list = []
+        for p in pivots:
+            if p["engine"] != "Shodan":
+                continue
+            ips, err = origin_mod.shodan_search(p["query"], key)
+            if err:
+                ctx.result.errors.append(f"origin-exposure: {err}")
+                break
+            for ip in ips:
+                if ip not in candidates and not origin_mod.cdn_for_ip(ip):
+                    candidates.append(ip)
+        candidates = candidates[:15]
+        recon["origin_exposure"]["shodan_candidates"] = candidates
+        if not candidates or not ctx.config.allow_active:
+            if candidates:
+                ctx.log(f"origin-exposure: {len(candidates)} Shodan candidate(s); "
+                        "skipping live Host-verification (safe-active not allowed)")
+            return
+        confirmed = []
+        for ip in candidates:
+            ctx.audit.active_probe(self.id, ctx.target.host, "safe-active",
+                                   detail=f"origin Host-verify {ip}")
+            v = origin_mod.verify_origin(ip, ctx.target.host, expected_favicon=fav)
+            if v.get("reachable"):
+                confirmed.append(v)
+        recon["origin_exposure"]["verified"] = confirmed
+        for v in confirmed:
+            proven = v.get("matched")
+            sev = Severity.HIGH if proven else Severity.MEDIUM
+            srv = f" Real Server header: {v['server']}." if v.get("server") else ""
+            ctx.result.findings.append(Finding(
+                title=(f"Origin server found behind {cdn}: {v['ip']}"
+                       + (" (confirmed)" if proven else " (candidate)")),
+                severity=sev, category="origin-exposure",
+                description=(f"{v['ip']} answers for {ctx.target.host} directly (HTTP {v.get('status')}), "
+                             f"bypassing {cdn}. {v.get('how','')}." + srv +
+                             " The CDN's WAF/DDoS protection can be skipped by hitting this IP."),
+                recommendation=(f"Scan {v['ip']} directly to fingerprint versions/CVEs. Defensively: "
+                                f"firewall the origin to accept only {cdn}'s published IP ranges."),
+                evidence=f"{v['ip']}:{v.get('port')} title={v.get('title','')!r} server={v.get('server','')!r}"))
+        if confirmed:
+            ctx.log(f"origin-exposure: Shodan→ {len(confirmed)} candidate origin(s) answered directly "
+                    f"({sum(1 for v in confirmed if v.get('matched'))} confirmed by favicon)")
 
 
 @register
