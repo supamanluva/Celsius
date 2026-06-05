@@ -193,6 +193,14 @@ function currentScanOptions() {
     ai_api_key: $("opt-ai-key").value.trim() || null,
     ai_model: $("opt-ai-model").value.trim() || null,
     ai_base_url: $("opt-ai-base").value.trim() || null,
+    auth_cookie: $("opt-cookie").value.trim() || null,
+    auth_bearer: $("opt-bearer").value.trim() || null,
+    auth_headers: ($("opt-headers").value || "").split("\n").map((s) => s.trim()).filter(Boolean),
+    login_url: $("opt-login-url").value.trim() || null,
+    login_user: $("opt-login-user").value.trim() || null,
+    login_pass: $("opt-login-pass").value || null,
+    login_field_user: $("opt-login-fuser").value.trim() || "username",
+    login_field_pass: $("opt-login-fpass").value.trim() || "password",
   };
 }
 

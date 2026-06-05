@@ -130,3 +130,34 @@ def form_login(login_url: str, data: dict, *, insecure: bool = False,
     h.update(extra_headers or {})
     names = ", ".join(c.name for c in cookies)
     return AuthSession(headers=h, source=f"form-login ({names})"), f"logged in; cookies: {names}"
+
+
+def build_session(*, cookie: str = "", bearer: str = "", headers=None,
+                  login_url: str = "", login_data: str = "", login_user: str = "",
+                  login_pass: str = "", login_field_user: str = "username",
+                  login_field_pass: str = "password", insecure: bool = False,
+                  log=None):
+    """Assemble an AuthSession from cookie/bearer/header inputs and an optional form
+    login. Shared by the CLI and the web app. Returns an AuthSession, or None when
+    nothing was supplied."""
+    _log = log or (lambda _m: None)
+    base = from_options(cookie=cookie or "", bearer=bearer or "", headers=headers or [])
+    if login_url:
+        data: dict = {}
+        if login_data:
+            data.update(dict(urllib.parse.parse_qsl(login_data)))
+        if login_user:
+            data[login_field_user or "username"] = login_user
+        if login_pass:
+            data[login_field_pass or "password"] = login_pass
+        session, msg = form_login(login_url, data, insecure=insecure,
+                                  extra_headers=base.headers)
+        _log(f"auth: {msg}")
+        if not session:
+            _log("auth: form login failed — continuing UNauthenticated")
+            return base if base else None
+        return session
+    if base:
+        _log(f"auth: attaching session ({base.source})")
+        return base
+    return None

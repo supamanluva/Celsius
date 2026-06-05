@@ -168,7 +168,10 @@ uv run --extra web --extra dynamic celsius serve   # http://127.0.0.1:8000
 The UI has two tabs — **Host/Web scan** (target + options, live log, colour-coded
 services/CVEs/findings, a *PoC steps* button on every item) and **Code & secret
 scan** (server-side path or pasted snippet). An authorization checkbox gates all
-host scanning; the API returns `403` without it.
+host scanning; the API returns `403` without it. Advanced panels expose
+**authenticated scanning** (attach a cookie/bearer/header or log in via a form) and
+**lab mode** (active verification, behind an attestation) — so the web UI now
+covers the same scanning surface as the CLI.
 
 ## ⚠️ Authorized use only
 
@@ -299,7 +302,10 @@ python3 -m celsius scan https://lab.local/ --lab --scope scope.yml \
     --lab-attest "I am authorized to actively test lab.local" --dry-run   # preview first
 ```
 
-Lab mode is **CLI-only by design** — active exploitation is not exposed in the web UI.
+Lab mode is available from both the CLI and the **web UI** (an "⚠️ Lab mode" panel
+gated behind the same attestation). The same layered safety harness applies in
+either case; the destructive-by-default `exploit` mode still requires an explicit
+scope/attestation.
 
 #### Agentic AI proof loop (`--lab --ai`)
 

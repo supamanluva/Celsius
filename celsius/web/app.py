@@ -86,6 +86,16 @@ class ScanRequest(BaseModel):
     ai_base_url: Optional[str] = None
     ai_api_key: Optional[str] = None
     ai_redact: bool = False
+    # authenticated scan (optional) — attach a session and/or log in via a form
+    auth_cookie: Optional[str] = None
+    auth_bearer: Optional[str] = None
+    auth_headers: Optional[list] = None      # ["X-Api-Key: ...", ...]
+    login_url: Optional[str] = None
+    login_user: Optional[str] = None
+    login_pass: Optional[str] = None
+    login_field_user: str = "username"
+    login_field_pass: str = "password"
+    login_data: Optional[str] = None
 
 
 class CodeRequest(BaseModel):
@@ -102,11 +112,22 @@ class PocRequest(BaseModel):
 
 # ---- scan jobs ----------------------------------------------------------------
 
-def _run_job(job_id: str, config: ScanConfig, scope: "Optional[Scope]" = None) -> None:
+def _run_job(job_id: str, config: ScanConfig, scope: "Optional[Scope]" = None,
+             auth_params: "Optional[dict]" = None) -> None:
     def log(msg: str) -> None:
         _log.info("[job %s] %s", job_id, msg)
         with _jobs_lock:
             _jobs[job_id]["log"].append(msg)
+
+    # Authenticated scan: build the session here (form login does network I/O — keep
+    # it off the request thread). Failures degrade to an unauthenticated scan.
+    if auth_params and any(auth_params.get(k) for k in
+                           ("cookie", "bearer", "headers", "login_url")):
+        from .. import auth as auth_mod
+        try:
+            config.auth = auth_mod.build_session(**auth_params, log=log)
+        except Exception as e:
+            log(f"auth: failed to build session ({e}) — continuing unauthenticated")
 
     _log.info("[job %s] scan starting: target=%s", job_id, config.target)
     try:
@@ -161,9 +182,18 @@ def start_scan(req: ScanRequest) -> dict:
         ai=req.ai, ai_provider=req.ai_provider, ai_model=req.ai_model,
         ai_base_url=req.ai_base_url, ai_api_key=req.ai_api_key, ai_redact=req.ai_redact,
     )
+    auth_params = {
+        "cookie": req.auth_cookie or "", "bearer": req.auth_bearer or "",
+        "headers": req.auth_headers or [], "login_url": req.login_url or "",
+        "login_data": req.login_data or "", "login_user": req.login_user or "",
+        "login_pass": req.login_pass or "",
+        "login_field_user": req.login_field_user or "username",
+        "login_field_pass": req.login_field_pass or "password",
+        "insecure": req.insecure,
+    }
     with _jobs_lock:
         _jobs[job_id] = {"status": "running", "log": [], "result": None, "error": None}
-    _executor.submit(_run_job, job_id, config, scope)
+    _executor.submit(_run_job, job_id, config, scope, auth_params)
     return {"job_id": job_id}
 
 

@@ -69,6 +69,22 @@
         <input type="text" id="opt-ai-base" class="aikey" placeholder="base URL (local Ollama: http://localhost:11434/v1)" autocomplete="off">
       </div>
 
+      <details id="authscan" class="labmode">
+        <summary>🔑 Authenticated scan — reach surfaces behind a login</summary>
+        <p class="or">Attach a session so the crawler, secret scan, API discovery, nuclei and active checks
+          run as a logged-in user. Use a <strong>test / staging account</strong> — an authenticated
+          active scan can change state.</p>
+        <input type="text" id="opt-cookie" class="aikey" placeholder="Cookie — e.g. session=abc; csrf=xyz" autocomplete="off">
+        <input type="password" id="opt-bearer" class="aikey" placeholder="Bearer token (optional)" autocomplete="off">
+        <textarea id="opt-headers" class="aikey" rows="2" placeholder="Extra headers, one per line — e.g. X-Api-Key: ..." autocomplete="off"></textarea>
+        <p class="or">— or log in via a form —</p>
+        <input type="text" id="opt-login-url" class="aikey" placeholder="Login URL (POST target, e.g. https://app.example.com/login)" autocomplete="off">
+        <input type="text" id="opt-login-user" class="aikey" placeholder="username" autocomplete="off">
+        <input type="password" id="opt-login-pass" class="aikey" placeholder="password" autocomplete="off">
+        <input type="text" id="opt-login-fuser" class="aikey" placeholder="username field name (optional, default: username)" autocomplete="off">
+        <input type="text" id="opt-login-fpass" class="aikey" placeholder="password field name (optional, default: password)" autocomplete="off">
+      </details>
+
       <details id="labmode" class="labmode">
         <summary>⚠️ Lab mode — active exploitation (advanced)</summary>
         <p class="or">Non-destructive active <strong>verification</strong> — reflected-XSS, open-redirect,

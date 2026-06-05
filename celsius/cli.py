@@ -157,30 +157,13 @@ def _confirm_authorization(target: str, assume_yes: bool) -> bool:
 def _build_auth(args, logger):
     """Assemble an AuthSession from --cookie/--bearer/--header and optional form
     login. Returns an AuthSession or None."""
-    import urllib.parse
     from . import auth as auth_mod
-
-    base = auth_mod.from_options(cookie=args.cookie or "", bearer=args.bearer or "",
-                                 headers=args.header or [])
-    if args.login_url:
-        data: dict = {}
-        if args.login_data:
-            data.update(dict(urllib.parse.parse_qsl(args.login_data)))
-        if args.login_user:
-            data[args.login_field_user] = args.login_user
-        if args.login_pass:
-            data[args.login_field_pass] = args.login_pass
-        session, msg = auth_mod.form_login(args.login_url, data, insecure=args.insecure,
-                                           extra_headers=base.headers)
-        logger.info("auth: %s", msg)
-        if not session:
-            logger.warning("auth: form login failed — continuing UNauthenticated")
-            return base if base else None
-        return session
-    if base:
-        logger.info("auth: attaching session (%s)", base.source)
-        return base
-    return None
+    return auth_mod.build_session(
+        cookie=args.cookie or "", bearer=args.bearer or "", headers=args.header or [],
+        login_url=args.login_url or "", login_data=args.login_data or "",
+        login_user=args.login_user or "", login_pass=args.login_pass or "",
+        login_field_user=args.login_field_user, login_field_pass=args.login_field_pass,
+        insecure=args.insecure, log=logger.info)
 
 
 def _cmd_scan(args) -> int:
