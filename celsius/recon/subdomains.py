@@ -1,10 +1,11 @@
 """Subdomain enumeration.
 
 Passive: query several Certificate Transparency / passive-DNS sources (crt.sh,
-certspotter, hackertarget) and merge them — no contact with the target. Using
-more than one source means a transient crt.sh outage (its 502s/timeouts are
-common) no longer yields an empty result. Results are cached briefly, and a
-total live failure falls back to the last cached set.
+certspotter, hackertarget, rapiddns, AlienVault OTX) and merge them — no contact
+with the target. Each is keyless. Using more than one source means a transient
+crt.sh outage (its 502s/timeouts are common) no longer yields an empty result,
+and passive-DNS sources catch names that never got their own CT cert. Results are
+cached briefly, and a total live failure falls back to the last cached set.
 
 Optional safe-active: resolve a small built-in wordlist against the apex domain
 (only DNS lookups, still non-intrusive).
@@ -15,6 +16,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import socket
 import time
 import urllib.error
@@ -148,7 +150,34 @@ def from_hackertarget(domain: str) -> tuple[set[str], list[str]]:
     return subs, []
 
 
-_SOURCES = (from_crtsh, from_certspotter, from_hackertarget)
+def from_rapiddns(domain: str) -> tuple[set[str], list[str]]:
+    """rapiddns.io passive subdomain database (HTML table; no key needed)."""
+    url = f"https://rapiddns.io/subdomain/{urllib.parse.quote(domain)}?full=1"
+    body, err = _fetch(url)
+    if body is None:
+        return set(), [f"rapiddns lookup failed: {err}"]
+    subs = {k for m in re.findall(r'[A-Za-z0-9_.\-]+\.' + re.escape(domain), body)
+            if (k := _keep(m, domain))}
+    return subs, []
+
+
+def from_otx(domain: str) -> tuple[set[str], list[str]]:
+    """AlienVault OTX passive DNS (JSON; no key needed)."""
+    url = (f"https://otx.alienvault.com/api/v1/indicators/domain/"
+           f"{urllib.parse.quote(domain)}/passive_dns")
+    body, err = _fetch(url)
+    if body is None:
+        return set(), [f"otx lookup failed: {err}"]
+    try:
+        data = json.loads(body)
+    except json.JSONDecodeError:
+        return set(), []
+    subs = {k for rec in (data.get("passive_dns") or [])
+            if (k := _keep(rec.get("hostname", ""), domain))}
+    return subs, []
+
+
+_SOURCES = (from_crtsh, from_certspotter, from_hackertarget, from_rapiddns, from_otx)
 
 
 # ---- cache --------------------------------------------------------------------
