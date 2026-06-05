@@ -28,7 +28,7 @@ TIMEOUT = 20
 _CACHE_DIR = Path(os.path.expanduser("~/.cache/celsius/subdomains"))
 _CACHE_TTL = 6 * 3600  # treat a cached set younger than this as fresh
 
-# small high-signal wordlist for optional resolution
+# small high-signal wordlist for optional resolution — corporate/infra names
 COMMON = [
     "www", "mail", "remote", "blog", "webmail", "server", "ns1", "ns2", "smtp",
     "secure", "vpn", "api", "dev", "staging", "test", "portal", "admin", "m",
@@ -36,6 +36,35 @@ COMMON = [
     "jenkins", "jira", "confluence", "demo", "beta", "cdn", "static", "assets",
     "dashboard", "internal", "intranet", "vpn2", "owa", "exchange", "db", "sql",
 ]
+
+# self-hosted app subdomains — this tool's audience names hosts after the app
+# (e.g. request.<domain> = Overseerr). These often sit under a wildcard cert, so
+# they carry no per-host CT entry and are invisible to crt.sh — DNS brute-force is
+# the way to catch them.
+SELF_HOSTED = [
+    "request", "requests", "overseerr", "jellyseerr", "ombi",
+    "plex", "jellyfin", "emby", "media", "tv", "movies",
+    "radarr", "sonarr", "lidarr", "readarr", "prowlarr", "bazarr", "tautulli",
+    "qbittorrent", "qbit", "deluge", "transmission", "sabnzbd", "nzbget", "jdownloader",
+    "vikunja", "tasks", "todo", "kanban", "planka",
+    "readeck", "wallabag", "linkding", "bookmarks", "hoarder", "freshrss", "miniflux", "rss",
+    "obsidian", "notes", "memos", "trilium", "outline", "bookstack", "wiki",
+    "nextcloud", "cloud", "files", "drop", "drive", "seafile", "syncthing", "filebrowser",
+    "immich", "photos", "photoprism",
+    "navidrome", "music", "audiobookshelf", "audiobooks", "podcast", "podcasts",
+    "calibre", "books", "kavita", "komga",
+    "grafana", "prometheus", "uptime", "status", "metrics",
+    "vaultwarden", "vault", "bitwarden", "passwords",
+    "home", "homeassistant", "hass", "ha", "nodered",
+    "gitea", "forgejo", "code",
+    "paperless", "docs",
+    "pihole", "adguard", "traefik", "npm", "proxy",
+    "auth", "sso", "authelia", "authentik", "keycloak",
+    "homer", "heimdall", "dashy",
+]
+
+# Default brute-force set: corporate + self-hosted, deduped.
+DEFAULT_WORDLIST = sorted(set(COMMON) | set(SELF_HOSTED))
 
 
 def apex_domain(host: str) -> str:
@@ -150,7 +179,7 @@ def _cache_write(domain: str, subs: set[str]) -> None:
 
 # ---- safe-active wordlist -----------------------------------------------------
 
-def resolve_wordlist(domain: str, words=COMMON) -> set[str]:
+def resolve_wordlist(domain: str, words=DEFAULT_WORDLIST) -> set[str]:
     """Safe-active: which <word>.<domain> resolve. DNS only."""
     found: set[str] = set()
 

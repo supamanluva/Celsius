@@ -67,7 +67,9 @@ auto-discovered binaries, and the web app adds only FastAPI/uvicorn.
 
 ## What it does
 
-**🗺️ Attack surface &amp; recon** — DNS (DoH), subdomain enum (crt.sh CT logs),
+**🗺️ Attack surface &amp; recon** — DNS (DoH), subdomain enum (crt.sh CT logs) +
+optional DNS **brute-force tuned for self-hosted apps** (request/radarr/immich/…,
+which sit under wildcard certs and are invisible to crt.sh),
 TLS/certificate analysis, and tech/CDN/WAF/CMS fingerprinting, plus a **temporal
 diff** of what changed since the last scan. Behind a CDN it runs **origin-exposure
 discovery** — resolving subdomains + mail hosts and flagging any that point at a
