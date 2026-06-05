@@ -406,9 +406,15 @@ Under **lab mode** (`--lab --ai`) these PoC write-ups also **ground the AI's act
 verification**: for each firm CVE the model reads the public exploit technique
 (the trickest/cve repo README) and crafts ONE *benign* detection probe that tells a
 vulnerable host from a patched one — never the raw destructive exploit — runs it
-through the guard-railed lab harness, and judges the response. So a CVE becomes
-`confirmed-exploitable` only when an actual probe, informed by the real technique,
-proves it on the target.
+through the guard-railed lab harness, and judges the response. The verdict comes in
+tiers: **confirmed** (a benign probe proved the vulnerable behaviour),
+**reachable** (a non-destructive probe shows the vulnerable code path is active on
+the host — strong corroboration without exploitation, the right answer for a
+memory-corruption RCE you can't safely fire), **refuted** (patched/not present), or
+a **manual-verification to-do** that hands you the exact target, version match and
+public PoC so you can confirm it yourself. So a CVE becomes `confirmed-exploitable`
+only when an actual probe, informed by the real technique, proves it on the target —
+never on a version string alone.
 
 > Worked example: nginx **1.29.6** is affected by **CVE-2026-42945** (range
 > `0.6.27`–`<1.30.1`) but **not** CVE-2026-9256, whose real affected ranges

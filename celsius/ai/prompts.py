@@ -218,13 +218,23 @@ tool call that observes the vulnerable behaviour or a reliable fingerprint of it
 banner/version corroboration, a crafted-but-benign request whose response \
 distinguishes patched from unpatched). Distil the write-up into the MINIMUM \
 observation that separates vulnerable from patched — never the full destructive \
-exploit. If the only way to prove it is destructive (RCE shell, data write, DoS), \
-return tool "none" and say it needs manual confirmation.
+exploit.
+
+When a SAFE exploit-confirming probe is impossible (e.g. a memory-write/RCE you \
+could only prove by corrupting the target), DO NOT give up — aim ONE TIER LOWER: \
+plan a probe that establishes the VULNERABLE CODE PATH is reachable and active \
+(the module/feature/directive the CVE requires is genuinely in use on this host), \
+or that observes a non-destructive ANOMALY consistent with the bug (a short \
+out-of-bounds READ reflected in the response, a distinctive parser error, a \
+length/timing oracle). Set "goal" to which you attempted: exploit-confirm, \
+codepath-reachable, or fingerprint. Only return tool "none" when even reachability \
+cannot be observed safely.
 
 HARD RULES:
 - Non-destructive ONLY: no data deletion/mutation, no DoS, no credential brute \
-force, no blind/time-based payloads, no fetching real secrets. The harness \
-rejects destructive requests.
+force, no blind/time-based payloads, no fetching real secrets. NEVER send a \
+payload sized to corrupt memory or crash a worker, and NEVER attempt control-flow \
+hijack — bound every length. The harness rejects destructive requests.
 - The probe is locked to the scanned host; never target another host or the \
 PoC's own example domains.
 - Distro-backported packages (e.g. "...ubuntu...", "...deb...") often keep the \
@@ -234,24 +244,29 @@ with a one-line rationale. Don't guess.
 - Output ONE valid JSON object only, matching the schema."""
 
 CVE_VERIFY_SCHEMA = {
+    "goal": "exploit-confirm|codepath-reachable|fingerprint",
     "tool": "http_get|tcp_connect|tls_probe|dns_lookup|poc|none",
     "args": {"...": "tool arguments (host-locked)"},
-    "expect": "what result would CONFIRM the CVE is present (vs show it's patched)",
+    "expect": "what result would CONFIRM the CVE present / the code path reachable (vs patched)",
     "rationale": "if tool=none, why no safe probe settles it",
 }
 
-CVE_JUDGE_SYSTEM = """You decide whether a probe's evidence shows a SPECIFIC CVE \
-is present and reachable. Be strict and behaviour-driven:
-- confirmed: the evidence concretely matches the vulnerable behaviour/fingerprint \
-the CVE describes (not merely a version string).
+CVE_JUDGE_SYSTEM = """You decide what a probe's evidence shows about a SPECIFIC CVE. \
+Be strict and behaviour-driven:
+- confirmed: the evidence concretely demonstrates the vulnerable behaviour the CVE \
+describes (not merely a version string) — exploitation/impact observed.
+- reachable: the evidence shows the VULNERABLE CODE PATH is present and active on \
+this host (the module/feature/directive the CVE needs is in use), or a \
+non-destructive anomaly consistent with the bug — strong corroboration the host is \
+affected, but stopping short of proving exploitation.
 - refuted: the evidence shows it is patched / not present / not reachable.
 - inconclusive: the probe cannot settle it (e.g. version-only, blocked, ambiguous).
 A bare version match WITHOUT corroborating behaviour is inconclusive, never \
-confirmed — distros backport fixes silently. Never over-claim. Output ONE valid \
-JSON object only."""
+confirmed or reachable — distros backport fixes silently. Never over-claim. Output \
+ONE valid JSON object only."""
 
 CVE_JUDGE_SCHEMA = {
-    "status": "confirmed|refuted|inconclusive",
+    "status": "confirmed|reachable|refuted|inconclusive",
     "severity": "CRITICAL|HIGH|MEDIUM|LOW|INFO",
     "evidence": "the concrete fact from the probe that decides it",
     "reasoning": "one or two sentences",
