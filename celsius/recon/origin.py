@@ -12,7 +12,6 @@ Pure stdlib: IP classification via `ipaddress`, resolution via the DoH helper.
 
 from __future__ import annotations
 
-import base64
 import concurrent.futures
 import ipaddress
 import json
@@ -165,28 +164,36 @@ def shodan_search(query: str, api_key: str, *, limit: int = 25) -> tuple[list[st
     return ips, None
 
 
-def censys_search(query: str, api_id: str, api_secret: str, *,
+def censys_search(query: str, pat: str, org_id: str, *,
                   limit: int = 25) -> tuple[list[str], Optional[str]]:
-    """Run a Censys v2 hosts search; return (candidate_ips, error). The free tier
-    can run cert searches — a good keyless-Shodan alternative."""
-    if not (api_id and api_secret):
-        return [], "no CENSYS_API_ID/SECRET"
-    url = ("https://search.censys.io/api/v2/hosts/search?per_page=50&q="
-           + urllib.parse.quote(query))
-    token = base64.b64encode(f"{api_id}:{api_secret}".encode()).decode()
+    """Run a Censys Platform v3 host search; return (candidate_ips, error). Needs a
+    Personal Access Token + organization ID — the FREE tier can only search via the
+    web UI (the pivot link), not the API (403)."""
+    if not (pat and org_id):
+        return [], "no CENSYS_PAT/CENSYS_ORG_ID"
+    url = "https://api.platform.censys.io/v3/global/search/query"
+    body = json.dumps({"query": query, "page_size": 50}).encode()
     try:
-        req = urllib.request.Request(url, headers={
+        req = urllib.request.Request(url, data=body, method="POST", headers={
             "User-Agent": dns_mod.USER_AGENT, "Accept": "application/json",
-            "Authorization": f"Basic {token}"})
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {pat}", "X-Organization-ID": org_id})
         with urllib.request.urlopen(req, timeout=25) as resp:
             data = json.loads(resp.read().decode())
     except urllib.error.HTTPError as e:
-        return [], f"Censys HTTP {e.code}"
+        detail = ""
+        try:
+            detail = json.loads(e.read().decode()).get("detail", "")
+        except Exception:
+            pass
+        return [], f"Censys HTTP {e.code}{(': ' + detail) if detail else ''}"
     except (urllib.error.URLError, OSError, json.JSONDecodeError) as e:
         return [], f"Censys request failed: {e}"
+    hits = (data.get("result") or {}).get("hits") or data.get("hits") or []
     ips: list[str] = []
-    for hit in ((data.get("result") or {}).get("hits", []) or []):
-        ip = hit.get("ip")
+    for h in hits:
+        ip = (h.get("ip") or (h.get("resource") or {}).get("ip")
+              or (h.get("host") or {}).get("ip"))
         if ip and ip not in ips:
             ips.append(ip)
         if len(ips) >= limit:

@@ -29,8 +29,8 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       NVD_API_KEY: ${NVD_API_KEY:-}
       SHODAN_API_KEY: ${SHODAN_API_KEY:-}        # origin-hunt: find IPs behind a CDN
-      CENSYS_API_ID: ${CENSYS_API_ID:-}          # origin-hunt: Censys (free-tier cert search)
-      CENSYS_API_SECRET: ${CENSYS_API_SECRET:-}
+      CENSYS_PAT: ${CENSYS_PAT:-}                # origin-hunt: Censys Platform API (needs paid org)
+      CENSYS_ORG_ID: ${CENSYS_ORG_ID:-}
     cap_add:
       - NET_RAW      # nmap -sS / -O raw packets
       - NET_ADMIN    # OS fingerprinting robustness

@@ -556,21 +556,21 @@ class OriginExposure(Plugin):
                          "TLS cert / favicon directly is indexed by Shodan/Censys. Run these to "
                          "find it: " + " · ".join(f"{p['engine']}: {p['query']}" for p in pivots)),
             recommendation="Open the queries (Shodan/Censys) and scan any non-CDN IP that serves the "
-                           "same site; set SHODAN_API_KEY or CENSYS_API_ID/CENSYS_API_SECRET to let "
+                           "same site; set SHODAN_API_KEY or CENSYS_PAT/CENSYS_ORG_ID to let "
                            "celsius look them up and Host-verify automatically.",
             evidence="  ".join(p["url"] for p in pivots)))
 
         shodan_key = os.environ.get("SHODAN_API_KEY", "")
-        censys_id = os.environ.get("CENSYS_API_ID", "")
-        censys_secret = os.environ.get("CENSYS_API_SECRET", "")
-        if not (shodan_key or (censys_id and censys_secret)):
+        censys_pat = os.environ.get("CENSYS_PAT", "")
+        censys_org = os.environ.get("CENSYS_ORG_ID", "")
+        if not (shodan_key or (censys_pat and censys_org)):
             return
         candidates: list = []
         for p in pivots:
             if p["engine"] == "Shodan" and shodan_key:
                 ips, err = origin_mod.shodan_search(p["query"], shodan_key)
-            elif p["engine"] == "Censys" and censys_id and censys_secret:
-                ips, err = origin_mod.censys_search(p["query"], censys_id, censys_secret)
+            elif p["engine"] == "Censys" and censys_pat and censys_org:
+                ips, err = origin_mod.censys_search(p["query"], censys_pat, censys_org)
             else:
                 continue
             if err:
