@@ -416,6 +416,22 @@ class ContentDiscovery(Plugin):
             ctx.result.recon["exposed_paths"] = paths
 
 
+# Shared CDN/WAF edges: a reverse-IP lookup here returns OTHER tenants of the CDN,
+# not co-located infrastructure — pure noise. Detected via the fingerprint pass.
+_SHARED_CDNS = ("cloudflare", "fastly", "cloudfront", "akamai", "bunny cdn", "keycdn",
+                "stackpath", "sucuri", "imperva", "incapsula", "google cloud cdn")
+
+
+def _fronting_cdn(recon: dict) -> Optional[str]:
+    """Name of a shared CDN/WAF fronting the target (from the fingerprint), or None."""
+    for t in (recon.get("tech") or []):
+        if t.get("category") in ("cdn", "waf"):
+            name = (t.get("name") or "")
+            if any(c in name.lower() for c in _SHARED_CDNS):
+                return name
+    return None
+
+
 @register
 class CoHostDiscovery(Plugin):
     id = "cohost"
@@ -427,9 +443,18 @@ class CoHostDiscovery(Plugin):
     def run(self, ctx: ScanContext) -> None:
         sans = (ctx.result.recon.get("tls") or {}).get("san", [])
         # reverse-IP is an external lookup — tie it to the "enumerate more hosts"
-        # intent (subdomains opt-in); cert-SAN harvest is free and always runs.
+        # intent (subdomains opt-in); cert-SAN harvest is free and always runs. Skip
+        # it behind a shared CDN, where the resolved IP is an edge serving thousands
+        # of unrelated tenants (e.g. Cloudflare) — the "siblings" would be noise.
+        cdn = _fronting_cdn(ctx.result.recon)
+        do_rip = ctx.config.subdomains and not cdn
+        if ctx.config.subdomains and cdn:
+            ctx.result.errors.append(
+                f"cohost: target is behind {cdn} (shared CDN) — reverse-IP cohosting "
+                "skipped; co-tenants on a CDN edge are unrelated to this host. Cert-SAN "
+                "siblings still reported.")
         info = cohost_mod.discover(ctx.target.host, ctx.result.ip, sans,
-                                   do_reverse_ip=ctx.config.subdomains)
+                                   do_reverse_ip=do_rip)
         if info.get("error"):
             ctx.result.errors.append(f"cohost: {info['error']}")
         sibs = info.get("siblings", [])
