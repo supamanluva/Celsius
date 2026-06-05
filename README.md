@@ -77,7 +77,10 @@ non-CDN IP (the un-proxied origin you can then scan directly), plus an **origin
 hunt**: ready-to-run Shodan/Censys pivots from the favicon hash + cert and, with a
 `SHODAN_API_KEY`, an automatic candidate-IP lookup that's **confirmed by connecting
 with the site's Host header** — surfacing the origin's real `Server` header the CDN
-hid (a leak to firewall behind the CDN's ranges).
+hid (a leak to firewall behind the CDN's ranges). It also flags **internal-address
+exposure** — subdomains that resolve in *public* DNS to an RFC1918/private or
+**Tailscale** (`100.64.0.0/10`) address, or a `*.ts.net` CNAME: an infrastructure
+leak that reveals internal/VPN topology.
 
 **🔌 Services, OS &amp; lifecycle** — service/version detection from headers + tech
 fingerprints + optional `nmap -sV`; **passive OS/runtime inference**
