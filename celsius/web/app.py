@@ -20,7 +20,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Optional
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -253,6 +253,36 @@ def domain_report(domain: str, download: bool = False) -> HTMLResponse:
     )
 
 
+@app.get("/api/domain/{domain}/report.zip")
+def domain_report_zip(domain: str) -> Response:
+    """One ZIP for the whole domain: the aggregate overview + a per-host HTML report
+    for every scanned subdomain."""
+    import io
+    import zipfile
+
+    scans = _store.scans_for_domain(domain)
+    if not scans:
+        raise HTTPException(status_code=404, detail=f"No stored scans for {domain}.")
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("00-domain-overview.html", report.domain_rollup_html(domain, scans))
+        used: set = set()
+        for s in scans:
+            try:
+                host = parse_target(s.get("url") or s.get("target") or "host").host or "host"
+            except Exception:
+                host = "host"
+            name = _safe_name(host)
+            fn, i = f"{name}.html", 2
+            while fn in used:
+                fn, i = f"{name}-{i}.html", i + 1
+            used.add(fn)
+            z.writestr(fn, report.html_report(s))
+    fname = f"celsius-{_safe_name(domain)}-bundle.zip"
+    return Response(content=buf.getvalue(), media_type="application/zip",
+                    headers={"Content-Disposition": f'attachment; filename="{fname}"'})
+
+
 # ---- email security -----------------------------------------------------------
 
 class MailSecRequest(BaseModel):
@@ -279,7 +309,7 @@ def mailsec_check(req: MailSecRequest) -> dict:
 
 
 @app.get("/api/mailsec/report.html")
-def mailsec_report(domain: str = "") -> HTMLResponse:
+def mailsec_report(domain: str = "", download: bool = False) -> HTMLResponse:
     from ..recon import mailsec
     domain = (domain or "").strip()
     if "@" in domain:
@@ -291,9 +321,10 @@ def mailsec_report(domain: str = "") -> HTMLResponse:
         raise HTTPException(status_code=400, detail="Enter a domain.")
     info, _findings, _errors = mailsec.analyze(domain)
     fname = f"celsius-mail-{_safe_name(domain)}.html"
+    disp = "attachment" if download else "inline"   # ?download=1 forces a save
     return HTMLResponse(
         report.mailsec_html_report(info),
-        headers={"Content-Disposition": f'inline; filename="{fname}"'},
+        headers={"Content-Disposition": f'{disp}; filename="{fname}"'},
     )
 
 
