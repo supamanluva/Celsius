@@ -41,6 +41,9 @@ _SIGS: list[tuple[str, str, str, re.Pattern]] = [
     ("Fly.io", "hosting", "any-header", re.compile(r"\bfly-request-id\b|server:\s*fly\b", re.I)),
     ("Heroku", "hosting", "any-header", re.compile(r"heroku-router|\bvegur\b|server:\s*cowboy", re.I)),
     ("GitHub Pages", "hosting", "any-header", re.compile(r"x-github-request-id|server:\s*github\.com", re.I)),
+    # CouchDB leaks identifying headers even behind a CDN (Server stripped): the
+    # x-couchdb-* request headers and the Basic-auth realm give it away.
+    ("CouchDB", "server", "any-header", re.compile(r"x-couch(?:db)?-|realm=[\"']?couchdb", re.I)),
     ("GitLab Pages", "hosting", "any-header", re.compile(r"server:\s*gitlab", re.I)),
     ("DigitalOcean App Platform", "hosting", "any-header", re.compile(r"x-do-app-origin|\bdo-app\b", re.I)),
     ("Microsoft Azure", "hosting", "any-header", re.compile(r"x-azure-ref|x-msedge-ref|azurewebsites\.net", re.I)),
