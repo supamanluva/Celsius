@@ -71,7 +71,11 @@ auto-discovered binaries, and the web app adds only FastAPI/uvicorn.
 TLS/certificate analysis, and tech/CDN/WAF/CMS fingerprinting, plus a **temporal
 diff** of what changed since the last scan. Behind a CDN it runs **origin-exposure
 discovery** — resolving subdomains + mail hosts and flagging any that point at a
-non-CDN IP (the un-proxied origin you can then scan directly; a leak to firewall).
+non-CDN IP (the un-proxied origin you can then scan directly), plus an **origin
+hunt**: ready-to-run Shodan/Censys pivots from the favicon hash + cert and, with a
+`SHODAN_API_KEY`, an automatic candidate-IP lookup that's **confirmed by connecting
+with the site's Host header** — surfacing the origin's real `Server` header the CDN
+hid (a leak to firewall behind the CDN's ranges).
 
 **🔌 Services, OS &amp; lifecycle** — service/version detection from headers + tech
 fingerprints + optional `nmap -sV`; **passive OS/runtime inference**

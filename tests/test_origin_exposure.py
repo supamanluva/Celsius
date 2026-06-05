@@ -46,6 +46,26 @@ def test_find_exposed_origins():
     assert out[0]["origin_ips"] == ["157.180.68.157"]
 
 
+def test_pivot_queries_with_favicon():
+    pivots = origin.pivot_queries("geek.nu", favicon_hash=-12345, sans=["snaptrack.geek.nu"])
+    qs = [p["query"] for p in pivots]
+    assert any("http.favicon.hash:-12345" in q for q in qs)
+    assert any('ssl.cert.subject.CN:"geek.nu"' == q for q in qs)
+    assert any(p["engine"] == "Censys" for p in pivots)
+    assert all(p["url"].startswith("https://") for p in pivots)
+
+
+def test_pivot_queries_without_favicon():
+    pivots = origin.pivot_queries("geek.nu")
+    assert not any("favicon" in p["query"] for p in pivots)
+    assert any(p["engine"] == "Shodan" for p in pivots)
+
+
+def test_shodan_search_without_key():
+    ips, err = origin.shodan_search("http.favicon.hash:1", "")
+    assert ips == [] and "SHODAN_API_KEY" in err
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     failed = 0

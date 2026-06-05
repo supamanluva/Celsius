@@ -14,6 +14,13 @@ from __future__ import annotations
 
 import concurrent.futures
 import ipaddress
+import json
+import re
+import socket
+import ssl
+import urllib.error
+import urllib.parse
+import urllib.request
 from typing import Optional
 
 from . import dns as dns_mod
@@ -102,3 +109,128 @@ def find_exposed_origins(hosts, *, max_hosts: int = 150) -> list[dict]:
                 out.append(r)
     out.sort(key=lambda r: r["host"])
     return out
+
+
+# ---- origin hunt: pivots + Shodan lookup + Host-header verification -----------
+
+def pivot_queries(domain: str, *, favicon_hash: Optional[int] = None,
+                  sans: Optional[list] = None) -> list[dict]:
+    """Ready-to-run Shodan/Censys searches that find an IP serving the same
+    cert/favicon directly — i.e. the origin behind the CDN. Returns
+    [{engine, label, query, url}]."""
+    out: list[dict] = []
+
+    def shodan(q: str, label: str) -> None:
+        out.append({"engine": "Shodan", "label": label, "query": q,
+                    "url": "https://www.shodan.io/search?query=" + urllib.parse.quote(q)})
+
+    def censys(q: str, label: str) -> None:
+        out.append({"engine": "Censys", "label": label, "query": q,
+                    "url": "https://search.censys.io/search?resource=hosts&q=" + urllib.parse.quote(q)})
+
+    if favicon_hash is not None:
+        shodan(f"http.favicon.hash:{favicon_hash}", "same favicon")
+    shodan(f'ssl.cert.subject.CN:"{domain}"', "cert subject CN")
+    shodan(f'ssl:"{domain}"', "cert mentions domain")
+    censys(f"services.tls.certificates.leaf_data.subject.common_name: {domain}", "cert subject CN")
+    names = [s for s in (sans or []) if s and "*" not in s][:1]
+    if names:
+        censys(f"services.tls.certificates.leaf_data.names: {names[0]}", "cert SAN")
+    return out
+
+
+def shodan_search(query: str, api_key: str, *, limit: int = 25) -> tuple[list[str], Optional[str]]:
+    """Run a Shodan host search; return (candidate_ips, error). Needs a paid-tier
+    key for filters — degrade gracefully on any error."""
+    if not api_key:
+        return [], "no SHODAN_API_KEY"
+    url = ("https://api.shodan.io/shodan/host/search?key=" + urllib.parse.quote(api_key)
+           + "&query=" + urllib.parse.quote(query))
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": dns_mod.USER_AGENT})
+        with urllib.request.urlopen(req, timeout=25) as resp:
+            data = json.loads(resp.read().decode())
+    except urllib.error.HTTPError as e:
+        return [], f"Shodan HTTP {e.code} ({'search needs a paid plan' if e.code == 403 else 'error'})"
+    except (urllib.error.URLError, OSError, json.JSONDecodeError) as e:
+        return [], f"Shodan request failed: {e}"
+    ips: list[str] = []
+    for m in data.get("matches", []) or []:
+        ip = m.get("ip_str")
+        if ip and ip not in ips:
+            ips.append(ip)
+        if len(ips) >= limit:
+            break
+    return ips, None
+
+
+_TITLE = re.compile(rb"<title[^>]*>(.*?)</title>", re.I | re.S)
+
+
+def _fetch_via_ip(ip: str, host: str, path: str = "/", *, port: int = 443,
+                  timeout: int = 8) -> tuple[Optional[int], dict, bytes]:
+    """GET `path` from `ip` while presenting Host (and TLS SNI) = `host`, cert
+    unverified. HTTP/1.0 so the body needs no de-chunking. (status, headers, body)."""
+    try:
+        raw = socket.create_connection((ip, port), timeout=timeout)
+    except OSError:
+        return None, {}, b""
+    sock = raw
+    try:
+        if port == 443:
+            ctx = ssl._create_unverified_context()
+            sock = ctx.wrap_socket(raw, server_hostname=host)
+        sock.settimeout(timeout)
+        sock.sendall((f"GET {path} HTTP/1.0\r\nHost: {host}\r\n"
+                      "User-Agent: celsius-origin-check/1.0\r\nAccept: */*\r\n\r\n").encode())
+        buf = b""
+        while len(buf) < 200_000:
+            try:
+                b = sock.recv(16384)
+            except (socket.timeout, OSError):
+                break
+            if not b:
+                break
+            buf += b
+    finally:
+        try:
+            sock.close()
+        except OSError:
+            pass
+    head, _, body = buf.partition(b"\r\n\r\n")
+    try:
+        lines = head.decode("latin-1").split("\r\n")
+        status = int(lines[0].split()[1])
+    except (ValueError, IndexError):
+        return None, {}, b""
+    headers = {}
+    for ln in lines[1:]:
+        if ":" in ln:
+            k, v = ln.split(":", 1)
+            headers[k.strip().lower()] = v.strip()
+    return status, headers, body
+
+
+def verify_origin(ip: str, host: str, *, expected_favicon: Optional[int] = None,
+                  timeout: int = 8) -> dict:
+    """Connect to `ip` presenting Host=`host` and see whether it IS the origin: it
+    exposes the real Server header (the CDN hid it), and a matching favicon proves
+    it serves the same site. Returns {ip, reachable, status, server, title, matched,
+    how}."""
+    for port in (443, 80):
+        status, headers, body = _fetch_via_ip(ip, host, "/", port=port, timeout=timeout)
+        if status is None:
+            continue
+        m = _TITLE.search(body or b"")
+        title = (m.group(1).decode("utf-8", "replace").strip()[:120] if m else "")
+        matched, how = False, f"responds (HTTP {status})"
+        if expected_favicon is not None:
+            fstatus, _fh, fbody = _fetch_via_ip(ip, host, "/favicon.ico", port=port, timeout=timeout)
+            if fstatus == 200 and fbody and len(fbody) >= 16:
+                from . import favicon as favicon_mod
+                if favicon_mod.favicon_hash(fbody) == expected_favicon:
+                    matched, how = True, "favicon hash matches the CDN-fronted site"
+        return {"ip": ip, "reachable": True, "port": port, "status": status,
+                "server": headers.get("server", ""), "title": title,
+                "matched": matched, "how": how}
+    return {"ip": ip, "reachable": False, "matched": False, "how": "no response on 443/80"}

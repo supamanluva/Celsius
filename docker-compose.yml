@@ -28,6 +28,7 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       NVD_API_KEY: ${NVD_API_KEY:-}
+      SHODAN_API_KEY: ${SHODAN_API_KEY:-}   # origin-hunt: find IPs behind a CDN
     cap_add:
       - NET_RAW      # nmap -sS / -O raw packets
       - NET_ADMIN    # OS fingerprinting robustness
