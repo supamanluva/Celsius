@@ -263,14 +263,17 @@ def cve_candidates(cves: list, max_cves: int = 6) -> list:
 
 def verify_cves(result_dict: dict, cves: list, provider: LLMProvider, lab, *,
                 budget: Optional[cache_mod.Budget] = None, audit=None,
-                log=lambda _m: None, max_cves: int = 6) -> list[dict]:
-    """For each firm, reachable CVE, have the model plan ONE benign detection
-    probe (grounded in the CVE's PoC references), run it host-locked + lab-gated,
-    and judge whether the CVE is present. Returns verdicts:
+                log=lambda _m: None, max_cves: int = 6, use_poc_content: bool = True) -> list[dict]:
+    """For each firm, reachable CVE, have the model plan ONE benign detection probe
+    and judge whether the CVE is present. When `use_poc_content`, the model is first
+    grounded in EXCERPTS OF THE PUBLIC PoC WRITE-UPS (trickest/cve repo READMEs) so
+    the probe targets the real trigger — never the raw destructive exploit. Runs
+    host-locked + lab-gated. Returns verdicts:
     {"cve", "status": confirmed|refuted|inconclusive|needs-manual,
-     "severity", "reasoning", "evidence", "tool", "curl"}.
+     "severity", "reasoning", "evidence", "tool", "curl", "grounded_in_poc"}.
     """
     from . import verify_tools
+    from .. import cve as cve_mod
     cand = cve_candidates(cves, max_cves)
     if not cand:
         return []
@@ -281,20 +284,25 @@ def verify_cves(result_dict: dict, cves: list, provider: LLMProvider, lab, *,
         ok, _why = lab.can_send()
         if not ok:
             break
+        techniques = cve_mod.poc_techniques(c) if use_poc_content else []
+        if techniques:
+            log(f"ai-cve-verify: grounding {c.get('id')} in {len(techniques)} public PoC write-up(s)")
+        grounded = bool(techniques)
         plan = parse_json(_call(provider, [
             Message("system", prompts.CVE_VERIFY_SYSTEM),
-            Message("user", prompts.cve_verify_prompt(c, context, verify_tools.TOOL_SPECS))],
+            Message("user", prompts.cve_verify_prompt(c, context, verify_tools.TOOL_SPECS, techniques))],
             json_mode=True, budget=budget, use_cache=True, audit=audit)) or {}
         tool = plan.get("tool")
         if tool in (None, "", "none"):
             verdicts.append({"cve": c.get("id"), "status": "needs-manual", "tool": "none",
+                             "grounded_in_poc": grounded,
                              "reasoning": plan.get("rationale")
                              or "no safe automated probe distinguishes vulnerable from patched"})
             continue
         evidence = verify_tools.run_tool(tool, plan.get("args") or {}, lab)
         if evidence is None:
             verdicts.append({"cve": c.get("id"), "status": "inconclusive", "tool": tool,
-                             "reasoning": "invalid tool call"})
+                             "grounded_in_poc": grounded, "reasoning": "invalid tool call"})
             continue
         v = parse_json(_call(provider, [
             Message("system", prompts.CVE_JUDGE_SYSTEM),
@@ -305,6 +313,7 @@ def verify_cves(result_dict: dict, cves: list, provider: LLMProvider, lab, *,
             status = "inconclusive"
         verdicts.append({"cve": c.get("id"), "status": status, "severity": v.get("severity"),
                          "reasoning": v.get("reasoning", ""), "evidence": v.get("evidence", ""),
-                         "tool": tool, "curl": (evidence or {}).get("curl", "")})
-        log(f"ai-cve-verify: {c.get('id')} -> {status}")
+                         "tool": tool, "curl": (evidence or {}).get("curl", ""),
+                         "grounded_in_poc": grounded})
+        log(f"ai-cve-verify: {c.get('id')} -> {status}" + ("  [PoC-grounded]" if grounded else ""))
     return verdicts

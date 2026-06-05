@@ -402,6 +402,14 @@ real, working proof-of-concept repositories from the community
 and parallelised, and only firm matches are enriched (weak/AI matches are skipped
 to avoid noise). Disable with `--no-cve-pocs`.
 
+Under **lab mode** (`--lab --ai`) these PoC write-ups also **ground the AI's active
+verification**: for each firm CVE the model reads the public exploit technique
+(the trickest/cve repo README) and crafts ONE *benign* detection probe that tells a
+vulnerable host from a patched one — never the raw destructive exploit — runs it
+through the guard-railed lab harness, and judges the response. So a CVE becomes
+`confirmed-exploitable` only when an actual probe, informed by the real technique,
+proves it on the target.
+
 > Worked example: nginx **1.29.6** is affected by **CVE-2026-42945** (range
 > `0.6.27`–`<1.30.1`) but **not** CVE-2026-9256, whose real affected ranges
 > (`0.1.17`–`0.9.7`, `1.30.0`–`1.30.1`, `1.31.0`) exclude 1.29.6 — even though

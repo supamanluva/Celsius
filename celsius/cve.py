@@ -251,6 +251,64 @@ def enrich_pocs(cves: list[CVE], *, max_fetch: int = 40) -> int:
     return enriched
 
 
+# ---- PoC write-up content (for grounding AI verification) ---------------------
+
+_GH_REPO = re.compile(r"https?://github\.com/([^/\s]+)/([^/\s#?]+)", re.I)
+
+
+def _poc_readme(url: str) -> str:
+    """Fetch a GitHub PoC repo's README — the exploit write-up that explains HOW the
+    CVE is triggered. Cached (via _get_text). '' if `url` is not a GitHub repo or
+    has no reachable README."""
+    m = _GH_REPO.match(url.strip())
+    if not m:
+        return ""
+    owner, repo = m.group(1), m.group(2)
+    if repo.endswith(".git"):
+        repo = repo[:-4]
+    if owner.lower() in ("sponsors", "marketplace", "topics", "search", "about"):
+        return ""
+    for ref, name in (("HEAD", "README.md"), ("main", "README.md"),
+                      ("master", "README.md"), ("HEAD", "readme.md")):
+        txt = _get_text(f"https://raw.githubusercontent.com/{owner}/{repo}/{ref}/{name}")
+        if txt:
+            return txt
+    return ""
+
+
+def poc_technique(url: str, *, max_chars: int = 1200) -> str:
+    """A short, cleaned excerpt of a PoC's write-up describing how the CVE is
+    exploited — to ground an AI in the real technique. Fenced code blocks (the raw
+    exploit itself) are dropped on purpose: we want the model to understand the
+    trigger and craft a BENIGN detection probe, not to replay a destructive script.
+    '' if no write-up is available."""
+    readme = _poc_readme(url)
+    if not readme:
+        return ""
+    text = re.sub(r"```[\s\S]*?```", " ", readme)        # drop fenced code (the raw exploit)
+    text = re.sub(r"!\[[^\]]*\]\([^)]*\)", " ", text)     # images
+    text = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", text)  # keep link text, drop URL
+    text = re.sub(r"[#>*`_|]+", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text[:max_chars]
+
+
+def poc_techniques(cve, *, max_pocs: int = 3) -> list[dict]:
+    """For a CVE (dict or CVE object), fetch up to `max_pocs` PoC write-up excerpts
+    from its enriched (poc=True) references — the exploit technique the AI uses to
+    plan a benign confirmation probe. Returns [{"url", "technique"}], [] if none."""
+    refs = cve.get("references") if isinstance(cve, dict) else getattr(cve, "references", [])
+    urls = [r.get("url") for r in (refs or []) if r.get("poc") and r.get("url")]
+    out: list[dict] = []
+    for u in urls:
+        if len(out) >= max_pocs:
+            break
+        tech = poc_technique(u)
+        if tech:
+            out.append({"url": u, "technique": tech})
+    return out
+
+
 # ---- CVSS extraction ----------------------------------------------------------
 
 def _extract_cvss(metrics: dict) -> tuple[Optional[float], Severity]:
