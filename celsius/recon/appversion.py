@@ -33,6 +33,8 @@ PROBES = [
     ("Portainer", "/api/system/version", "ServerVersion", None),
     ("Home Assistant", "/api/config", "version", None),
     ("Uptime Kuma", "/api/entry-page", "version", None),
+    ("Readeck", "/api/info", "version.canonical", None),
+    ("Vikunja", "/api/v1/info", "version", None),
     ("Immich", "/api/server-info/version", None,
      r'"major":\s*(\d+).*?"minor":\s*(\d+).*?"patch":\s*(\d+)'),
     ("Plex", "/identity", None, r'\bversion="([^"]+)"'),
