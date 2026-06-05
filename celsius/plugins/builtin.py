@@ -12,6 +12,7 @@ from ..models import Finding, Severity
 from ..recon import apidisco as api_mod
 from ..recon import cohost as cohost_mod
 from ..recon import content_discovery as cd_mod
+from ..recon import origin as origin_mod
 from ..recon import crawler as crawler_mod
 from ..recon import dns as dns_mod
 from ..recon import dynamic as dynamic_mod
@@ -474,6 +475,69 @@ class CoHostDiscovery(Plugin):
                 recommendation="Queue scans of these hosts too; one reverse proxy often fronts many apps.",
                 evidence=", ".join(sibs[:40]),
             ))
+
+
+@register
+class OriginExposure(Plugin):
+    id = "origin-exposure"
+    title = "origin / CDN-bypass exposure (hostnames that skip the CDN)"
+    phase = Phase.ENRICH      # after subdomains + dns + cohost (SANs) + fingerprint
+    mode = Mode.PASSIVE       # DoH resolutions only
+
+    def enabled(self, ctx: ScanContext) -> bool:
+        # Only meaningful when the target itself is fronted by a CDN.
+        return bool(_fronting_cdn(ctx.result.recon)
+                    or origin_mod.cdn_for_ip(ctx.result.ip or ""))
+
+    def run(self, ctx: ScanContext) -> None:
+        recon = ctx.result.recon
+        cdn = (_fronting_cdn(recon) or origin_mod.cdn_for_ip(ctx.result.ip or "")
+               or "a CDN")
+        apex = ".".join(ctx.target.host.split(".")[-2:])
+        # mail hosts are EXPECTED off-CDN (intel, not a leak); web hosts that bypass
+        # the CDN are the real finding.
+        mailish = set(origin_mod.mx_hosts((recon.get("dns") or {}).get("records", {})))
+        mailish.update(f"{p}.{apex}" for p in ("mail", "webmail", "smtp", "imap", "pop", "mx"))
+        web = set(recon.get("subdomains") or [])
+        web.update((recon.get("cohosted") or {}).get("from_san") or [])
+        web.update(f"{p}.{apex}" for p in ("direct", "origin", "direct-connect", "cpanel",
+                                           "dev", "staging", "server", "ssh", "vpn", "ftp", "www"))
+        candidates = {h for h in (web | mailish) if h and h != ctx.target.host}
+        if not candidates:
+            return
+        exposed = origin_mod.find_exposed_origins(sorted(candidates))
+        recon["origin_exposure"] = {"cdn": cdn, "checked": len(candidates), "exposed": exposed}
+        if not exposed:
+            ctx.log(f"origin-exposure: behind {cdn}; no hostname bypasses it "
+                    "(origin not exposed via DNS)")
+            return
+        for e in exposed:
+            is_mail = e["host"] in mailish and e["host"] not in web
+            ips = ", ".join(e["origin_ips"])
+            if is_mail:
+                ctx.result.findings.append(Finding(
+                    title=f"Mail/non-CDN host reveals hosting network: {e['host']} → {ips}",
+                    severity=Severity.INFO, category="origin-exposure",
+                    description=(f"{e['host']} resolves to {ips} (not behind {cdn}). Mail hosts are "
+                                 "normally un-proxied, but the IP/ASN narrows down where the origin "
+                                 "is hosted — a pivot point for finding the web origin."),
+                    recommendation=f"Check whether the web origin shares this network ({ips}).",
+                    evidence=f"{e['host']} A/AAAA: {', '.join(e['ips'])}"))
+                continue
+            ctx.result.findings.append(Finding(
+                title=f"Possible origin behind {cdn}: {e['host']} → {ips}",
+                severity=Severity.MEDIUM, category="origin-exposure",
+                description=(f"{e['host']} resolves to {ips}, which is not in {cdn}'s ranges — likely "
+                             f"an un-proxied origin/service. The site is fronted by {cdn}, but this "
+                             "hostname bypasses it, exposing a real IP to direct scanning "
+                             "(version/CVE fingerprinting and attacks that skip the WAF/DDoS edge)."),
+                recommendation=(f"Scan {e['origin_ips'][0]} directly with a 'Host: {ctx.target.host}' "
+                                f"header to fingerprint the real service. Defensively: firewall the "
+                                f"origin to accept only {cdn}'s published IP ranges."),
+                evidence=f"{e['host']} A/AAAA: {', '.join(e['ips'])}"))
+        n_web = sum(1 for e in exposed if not (e["host"] in mailish and e["host"] not in web))
+        ctx.log(f"origin-exposure: {len(exposed)} host(s) bypass {cdn} "
+                f"({n_web} possible web origin(s)) → candidate IP(s)")
 
 
 @register
