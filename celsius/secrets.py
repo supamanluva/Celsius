@@ -88,7 +88,8 @@ _PATHISH_TOKEN = re.compile(
 # The text immediately *before* a quoted token, when it's an HTML/CSS attribute
 # or CSS url(): values here (hrefs, SRI hashes, asset URLs) are never secrets.
 _BENIGN_BEFORE = re.compile(
-    r"""(?:href|src|srcset|action|integrity|xlink:href|data-[\w-]+|cite|poster)"""
+    r"""(?:href|src|srcset|action|integrity|xlink:href|data-[\w-]+|cite|poster|"""
+    r"""type|nonce|class|rel|as)"""
     r"""\s*=\s*["']?\s*$"""
     r"""|url\(\s*["']?\s*$""",
     re.I,
@@ -101,6 +102,17 @@ _VERIFICATION_BEFORE = re.compile(
     re.I,
 )
 
+# JSON keys whose values are PUBLIC by design (a Web Push VAPID *public* key, an
+# OAuth/crypto public key) or build artifacts (Next.js buildId, CSP nonce, webpack
+# content hashes) — high-entropy but never credentials.
+_BENIGN_KEY_BEFORE = re.compile(
+    r"""(?:^|[.,{;\[\s"'])"""                              # key boundary (also unquoted JS keys)
+    r"""(?:vapidpublic(?:key)?|publicvapidkey|public_?key|vapidkey|"""
+    r"""buildid|buildhash|nonce|chunk(?:id|hash)|contenthash|revision|csrf(?:token)?)"""
+    r"""["']?\s*[:=]\s*["']?\s*$""",                       # : or = , key/value quotes optional
+    re.I,
+)
+
 
 def _is_pathish_token(tok: str) -> bool:
     return bool(_PATHISH_TOKEN.search(tok))
@@ -110,7 +122,8 @@ def _benign_token_context(before: str) -> bool:
     """True if the ~90 chars preceding the token mark it as a URL/asset/verification
     value rather than a credential."""
     tail = before[-90:]
-    return bool(_BENIGN_BEFORE.search(tail) or _VERIFICATION_BEFORE.search(tail))
+    return bool(_BENIGN_BEFORE.search(tail) or _VERIFICATION_BEFORE.search(tail)
+                or _BENIGN_KEY_BEFORE.search(tail))
 
 
 class SecretMatch:

@@ -8,9 +8,10 @@ from __future__ import annotations
 
 from .. import cve as cve_mod
 from .. import http_analysis, nuclei_scan, portscan, webchecks, websecrets
-from ..models import Finding, Severity
+from ..models import Finding, Service, Severity
 from ..recon import apidisco as api_mod
 from ..recon import cohost as cohost_mod
+from ..recon import appversion as appversion_mod
 from ..recon import content_discovery as cd_mod
 from ..recon import origin as origin_mod
 from ..recon import crawler as crawler_mod
@@ -431,6 +432,39 @@ def _fronting_cdn(recon: dict) -> Optional[str]:
             if any(c in name.lower() for c in _SHARED_CDNS):
                 return name
     return None
+
+
+@register
+class AppVersionProbe(Plugin):
+    id = "app-version"
+    title = "self-hosted app version disclosure (status/health endpoints)"
+    phase = Phase.DETECT      # before ENRICH cve-lookup, so the version feeds CVE matching
+    mode = Mode.SAFE_ACTIVE   # a handful of GETs to well-known unauthenticated API paths
+
+    def enabled(self, ctx: ScanContext) -> bool:
+        return ctx.config.web and not ctx.target.is_ip
+
+    def run(self, ctx: ScanContext) -> None:
+        base = ctx.result.url or ctx.target.web_url()
+        ctx.audit.active_probe(self.id, ctx.target.host, self.mode.value,
+                               detail="self-hosted app version endpoints")
+        hits = appversion_mod.probe(base, insecure=ctx.config.insecure, auth=ctx.config.auth)
+        if not hits:
+            return
+        for h in hits:
+            # add as a versioned service so cve-lookup (ENRICH) can match it
+            ctx.result.services.append(Service(
+                name=h["app"], version=h["version"], source=f"app-api:{h['path']}"))
+            ctx.result.findings.append(Finding(
+                title=f"App version disclosed: {h['app']} {h['version']}",
+                severity=Severity.LOW, category="app-version",
+                description=(f"{h['app']} reveals its exact version ({h['version']}) on the "
+                             f"unauthenticated endpoint {h['path']} — readable even behind a CDN that "
+                             "hides the Server header, and enough to target version-specific exploits."),
+                recommendation=(f"Restrict or authenticate {h['path']}, and keep {h['app']} updated; "
+                                "the disclosed version feeds the CVE lookup."),
+                evidence=f"GET {h['path']} → version {h['version']}"))
+        ctx.log("app-version: disclosed " + ", ".join(f"{h['app']} {h['version']}" for h in hits))
 
 
 @register
