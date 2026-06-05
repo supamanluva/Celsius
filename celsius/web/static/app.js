@@ -82,7 +82,8 @@ function renderMail(info) {
       <div class="grade">${esc(info.grade)}</div>
       <div class="score"><strong>${info.score}</strong>/100</div>
       <div class="mx">Mail server: ${esc(mx)}${info.provider ? " · " + esc(info.provider) : ""}
-        <br><a class="reportlink" href="${reportUrl}" target="_blank">📄 HTML report</a></div>
+        <br><a class="reportlink" href="${reportUrl}" target="_blank">📄 HTML report</a>
+        <a class="reportlink" href="${reportUrl}&download=1" download title="Download the mail report (.html)">⬇</a></div>
     </div>`;
 
   info.checks.forEach((c) => {
@@ -362,7 +363,8 @@ function renderResult(res, scanId) {
     + (scanId ? `<a class="reportlink" href="/api/scans/${encodeURIComponent(scanId)}/report.html" target="_blank">📄 HTML report</a>` : "")
     + (scanId ? `<a class="reportlink" href="/api/scans/${encodeURIComponent(scanId)}/report.html?download=1" download title="Download the scan report (.html)">⬇</a>` : "")
     + (apex ? `<a class="reportlink" href="/api/domain/${encodeURIComponent(apex)}/report.html" target="_blank" title="Aggregated report across ${esc(apex)} and its scanned subdomains">🌐 Domain report (${esc(apex)})</a>` : "")
-    + (apex ? `<a class="reportlink" href="/api/domain/${encodeURIComponent(apex)}/report.html?download=1" download title="Download the domain report (.html)">⬇</a>` : "");
+    + (apex ? `<a class="reportlink" href="/api/domain/${encodeURIComponent(apex)}/report.html?download=1" download title="Download the domain report (.html)">⬇</a>` : "")
+    + (apex ? `<a class="reportlink" href="/api/domain/${encodeURIComponent(apex)}/report.zip" download title="Download a ZIP: domain overview + a report for every scanned subdomain">🗜 Domain bundle (.zip)</a>` : "");
 
   let html = "";
 
