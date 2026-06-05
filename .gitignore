@@ -47,3 +47,6 @@ Thumbs.db
 # environment / secrets
 .env
 **/.env
+
+# personal authorization scope (keep scope.yml.example as the template)
+scope.yml
