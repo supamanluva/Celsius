@@ -71,6 +71,32 @@ def test_censys_search_without_creds():
     assert origin.censys_search("q", "pat", "")[0] == []
 
 
+def test_internal_kind():
+    assert origin.internal_kind("100.64.1.1") == "Tailscale"      # CGNAT
+    assert origin.internal_kind("fd7a:115c:a1e0::1") == "Tailscale"
+    assert origin.internal_kind("10.0.0.5") == "private"
+    assert origin.internal_kind("192.168.1.1") == "private"
+    assert origin.internal_kind("127.0.0.1") == "loopback"
+    assert origin.internal_kind("1.1.1.1") is None                # public — not a leak
+    assert origin.internal_kind("nope") is None
+
+
+def test_find_internal_leaks():
+    data = {
+        ("ts.x.com", "A"): ["100.64.0.5"],
+        ("priv.x.com", "A"): ["10.1.2.3"],
+        ("pub.x.com", "A"): ["157.180.68.157"],
+        ("cn.x.com", "CNAME"): ["host.tail1234.ts.net."],
+    }
+    origin.dns_mod._query = lambda host, rtype: data.get((host, rtype), [])
+    leaks = origin.find_internal_leaks(["ts.x.com", "priv.x.com", "pub.x.com", "cn.x.com"])
+    by = {leak["host"]: leak["kind"] for leak in leaks}
+    assert by.get("ts.x.com") == "Tailscale"
+    assert by.get("priv.x.com") == "private"
+    assert by.get("cn.x.com") == "Tailscale"          # detected via the *.ts.net CNAME
+    assert "pub.x.com" not in by                        # public address is not a leak
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     failed = 0

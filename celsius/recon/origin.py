@@ -64,6 +64,63 @@ def _is_public(ip: str) -> bool:
         return False
 
 
+# Tailscale's address space (CGNAT IPv4 + ULA IPv6) — leaked if seen in PUBLIC DNS.
+_TAILSCALE = [ipaddress.ip_network("100.64.0.0/10"),
+              ipaddress.ip_network("fd7a:115c:a1e0::/48")]
+
+
+def internal_kind(ip: str) -> Optional[str]:
+    """Classify an internal/VPN address that should never appear in PUBLIC DNS:
+    'Tailscale', 'private' (RFC1918/ULA), 'loopback', or 'link-local'. None if a
+    normal public address."""
+    try:
+        a = ipaddress.ip_address(ip)
+    except ValueError:
+        return None
+    if any(a in n for n in _TAILSCALE):
+        return "Tailscale"
+    if a.is_loopback:
+        return "loopback"
+    if a.is_link_local:
+        return "link-local"
+    if a.is_private:            # RFC1918 / fc00::/7 ULA (Tailscale matched above)
+        return "private"
+    return None
+
+
+def _classify_internal(host: str) -> Optional[dict]:
+    a = dns_mod._query(host, "A") + dns_mod._query(host, "AAAA")
+    cname = dns_mod._query(host, "CNAME")
+    kinds = {k for k in (internal_kind(ip) for ip in a) if k}
+    ts_net = [c.rstrip(".") for c in cname if ".ts.net" in c.lower()]
+    if not kinds and not ts_net:
+        return None
+    kind = "Tailscale" if ("Tailscale" in kinds or ts_net) else sorted(kinds)[0]
+    return {"host": host, "kind": kind, "ips": a, "ts_net": ts_net}
+
+
+def find_internal_leaks(hosts, *, max_hosts: int = 150) -> list[dict]:
+    """Hosts whose PUBLIC DNS exposes an internal/VPN address (RFC1918, Tailscale
+    CGNAT) or a *.ts.net CNAME — an infrastructure leak. [{host, kind, ips, ts_net}].
+    Only what's in public DNS is seen, so tailnet-only names never appear."""
+    uniq, seen = [], set()
+    for h in hosts:
+        h = (h or "").strip().lower().rstrip(".").lstrip("*.")
+        if h and h not in seen:
+            seen.add(h)
+            uniq.append(h)
+    uniq = uniq[:max_hosts]
+    if not uniq:
+        return []
+    out = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=12) as ex:
+        for r in ex.map(_classify_internal, uniq):
+            if r:
+                out.append(r)
+    out.sort(key=lambda r: r["host"])
+    return out
+
+
 def mx_hosts(dns_records: dict) -> list[str]:
     """Hostnames from MX records ('10 mail.example.com.' -> 'mail.example.com')."""
     out = []

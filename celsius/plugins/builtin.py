@@ -648,6 +648,43 @@ class OriginExposure(Plugin):
 
 
 @register
+class InternalExposure(Plugin):
+    id = "internal-exposure"
+    title = "internal/VPN address leaked in public DNS (RFC1918, Tailscale, *.ts.net)"
+    phase = Phase.ENRICH      # after subdomains + dns + cohost (SANs)
+    mode = Mode.PASSIVE       # DoH resolutions only
+
+    def enabled(self, ctx: ScanContext) -> bool:
+        return not ctx.target.is_ip
+
+    def run(self, ctx: ScanContext) -> None:
+        recon = ctx.result.recon
+        hosts = {ctx.target.host}
+        hosts.update(recon.get("subdomains") or [])
+        hosts.update((recon.get("cohosted") or {}).get("from_san") or [])
+        hosts.update(origin_mod.mx_hosts((recon.get("dns") or {}).get("records", {})))
+        leaks = origin_mod.find_internal_leaks(sorted(h for h in hosts if h))
+        if not leaks:
+            return
+        recon["internal_exposure"] = leaks
+        for e in leaks:
+            where = ", ".join(e["ts_net"]) if e["ts_net"] else ", ".join(e["ips"])
+            detail = ("a Tailscale tailnet address — revealing that Tailscale is in use and the "
+                      "internal/VPN topology." if e["kind"] == "Tailscale" else
+                      f"an internal/{e['kind']} address that should not be in public DNS.")
+            ctx.result.findings.append(Finding(
+                title=f"Internal address in public DNS: {e['host']} → {where} ({e['kind']})",
+                severity=Severity.LOW, category="internal-exposure",
+                description=(f"{e['host']} resolves in PUBLIC DNS to {where} — {detail} It leaks "
+                             "internal infrastructure and aids network mapping / SSRF targeting."),
+                recommendation=("Serve internal names only over split-horizon DNS / Tailscale MagicDNS; "
+                                "remove the internal record from public DNS."),
+                evidence=f"{e['host']} -> {', '.join(e['ips'])}"
+                         + (f" CNAME {', '.join(e['ts_net'])}" if e["ts_net"] else "")))
+        ctx.log("internal-exposure: " + ", ".join(f"{e['host']} ({e['kind']})" for e in leaks))
+
+
+@register
 class ApiDiscovery(Plugin):
     id = "api-discovery"
     title = "OpenAPI/Swagger + GraphQL introspection discovery"
