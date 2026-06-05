@@ -309,7 +309,7 @@ def verify_cves(result_dict: dict, cves: list, provider: LLMProvider, lab, *,
             Message("user", prompts.cve_judge_prompt(c, evidence))],
             json_mode=True, budget=budget, use_cache=True, audit=audit)) or {}
         status = str(v.get("status", "inconclusive")).lower()
-        if status not in ("confirmed", "refuted", "inconclusive"):
+        if status not in ("confirmed", "reachable", "refuted", "inconclusive"):
             status = "inconclusive"
         verdicts.append({"cve": c.get("id"), "status": status, "severity": v.get("severity"),
                          "reasoning": v.get("reasoning", ""), "evidence": v.get("evidence", ""),

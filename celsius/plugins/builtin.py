@@ -781,6 +781,92 @@ class CveVerification(Plugin):
             ctx.result.recon["cve_verified"] = sorted(confirmed)
 
 
+def _cve_pocs(c) -> list:
+    return c.poc_refs()[:4] if c is not None else []
+
+
+def _verification_record(c, v: dict, target_url: str) -> dict:
+    """What the AI verification settled for a CVE, plus a manual-repro package — so
+    every firm CVE carries its outcome and (for unproven ones) everything needed to
+    confirm it by hand."""
+    rec = {"status": v.get("status"), "reasoning": v.get("reasoning", ""),
+           "evidence": v.get("evidence", ""), "poc_grounded": bool(v.get("grounded_in_poc"))}
+    if v.get("curl"):
+        rec["probe"] = v["curl"]                       # the benign probe actually sent
+    rec["manual_repro"] = {                            # B: verify-it-yourself package
+        "target": target_url,
+        "matched": (c.affects or f"{c.product} {c.version}".strip()) if c is not None else "",
+        "public_poc": _cve_pocs(c),
+    }
+    return rec
+
+
+def _cve_verify_finding(c, v: dict, target_url: str):
+    """A Finding for a noteworthy verdict: confirmed (proven), reachable (vulnerable
+    code path active — the oracle tier), or a manual-verification to-do for a firm
+    HIGH+/PoC-backed CVE an automated benign probe couldn't settle. None otherwise."""
+    status = v.get("status")
+    cve = v.get("cve")
+    sev = c.severity if c is not None else Severity.HIGH
+    grounded = (" The probe was grounded in the public PoC technique (trickest/cve write-up)."
+                if v.get("grounded_in_poc") else "")
+    pocs = _cve_pocs(c)
+    if status == "confirmed":
+        return Finding(
+            title=f"CVE CONFIRMED by AI probe: {cve}",
+            severity=sev, category="ai-cve-verify",
+            description=(v.get("reasoning", "") + " Confirmed by an AI-planned, non-destructive "
+                         "probe on an authorized lab target." + grounded).strip(),
+            recommendation="Verified present & reachable — patch urgently. "
+                           "Reproduce with the captured request.",
+            evidence=(f"{v.get('evidence', '')}  {v.get('curl', '')}").strip()[:300],
+            confidence="high",
+            exploitability={"verdict": "confirmed-exploitable", "priority": 92,
+                            "signals": {"reachable": True, "actively_verified": True,
+                                        "ai_planned": True,
+                                        "poc_grounded": bool(v.get("grounded_in_poc"))}})
+    if status == "reachable":
+        return Finding(
+            title=f"CVE reachable — vulnerable code path active: {cve}",
+            severity=(sev if sev.rank <= Severity.HIGH.rank else Severity.HIGH),
+            category="ai-cve-verify",
+            description=(v.get("reasoning", "") + " A non-destructive probe shows the vulnerable "
+                         "code path is present and reachable on this host — strong corroboration, "
+                         "not full exploitation." + grounded).strip(),
+            recommendation=("Treat the host as affected and patch. To fully prove exploitability, "
+                            "reproduce the public PoC in an isolated copy"
+                            + (": " + ", ".join(pocs) if pocs else ".")),
+            evidence=(f"{v.get('evidence', '')}  {v.get('curl', '')}").strip()[:300],
+            confidence="medium",
+            exploitability={"verdict": "likely-exploitable", "priority": 75,
+                            "signals": {"reachable": True, "actively_verified": True,
+                                        "ai_planned": True,
+                                        "poc_grounded": bool(v.get("grounded_in_poc"))}})
+    # B: a firm, high-impact / PoC-backed CVE a benign probe couldn't settle -> to-do.
+    if status in ("needs-manual", "inconclusive") and c is not None and (
+            sev.rank >= Severity.HIGH.rank or pocs):
+        why = v.get("reasoning") or "no safe automated probe distinguishes vulnerable from patched"
+        steps = [f"Target: {target_url}", f"Matched: {c.affects or (c.product + ' ' + c.version)}"]
+        if pocs:
+            steps.append("Public PoC: " + ", ".join(pocs))
+        if v.get("curl"):
+            steps.append("Benign probe already sent: " + v["curl"])
+        return Finding(
+            title=f"CVE needs manual verification: {cve}",
+            severity=(Severity.MEDIUM if sev.rank > Severity.MEDIUM.rank else sev),
+            category="ai-cve-manual",
+            description=(f"Firm version match for {cve} that an automated benign probe could not "
+                         f"settle ({status}): {why}." + grounded).strip(),
+            recommendation="Verify by hand — everything you need:\n  • " + "\n  • ".join(steps),
+            evidence=(v.get("evidence", "") or "")[:300],
+            confidence="medium",
+            exploitability={"verdict": "needs-manual", "priority": 50,
+                            "signals": {"reachable": False, "ai_planned": True,
+                                        "has_poc": bool(pocs),
+                                        "poc_grounded": bool(v.get("grounded_in_poc"))}})
+    return None
+
+
 @register
 class AiCveVerify(Plugin):
     id = "ai-cve-verify"
@@ -838,33 +924,23 @@ class AiCveVerify(Plugin):
             return
 
         by_id = {c.id: c for c in ctx.result.cves}
+        target_url = ctx.result.url or ctx.result.target
         for v in verdicts:
-            if v.get("status") != "confirmed":
-                continue
             c = by_id.get(v.get("cve"))
-            if c:
-                c.verified = True
-            ctx.result.findings.append(Finding(
-                title=f"CVE CONFIRMED by AI probe: {v.get('cve')}",
-                severity=(c.severity if c else Severity.HIGH),
-                category="ai-cve-verify",
-                description=(v.get("reasoning", "") + " Confirmed by an AI-planned, "
-                             "non-destructive probe on an authorized lab target."
-                             + (" The probe was grounded in the public PoC technique "
-                                "(trickest/cve write-up)." if v.get("grounded_in_poc") else "")).strip(),
-                recommendation="Verified present & reachable — patch urgently. "
-                               "Reproduce with the captured request.",
-                evidence=(f"{v.get('evidence', '')}  {v.get('curl', '')}").strip()[:300],
-                confidence="high",
-                exploitability={"verdict": "confirmed-exploitable", "priority": 92,
-                                "signals": {"reachable": True, "actively_verified": True,
-                                            "ai_planned": True,
-                                            "poc_grounded": bool(v.get("grounded_in_poc"))}},
-            ))
+            if c is not None:
+                # B: every CVE carries its verification outcome + manual-repro package
+                c.exploitability = {**(c.exploitability or {}),
+                                    "verification": _verification_record(c, v, target_url)}
+                if v.get("status") == "confirmed":
+                    c.verified = True
+            f = _cve_verify_finding(c, v, target_url)
+            if f is not None:
+                ctx.result.findings.append(f)
         counts = {s: sum(1 for v in verdicts if v.get("status") == s)
-                  for s in ("confirmed", "refuted", "inconclusive", "needs-manual")}
-        ctx.log(f"ai-cve-verify: {counts['confirmed']} confirmed, {counts['refuted']} refuted, "
-                f"{counts['inconclusive']} inconclusive, {counts['needs-manual']} need manual")
+                  for s in ("confirmed", "reachable", "refuted", "inconclusive", "needs-manual")}
+        ctx.log(f"ai-cve-verify: {counts['confirmed']} confirmed, {counts['reachable']} reachable, "
+                f"{counts['refuted']} refuted, {counts['inconclusive']} inconclusive, "
+                f"{counts['needs-manual']} need manual")
         ctx.result.recon["ai_cve_verify"] = {
             "candidates": len(todo), "verdicts": counts,
             "requests_sent": lab._count, "halted": lab.stopped_reason or None,
