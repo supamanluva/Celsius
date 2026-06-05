@@ -67,8 +67,8 @@ def test_shodan_search_without_key():
 
 
 def test_censys_search_without_creds():
-    assert origin.censys_search("q", "", "") == ([], "no CENSYS_API_ID/SECRET")
-    assert origin.censys_search("q", "id", "")[0] == []
+    assert origin.censys_search("q", "", "") == ([], "no CENSYS_PAT/CENSYS_ORG_ID")
+    assert origin.censys_search("q", "pat", "")[0] == []
 
 
 if __name__ == "__main__":
