@@ -22,6 +22,12 @@ services:
     volumes:
       - /home/oldirty/.local/share/celsius:/data/.local/share/celsius
       - /home/oldirty/.cache/celsius:/data/.cache/celsius
+    # API keys for the AI layer / NVD — read from .env (gitignored). Empty if unset.
+    environment:
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      NVD_API_KEY: ${NVD_API_KEY:-}
     cap_add:
       - NET_RAW      # nmap -sS / -O raw packets
       - NET_ADMIN    # OS fingerprinting robustness
