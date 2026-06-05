@@ -849,14 +849,17 @@ class AiCveVerify(Plugin):
                 severity=(c.severity if c else Severity.HIGH),
                 category="ai-cve-verify",
                 description=(v.get("reasoning", "") + " Confirmed by an AI-planned, "
-                             "non-destructive probe on an authorized lab target.").strip(),
+                             "non-destructive probe on an authorized lab target."
+                             + (" The probe was grounded in the public PoC technique "
+                                "(trickest/cve write-up)." if v.get("grounded_in_poc") else "")).strip(),
                 recommendation="Verified present & reachable — patch urgently. "
                                "Reproduce with the captured request.",
                 evidence=(f"{v.get('evidence', '')}  {v.get('curl', '')}").strip()[:300],
                 confidence="high",
                 exploitability={"verdict": "confirmed-exploitable", "priority": 92,
                                 "signals": {"reachable": True, "actively_verified": True,
-                                            "ai_planned": True}},
+                                            "ai_planned": True,
+                                            "poc_grounded": bool(v.get("grounded_in_poc"))}},
             ))
         counts = {s: sum(1 for v in verdicts if v.get("status") == s)
                   for s in ("confirmed", "refuted", "inconclusive", "needs-manual")}

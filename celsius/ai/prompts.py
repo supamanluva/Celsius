@@ -10,6 +10,7 @@ contained.
 from __future__ import annotations
 
 import json
+from typing import Optional
 
 TRIAGE_SYSTEM = """You are a senior application-security analyst assisting an \
 AUTHORIZED penetration test. You receive structured results from an automated \
@@ -208,12 +209,17 @@ CVE_VERIFY_SYSTEM = """You verify a SPECIFIC CVE on an AUTHORIZED lab target by 
 planning ONE benign, detection-grade probe — enough to tell a VULNERABLE host \
 from a PATCHED one, never an exploit that does harm.
 
-You get the CVE id, its description, the detected product/version/port, and real \
-PoC/reference URLs. Use them to understand the trigger, then choose the SAFEST \
+You get the CVE id, its description, the detected product/version/port, real \
+PoC/reference URLs, and (when available) EXCERPTS OF THE PUBLIC PoC WRITE-UPS that \
+explain how the exploit actually works. Use the write-ups to understand the precise \
+trigger (the path, header, parameter or request shape), then choose the SAFEST \
 tool call that observes the vulnerable behaviour or a reliable fingerprint of it \
 (a telltale response header/body, an endpoint that only exists when vulnerable, a \
 banner/version corroboration, a crafted-but-benign request whose response \
-distinguishes patched from unpatched).
+distinguishes patched from unpatched). Distil the write-up into the MINIMUM \
+observation that separates vulnerable from patched — never the full destructive \
+exploit. If the only way to prove it is destructive (RCE shell, data write, DoS), \
+return tool "none" and say it needs manual confirmation.
 
 HARD RULES:
 - Non-destructive ONLY: no data deletion/mutation, no DoS, no credential brute \
@@ -252,7 +258,8 @@ CVE_JUDGE_SCHEMA = {
 }
 
 
-def cve_verify_prompt(cve: dict, context: dict, tools: list) -> str:
+def cve_verify_prompt(cve: dict, context: dict, tools: list,
+                      techniques: Optional[list] = None) -> str:
     view = {
         "id": cve.get("id"), "severity": cve.get("severity"), "cvss": cve.get("cvss"),
         "affects": cve.get("affects"), "product": cve.get("product"),
@@ -261,10 +268,16 @@ def cve_verify_prompt(cve: dict, context: dict, tools: list) -> str:
         "poc_references": [r.get("url") for r in (cve.get("references") or [])
                            if r.get("poc") and r.get("url")][:6],
     }
-    return ("Authorized lab target.\n\nTOOLBOX:\n" + json.dumps(tools, indent=2)
-            + "\n\nTARGET CONTEXT:\n" + json.dumps(context, indent=2)[:2000]
-            + "\n\nCVE to verify:\n" + json.dumps(view, indent=2)[:4000]
-            + "\n\n" + _schema_block(CVE_VERIFY_SCHEMA))
+    prompt = ("Authorized lab target.\n\nTOOLBOX:\n" + json.dumps(tools, indent=2)
+              + "\n\nTARGET CONTEXT:\n" + json.dumps(context, indent=2)[:2000]
+              + "\n\nCVE to verify:\n" + json.dumps(view, indent=2)[:4000])
+    if techniques:
+        wp = "\n\n".join(f"[PoC: {t.get('url')}]\n{t.get('technique', '')}"
+                         for t in techniques if t.get("technique"))
+        if wp:
+            prompt += ("\n\nPUBLIC PoC WRITE-UPS (how the exploit works — use to craft the "
+                       "BENIGN detection probe; do NOT replay any destructive step):\n" + wp[:4000])
+    return prompt + "\n\n" + _schema_block(CVE_VERIFY_SCHEMA)
 
 
 def cve_judge_prompt(cve: dict, evidence: dict) -> str:
