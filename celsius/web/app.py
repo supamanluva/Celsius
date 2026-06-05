@@ -173,6 +173,7 @@ def start_scan(req: ScanRequest) -> dict:
         ports=req.ports, nuclei=req.nuclei, nuclei_full=req.nuclei_full,
         nuclei_tags=req.nuclei_tags, top_ports=req.top_ports,
         port_range=req.port_range, insecure=req.insecure, os_detect=req.os_detect,
+        nvd_api_key=os.environ.get("NVD_API_KEY"),   # faster NVD CVE lookups (6s -> 0.8s/req)
         dns=req.dns, tls=req.tls, mailsec=req.mailsec,
         fingerprint=req.fingerprint, subdomains=req.subdomains,
         subdomain_bruteforce=req.subdomain_bruteforce, wayback=req.wayback,
