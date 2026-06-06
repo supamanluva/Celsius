@@ -106,6 +106,24 @@ _SIGS: list[tuple[str, str, str, re.Pattern]] = [
     ("Bootstrap", "library", "body", re.compile(r"bootstrap[-.](?P<ver>\d+\.\d+\.\d+)(?:\.min)?\.(?:css|js)", re.I)),
     # analytics
     ("Google Analytics", "analytics", "body", re.compile(r"google-analytics\.com|gtag\(", re.I)),
+    # SSO / auth proxies (the gate in front of a self-hosted fleet)
+    ("Authelia", "auth", "any-header", re.compile(r"authelia(?:_session)?", re.I)),
+    ("Authelia", "auth", "body", re.compile(r"authelia", re.I)),
+    ("Authentik", "auth", "any-header", re.compile(r"authentik(?:_session)?|goauthentik", re.I)),
+    ("Authentik", "auth", "body", re.compile(r"authentik", re.I)),
+    ("Keycloak", "auth", "any-header", re.compile(r"\bkeycloak\b|KC_RESTART|KEYCLOAK_SESSION", re.I)),
+    ("Vouch Proxy", "auth", "cookie", re.compile(r"\bvouch", re.I)),
+    # Self-hosted apps (header / cookie / body tells, version where exposed)
+    ("Nextcloud", "app", "any-header", re.compile(r"nextcloud|nc_session_id|oc_sessionpassphrase", re.I)),
+    ("MinIO", "app", "server", re.compile(r"\bminio\b", re.I)),
+    ("Grafana", "app", "any-header", re.compile(r"grafana(?:_session)?", re.I)),
+    ("Uptime Kuma", "app", "body", re.compile(r"uptime kuma", re.I)),
+    ("Vaultwarden", "app", "any-header", re.compile(r"vaultwarden|bitwarden_rs", re.I)),
+    ("Gitea/Forgejo", "app", "any-header", re.compile(r"i_like_gitea|\bgitea\b|\bforgejo\b", re.I)),
+    ("GitLab", "app", "any-header", re.compile(r"_gitlab_session|x-gitlab-", re.I)),
+    ("Home Assistant", "app", "body", re.compile(r"home assistant|hass-frontend", re.I)),
+    ("Traefik", "server", "any-header", re.compile(r"\btraefik\b", re.I)),
+    ("ZNC", "app", "any-header", re.compile(r"\bznc\b\s*(?P<ver>[\d.]+)?", re.I)),
 ]
 
 
