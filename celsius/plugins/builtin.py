@@ -10,6 +10,7 @@ from .. import cve as cve_mod
 from .. import http_analysis, nuclei_scan, portscan, webchecks, websecrets
 from ..models import Finding, Service, Severity
 from ..recon import apidisco as api_mod
+from ..recon import apphint as apphint_mod
 from ..recon import cohost as cohost_mod
 from ..recon import appversion as appversion_mod
 from ..recon import content_discovery as cd_mod
@@ -77,6 +78,39 @@ class Fingerprint(Plugin):
             {"name": t.name, "category": t.category, "version": t.version} for t in techs
         ]
         ctx.result.recon["platform"] = platform
+
+
+@register
+class AppHint(Plugin):
+    id = "app-hint"
+    title = "likely service from hostname naming convention"
+    phase = Phase.RECON          # registered after Fingerprint -> runs after it
+    mode = Mode.PASSIVE
+    category = "fingerprint"
+
+    def enabled(self, ctx: ScanContext) -> bool:
+        return ctx.config.fingerprint
+
+    def run(self, ctx: ScanContext) -> None:
+        hint = apphint_mod.hint_from_hostname(ctx.target.host)
+        if not hint:
+            return
+        ctx.result.recon["app_hint"] = hint
+        # Only surface a finding when direct fingerprinting found no app — the
+        # service is auth-gated, down (502), or returns a bare 404. If the app was
+        # already identified from the response, the hostname hint is redundant.
+        tech = ctx.result.recon.get("tech") or []
+        if any(t.get("category") in ("app", "cms", "auth") for t in tech):
+            return
+        ctx.result.findings.append(Finding(
+            title=f"Likely service (hostname convention): {hint}",
+            severity=Severity.INFO, category="fingerprint", confidence="low",
+            description=(
+                f"The hostname '{ctx.target.host}' follows the common self-hosted naming "
+                f"convention for {hint}, but direct fingerprinting was inconclusive — the "
+                "service is likely behind an auth gate, down, or on another port. A naming "
+                "hint, not confirmation."),
+        ))
 
 
 @register
