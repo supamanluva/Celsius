@@ -42,8 +42,13 @@ _RULES: list[tuple[str, str, re.Pattern, str]] = [
      re.compile(r"\bsk-(proj-)?[A-Za-z0-9_\-]{20,}T3BlbkFJ[A-Za-z0-9_\-]{20,}\b"), "CRITICAL"),
     ("anthropic", "Anthropic API key",
      re.compile(r"\bsk-ant-[A-Za-z0-9\-_]{20,}\b"), "CRITICAL"),
+    # Require real key material after the header — the bare "-----BEGIN PRIVATE
+    # KEY-----" string ships inside many minified bundles (cert-handling code,
+    # regexes, labels) and is NOT a leaked key. Demand >=40 base64 chars of body,
+    # tolerating escaped (\n) or literal newlines between header and body.
     ("private-key", "Private key block",
-     re.compile(r"-----BEGIN (RSA |EC |DSA |OPENSSH |PGP )?PRIVATE KEY-----"), "CRITICAL"),
+     re.compile(r"-----BEGIN (?:RSA |EC |DSA |OPENSSH |PGP )?PRIVATE KEY-----"
+                r"(?:\s|\\[rnt])*[A-Za-z0-9+/]{40,}"), "CRITICAL"),
     ("jwt", "JSON Web Token",
      re.compile(r"\beyJ[A-Za-z0-9_\-]{10,}\.eyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}\b"), "MEDIUM"),
     ("npm-token", "npm access token",
@@ -59,7 +64,10 @@ _RULES: list[tuple[str, str, re.Pattern, str]] = [
 # Strings that look like secrets but are placeholders — suppress these.
 _PLACEHOLDER = re.compile(
     r"(?i)(example|placeholder|your[_-]?|xxx+|<.+?>|change[_-]?me|dummy|sample|test[_-]?key|"
-    r"redacted|\bnull\b|\bnone\b|00000000|123456|aaaa+)"
+    r"redacted|\bnull\b|\bnone\b|00000000|123456|aaaa+|"
+    # connection-string credential placeholders (e.g. "mysql://username:password@host")
+    # — only the user/pass words, NOT host/port/db (those match real hostnames like db.internal)
+    r"\buser(name)?\b|\bpass(word|wd)?\b)"
 )
 
 
