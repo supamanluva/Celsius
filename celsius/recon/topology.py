@@ -52,6 +52,13 @@ _KIND_LABEL = {
 }
 
 
+def _label(name: str) -> str:
+    """Leftmost label for a hostname; the whole string for an IP literal."""
+    if ":" in name or name.replace(".", "").isdigit():
+        return name
+    return name.split(".")[0]
+
+
 def _resolve(name: str) -> set[str]:
     """All A + AAAA addresses for a name."""
     out: set[str] = set()
@@ -184,7 +191,7 @@ def map_topology(
 
     lines = [f"{len(hosts)} distinct host(s) behind {host}:"]
     for h in hosts:
-        short = [n.split(".")[0] for n in h["hostnames"]]
+        short = [_label(n) for n in h["hostnames"]]
         loc = h["org"] or h["isp"] or "?"
         port_s = f" ports {h['ports']}" if h["ports"] else ""
         ptr_s = f" PTR={h['ptr']}" if h["ptr"] else ""

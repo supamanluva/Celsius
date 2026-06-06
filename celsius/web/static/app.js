@@ -181,6 +181,7 @@ function currentScanOptions() {
     nuclei: $("opt-nuclei").checked,
     dns: $("opt-dns").checked, tls: $("opt-tls").checked,
     fingerprint: $("opt-fingerprint").checked, subdomains: $("opt-subdomains").checked,
+    topology: $("opt-topology").checked,
     crawl: $("opt-crawl").checked, api_discovery: $("opt-apidisco").checked,
     cve_verify: $("opt-cveverify").checked,
     dynamic: $("opt-dynamic").checked, wayback: $("opt-wayback").checked,
@@ -437,7 +438,7 @@ function renderResult(res, scanId) {
 
   // Recon (attack surface)
   const recon = res.recon || {};
-  const hasRecon = recon.tls || recon.dns || recon.os || recon.origin_exposure || (recon.subdomains && recon.subdomains.length) || (recon.tech && recon.tech.length);
+  const hasRecon = recon.tls || recon.dns || recon.os || recon.origin_exposure || (recon.subdomains && recon.subdomains.length) || (recon.tech && recon.tech.length) || (recon.topology && recon.topology.n_hosts);
   if (hasRecon) {
     html += `<h2 class="section">Attack surface</h2>`;
     if (recon.os && recon.os.best_match) {
@@ -462,6 +463,19 @@ function renderResult(res, scanId) {
     }
     if (recon.subdomains && recon.subdomains.length) {
       html += `<div class="card INFO"><div class="title">Subdomains (${recon.subdomains.length})</div><div class="meta">${recon.subdomains.slice(0, 40).map(esc).join(", ")}${recon.subdomains.length > 40 ? " …" : ""}</div></div>`;
+    }
+    if (recon.topology && recon.topology.hosts && recon.topology.hosts.length) {
+      const ICON = { home: "🏠", vps: "☁️", saas: "📦", cdn: "🌐", unknown: "❔" };
+      const KIND = { home: "home self-host", vps: "VPS/datacenter", saas: "managed SaaS", cdn: "CDN/edge", unknown: "unknown" };
+      const rows = recon.topology.hosts.map((h) => {
+        const subs = (h.hostnames || []).map((n) => (n.indexOf(":") >= 0 || /^[\d.]+$/.test(n)) ? n : n.split(".")[0]);
+        const loc = h.org || h.isp || "?";
+        const ports = (h.ports || []).length ? " · ports " + h.ports.join(", ") : "";
+        const ptr = h.ptr ? " · PTR " + esc(h.ptr) : "";
+        return `<div class="meta">${ICON[h.kind] || "❔"} <strong>${esc(h.ip)}</strong> [${esc(KIND[h.kind] || h.kind)}] ${esc(loc)}${h.asn ? " " + esc(h.asn) : ""}${ptr}${ports}`
+          + `<br><span style="opacity:.75">${esc(subs.slice(0, 12).join(", "))}${subs.length > 12 ? " …" : ""}</span></div>`;
+      }).join("");
+      html += `<div class="card INFO"><div class="title">Infrastructure topology (${recon.topology.n_hosts} host(s))</div>${rows}</div>`;
     }
     if (recon.crawl) {
       const c = recon.crawl;
