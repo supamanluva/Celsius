@@ -6,11 +6,14 @@ plugins handle orchestration, phase ordering, and mode classification.
 
 from __future__ import annotations
 
+import os
+
 from .. import cve as cve_mod
 from .. import http_analysis, nuclei_scan, portscan, webchecks, websecrets
 from ..models import Finding, Service, Severity
 from ..recon import apidisco as api_mod
 from ..recon import apphint as apphint_mod
+from ..recon import topology as topo_mod
 from ..recon import cohost as cohost_mod
 from ..recon import appversion as appversion_mod
 from ..recon import content_discovery as cd_mod
@@ -187,6 +190,38 @@ class SubdomainEnum(Plugin):
                 description=preview,
                 recommendation="Each subdomain is additional attack surface; scan the "
                                "ones in scope.",
+            ))
+
+
+@register
+class Topology(Plugin):
+    id = "topology"
+    title = "IP topology / infrastructure mapping (Shodan + RDAP)"
+    phase = Phase.RECON          # registered after SubdomainEnum -> sees its subdomains
+    mode = Mode.PASSIVE          # DNS + Shodan's DB + RDAP; never touches the target
+    category = "recon"
+
+    def enabled(self, ctx: ScanContext) -> bool:
+        return ctx.config.topology
+
+    def run(self, ctx: ScanContext) -> None:
+        ctx.log("mapping IP topology (Shodan/RDAP) ...")
+        subs = ctx.result.recon.get("subdomains") or []
+        info, errs = topo_mod.map_topology(
+            ctx.target.host, subs, shodan_key=os.environ.get("SHODAN_API_KEY", ""))
+        ctx.result.recon["topology"] = info
+        ctx.result.errors.extend(errs)
+        if info.get("n_hosts"):
+            kinds = {}
+            for h in info["hosts"]:
+                kinds[h["kind"]] = kinds.get(h["kind"], 0) + 1
+            spread = ", ".join(f"{n}×{topo_mod._KIND_LABEL[k]}" for k, n in kinds.items())
+            ctx.result.findings.append(Finding(
+                title=f"Infrastructure topology: {info['n_hosts']} distinct host(s) ({spread})",
+                severity=Severity.INFO, category="recon",
+                description=info["summary"],
+                recommendation="Self-hosted/home and VPS hosts are higher-value than managed "
+                               "SaaS; focus in-scope testing accordingly.",
             ))
 
 

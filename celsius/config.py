@@ -30,6 +30,7 @@ class ScanConfig:
     subdomains: bool = False          # crt.sh CT lookup (opt-in; can be large/slow)
     wayback: bool = False             # archive.org CDX URL/param harvest (opt-in; passive)
     subdomain_bruteforce: bool = False  # also resolve a wordlist (safe-active)
+    topology: bool = False            # map IP topology of target+subdomains (Shodan/RDAP, passive)
     diff: bool = True                 # compare vs the last stored scan
 
     # M3: crawler / client-side intelligence

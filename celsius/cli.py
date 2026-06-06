@@ -56,6 +56,8 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--no-fingerprint", action="store_true", help="skip tech fingerprinting")
     s.add_argument("--subdomains", action="store_true", help="enumerate subdomains (crt.sh)")
     s.add_argument("--subdomain-bruteforce", action="store_true", help="also resolve a wordlist")
+    s.add_argument("--topology", action="store_true",
+                   help="map IP topology of target+subdomains (Shodan/RDAP, passive): VPS vs home vs SaaS")
     s.add_argument("--wayback", action="store_true", help="harvest historical URLs/params from archive.org (passive)")
     s.add_argument("--no-diff", action="store_true", help="skip temporal diff vs last scan")
     s.add_argument("--no-exploitability", action="store_true", help="skip EPSS/KEV exploitability assessment")
@@ -225,6 +227,7 @@ def _cmd_scan(args) -> int:
         favicon=not args.no_favicon, mailsec=args.mail,
         fingerprint=not args.no_fingerprint,
         subdomains=args.subdomains, subdomain_bruteforce=args.subdomain_bruteforce,
+        topology=args.topology,
         wayback=args.wayback,
         diff=not args.no_diff,
         crawl=args.crawl, crawl_max_pages=args.crawl_max_pages,
