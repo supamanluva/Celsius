@@ -18,6 +18,35 @@ def _flagged(text):
     return bool(secrets.scan_text(text))
 
 
+def _titles(text):
+    return {m.title for m in secrets.scan_text(text)}
+
+
+def test_bare_private_key_header_not_flagged():
+    # minified bundles (Uptime Kuma, Grafana, …) ship the literal header in
+    # cert-handling code — without key material it is NOT a leak.
+    assert not _flagged('"-----BEGIN PRIVATE KEY-----"')
+    assert not _flagged('x="-----BEGIN RSA PRIVATE KEY-----",y=1')
+
+
+def test_real_private_key_block_flagged():
+    pem = ("-----BEGIN PRIVATE KEY-----\n"
+           "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDabcdefghij\n"
+           "-----END PRIVATE KEY-----")
+    assert "Private key block" in _titles(pem)
+
+
+def test_placeholder_connection_string_not_flagged():
+    # Uptime Kuma's monitor-type example strings — user/pass are literal words.
+    assert not _flagged("mysql://username:password@host:port/database")
+    assert not _flagged("redis://user:pass@hostname:6379")
+
+
+def test_real_credential_url_still_flagged():
+    # a real host like db.internal must NOT be suppressed by the placeholder filter
+    assert "Credentials in URL" in _titles("postgres://admin:Hunter2xK9pQ@db.internal.corp:5432")
+
+
 def test_public_by_design_keys_skipped():
     for key in ("vapidPublic", "vapidPublicKey", "publicKey", "public_key",
                 "buildId", "nonce", "contentHash", "revision", "csrfToken"):
