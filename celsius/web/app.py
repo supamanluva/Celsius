@@ -65,6 +65,7 @@ class ScanRequest(BaseModel):
     mailsec: bool = False
     fingerprint: bool = True
     subdomains: bool = False
+    topology: bool = False
     crawl: bool = False
     api_discovery: bool = False
     cve_verify: bool = False
@@ -175,7 +176,7 @@ def start_scan(req: ScanRequest) -> dict:
         port_range=req.port_range, insecure=req.insecure, os_detect=req.os_detect,
         nvd_api_key=os.environ.get("NVD_API_KEY"),   # faster NVD CVE lookups (6s -> 0.8s/req)
         dns=req.dns, tls=req.tls, mailsec=req.mailsec,
-        fingerprint=req.fingerprint, subdomains=req.subdomains,
+        fingerprint=req.fingerprint, subdomains=req.subdomains, topology=req.topology,
         subdomain_bruteforce=req.subdomain_bruteforce, wayback=req.wayback,
         crawl=req.crawl, api_discovery=req.api_discovery, content_discovery=req.content_discovery,
         dynamic=req.dynamic, cve_verify=req.cve_verify,
