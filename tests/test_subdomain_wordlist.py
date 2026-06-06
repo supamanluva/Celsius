@@ -57,6 +57,34 @@ def test_sources_degrade_on_fetch_failure():
         assert found == set() and errs   # empty + a non-fatal note, never raises
 
 
+def test_detect_wildcard(monkeypatch=None):
+    import socket
+    orig = subs.socket.gethostbyname
+    try:
+        subs.socket.gethostbyname = lambda h: "203.0.113.9"      # everything resolves
+        assert subs.detect_wildcard("x.com") == {"203.0.113.9"}
+        def nx(h):
+            raise socket.gaierror()
+        subs.socket.gethostbyname = nx                            # nothing resolves
+        assert subs.detect_wildcard("x.com") == set()
+    finally:
+        subs.socket.gethostbyname = orig
+
+
+def test_enumerate_skips_bruteforce_on_wildcard():
+    o_wc, o_wl, o_cache = subs.detect_wildcard, subs.resolve_wordlist, subs._cache_read
+    try:
+        called = []
+        subs._cache_read = lambda *a, **k: ["seed.x.com"]   # fresh cache hit -> skip live sources
+        subs.detect_wildcard = lambda d: {"203.0.113.9"}
+        subs.resolve_wordlist = lambda d, **k: called.append(d) or {f"x.{d}"}
+        _out, errs = subs.enumerate_subdomains("x.com", bruteforce=True)
+        assert not called                                # brute-force NOT run under wildcard
+        assert any("wildcard" in e.lower() for e in errs)
+    finally:
+        subs.detect_wildcard, subs.resolve_wordlist, subs._cache_read = o_wc, o_wl, o_cache
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     failed = 0
