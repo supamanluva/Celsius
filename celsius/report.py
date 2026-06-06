@@ -298,6 +298,180 @@ _SEV_BG = {
 _SEV_RANK = {"CRITICAL": 4, "HIGH": 3, "MEDIUM": 2, "LOW": 1, "INFO": 0}
 
 
+def _recon_html(recon: dict, e) -> str:
+    """Render the full recon / attack-surface section: everything celsius gathered,
+    laid out so a report reader gets the complete picture without re-running tools."""
+    if not recon:
+        return ""
+    blocks: list[tuple[str, str]] = []
+
+    def kv_table(pairs) -> str:
+        rows = "".join(f"<tr><td>{e(str(k))}</td><td>{e(str(v))}</td></tr>"
+                       for k, v in pairs if v not in (None, "", [], {}))
+        return f"<table><tr><th>Field</th><th>Value</th></tr>{rows}</table>" if rows else ""
+
+    def list_block(items, cap=200) -> str:
+        items = [str(i) for i in (items or [])]
+        if not items:
+            return ""
+        shown = items[:cap]
+        more = f" <em>… +{len(items) - cap} more</em>" if len(items) > cap else ""
+        return f"<p>{e(', '.join(shown))}{more}</p>"
+
+    # --- Topology (the orientation) ---
+    topo = recon.get("topology") or {}
+    if topo.get("hosts"):
+        _ICON = {"home": "🏠", "vps": "☁️", "saas": "📦", "cdn": "🌐", "unknown": "❔"}
+        _KIND = {"home": "home self-host", "vps": "VPS / datacenter",
+                 "saas": "managed SaaS", "cdn": "CDN / edge", "unknown": "unknown"}
+        rows = "".join(
+            f"<tr><td>{_ICON.get(h.get('kind'), '❔')} {e(_KIND.get(h.get('kind'), h.get('kind', '')))}</td>"
+            f"<td>{e(h.get('ip', ''))}</td>"
+            f"<td>{e(h.get('org') or h.get('isp') or '?')}"
+            f"{(' · ' + e(str(h.get('asn')))) if h.get('asn') else ''}</td>"
+            f"<td>{e(h.get('ptr') or '-')}</td>"
+            f"<td>{e(', '.join(str(p) for p in (h.get('ports') or [])) or '-')}</td>"
+            f"<td>{e(', '.join(h.get('hostnames') or []))}</td></tr>"
+            for h in topo["hosts"])
+        blocks.append((f"🗺️ Infrastructure topology ({topo.get('n_hosts', len(topo['hosts']))} host(s))",
+                       f"<table><tr><th>Type</th><th>IP</th><th>Org / ASN</th><th>PTR</th>"
+                       f"<th>Ports</th><th>Hostnames</th></tr>{rows}</table>"))
+
+    # --- DNS ---
+    rec = (recon.get("dns") or {}).get("records") or {}
+    if rec:
+        rows = "".join(f"<tr><td>{e(k)}</td><td>{e(', '.join(map(str, v)) if isinstance(v, list) else str(v))}</td></tr>"
+                       for k, v in rec.items() if v)
+        if rows:
+            blocks.append(("DNS records", f"<table><tr><th>Type</th><th>Records</th></tr>{rows}</table>"))
+
+    # --- TLS / certificate ---
+    tls = recon.get("tls") or {}
+    if tls.get("protocol") or tls.get("issuer"):
+        san = tls.get("san") or tls.get("alt_names") or []
+        blocks.append(("TLS / certificate", kv_table([
+            ("Protocol", tls.get("protocol")), ("Cipher", tls.get("cipher")),
+            ("Issuer", tls.get("issuer")), ("Subject", tls.get("subject")),
+            ("Expires", tls.get("not_after") or tls.get("expires")),
+            ("Days to expiry", tls.get("days_to_expiry")),
+            ("Self-signed", tls.get("self_signed")),
+            ("SAN", ", ".join(san) if isinstance(san, list) else san),
+        ])))
+
+    # --- Platform / hosting ---
+    plat = recon.get("platform") or {}
+    if any(plat.get(k) for k in ("os", "runtime", "server")) or plat.get("edge"):
+        blocks.append(("Platform / hosting", kv_table([
+            ("Server", plat.get("server")), ("Runtime", plat.get("runtime")),
+            ("OS", plat.get("os")), ("Edge", ", ".join(plat.get("edge") or [])),
+            ("Evidence", "; ".join(plat.get("evidence") or [])),
+        ])))
+
+    # --- Technologies / fingerprint (+ hostname hint, favicon) ---
+    tech = recon.get("tech") or []
+    extra = []
+    if recon.get("app_hint"):
+        extra.append(f"<p><strong>Hostname hint:</strong> likely {e(str(recon['app_hint']))}</p>")
+    if recon.get("favicon_hash"):
+        extra.append(f"<p><strong>Favicon hash:</strong> {e(str(recon['favicon_hash']))}</p>")
+    if recon.get("client_libs"):
+        extra.append("<p><strong>Client libraries:</strong> " + e(", ".join(recon["client_libs"])) + "</p>")
+    if tech:
+        techline = " · ".join(
+            e(t.get("name", "") + (" " + t["version"] if t.get("version") else "") + " [" + t.get("category", "") + "]")
+            for t in tech)
+        blocks.append(("Technologies", f"<p>{techline}</p>" + "".join(extra)))
+    elif extra:
+        blocks.append(("Technologies", "".join(extra)))
+
+    # --- OS / device fingerprint ---
+    os_i = recon.get("os") or {}
+    if os_i.get("best_match"):
+        alt = " · ".join(f"{e(m.get('name', ''))} ({m.get('accuracy')}%)" for m in (os_i.get("matches") or [])[1:4])
+        blocks.append(("OS / device fingerprint", kv_table([
+            ("Best match", f"{os_i.get('best_match')} ({os_i.get('best_accuracy')}%)"),
+            ("Device type", ", ".join(os_i.get("device_types") or [])),
+            ("Vendor", ", ".join(os_i.get("vendors") or [])),
+            ("Other guesses", alt),
+        ])))
+
+    # --- Co-hosted siblings (same IP) ---
+    co = recon.get("cohosted") or {}
+    sibs = (co.get("siblings") or []) if isinstance(co, dict) else []
+    if sibs:
+        blocks.append((f"Co-hosted on {e(str(co.get('ip', '')))} ({len(sibs)})", list_block(sibs)))
+
+    # --- Subdomains ---
+    subs = recon.get("subdomains") or []
+    if subs:
+        blocks.append((f"Subdomains ({len(subs)})", list_block(subs, cap=500)))
+
+    # --- Origin / CDN-bypass ---
+    oe = recon.get("origin_exposure") or {}
+    if oe:
+        parts = [f"<p>Behind <strong>{e(oe.get('cdn', 'a CDN'))}</strong></p>"]
+        for x in oe.get("exposed", []):
+            parts.append(f"<p>possible origin: <strong>{e(x.get('host', ''))}</strong> → {e(', '.join(x.get('origin_ips') or []))}</p>")
+        for v in oe.get("verified", []):
+            parts.append(f"<p>origin IP <strong>{e(v.get('ip', ''))}</strong>{' ✓ confirmed' if v.get('matched') else ''}"
+                         f"{' · Server: ' + e(v.get('server', '')) if v.get('server') else ''}</p>")
+        pivots = " · ".join(f'<a href="{e(p.get("url", ""))}" target="_blank">{e(p.get("engine", ""))}: {e(p.get("label") or p.get("query", ""))}</a>'
+                            for p in oe.get("pivots", []))
+        if pivots:
+            parts.append(f"<p>🔎 Origin hunt: {pivots}</p>")
+        blocks.append(("Origin / CDN-bypass", "".join(parts)))
+
+    # --- Crawl + API ---
+    cr = recon.get("crawl") or {}
+    if cr:
+        meta = (f"<p>{cr.get('pages', 0)} page(s) · {cr.get('js_files', 0)} JS file(s) · "
+                f"{len(cr.get('endpoints') or [])} endpoint(s) · {len(cr.get('routes') or [])} route(s)"
+                f"{' · ' + str(cr['recovered_sources']) + ' recovered source(s)' if cr.get('recovered_sources') else ''}</p>")
+        ep = list_block(cr.get("endpoints"), cap=150)
+        blocks.append(("Crawl", meta + (f"<p><strong>Endpoints:</strong></p>{ep}" if ep else "")))
+    api = recon.get("api") or {}
+    if api.get("openapi") or api.get("graphql"):
+        bits = []
+        if api.get("openapi"):
+            bits.append(f"OpenAPI: {e(api['openapi'].get('url', ''))} ({len(api['openapi'].get('paths') or [])} paths)")
+        if api.get("graphql"):
+            bits.append(f"GraphQL introspection: {e(api['graphql'].get('url', ''))} ({api['graphql'].get('types')} types)")
+        blocks.append(("API", f"<p>{' · '.join(bits)}</p>"))
+
+    # --- Exposed sensitive paths ---
+    if recon.get("exposed_paths"):
+        blocks.append((f"⚠️ Exposed sensitive paths ({len(recon['exposed_paths'])})", list_block(recon["exposed_paths"])))
+
+    # --- robots / sitemap / wayback ---
+    for key, label in (("robots_paths", "robots.txt paths"), ("sitemap_urls", "Sitemap URLs"),
+                       ("wayback_urls", "Wayback URLs (archive.org)"), ("wayback_params", "Wayback parameters")):
+        if recon.get(key):
+            blocks.append((f"{label} ({len(recon[key])})", list_block(recon[key], cap=150)))
+
+    # --- AI verification stats ---
+    av = recon.get("ai_active_verify") or {}
+    if av and av.get("requests_sent"):
+        blocks.append(("AI active verification", kv_table([
+            ("Injection points", av.get("injection_points")), ("Confirmed", av.get("injection_confirmed")),
+            ("Hypotheses tested", av.get("hypotheses")), ("Requests sent", av.get("requests_sent")),
+        ])))
+    cv = recon.get("ai_cve_verify") or {}
+    if cv and cv.get("candidates"):
+        vd = cv.get("verdicts") or {}
+        blocks.append(("AI CVE verification", kv_table([
+            ("Candidates", cv.get("candidates")), ("Confirmed", vd.get("confirmed")),
+            ("Reachable", vd.get("reachable")), ("Refuted", vd.get("refuted")),
+            ("Inconclusive", vd.get("inconclusive")), ("Requests sent", cv.get("requests_sent")),
+        ])))
+
+    if not blocks:
+        return ""
+    out = ['<h2>🔭 Attack surface / recon</h2>']
+    for title, body in blocks:
+        out.append(f"<h3>{title if title.startswith(('🗺', '⚠')) else e(title)}</h3>{body}")
+    return "\n".join(out)
+
+
 def html_report(data: dict) -> str:
     """Render a self-contained HTML report from a ScanResult.to_dict() mapping.
     Works equally for a live scan and a scan loaded from the store."""
@@ -377,31 +551,14 @@ def html_report(data: dict) -> str:
                         f"<p>{e(adv.get('headline', ''))}</p>"
                         f"<ol class='advlist'>{steps}</ol>{well}")
 
-    topo = (data.get("recon") or {}).get("topology") or {}
-    topo_html = ""
-    if topo.get("hosts"):
-        _ICON = {"home": "🏠", "vps": "☁️", "saas": "📦", "cdn": "🌐", "unknown": "❔"}
-        _KIND = {"home": "home self-host", "vps": "VPS / datacenter",
-                 "saas": "managed SaaS", "cdn": "CDN / edge", "unknown": "unknown"}
-        rows_topo = "".join(
-            f"<tr><td>{_ICON.get(h.get('kind'), '❔')} {e(_KIND.get(h.get('kind'), h.get('kind', '')))}</td>"
-            f"<td>{e(h.get('ip', ''))}</td>"
-            f"<td>{e(h.get('org') or h.get('isp') or '?')}"
-            f"{(' · ' + e(str(h.get('asn')))) if h.get('asn') else ''}</td>"
-            f"<td>{e(h.get('ptr') or '-')}</td>"
-            f"<td>{e(', '.join(str(p) for p in (h.get('ports') or [])) or '-')}</td>"
-            f"<td>{e(', '.join(h.get('hostnames') or []))}</td></tr>"
-            for h in topo["hosts"])
-        topo_html = (
-            f"<h2>🗺️ Infrastructure topology ({topo.get('n_hosts', len(topo['hosts']))} host(s))</h2>"
-            f"<table><tr><th>Type</th><th>IP</th><th>Org / ASN</th><th>PTR</th>"
-            f"<th>Ports</th><th>Hostnames</th></tr>{rows_topo}</table>")
+    recon_html = _recon_html(data.get("recon") or {}, e)
 
     return f"""<!doctype html><html><head><meta charset="utf-8">
 <title>celsius — {e(data.get('target',''))}</title>
 <style>
  body{{font:14px/1.5 system-ui,sans-serif;margin:2rem;color:#1a1a1a;background:#fafafa}}
  h1{{margin-bottom:0}} .meta{{color:#666;margin-bottom:1rem}}
+ h3{{margin:1rem 0 .2rem;font-size:1.02rem;color:#333}}
  table{{border-collapse:collapse;width:100%;margin:.5rem 0 2rem;background:#fff}}
  th,td{{border:1px solid #ddd;padding:.5rem;text-align:left;vertical-align:top}}
  th{{background:#f0f0f0}}
@@ -421,7 +578,7 @@ def html_report(data: dict) -> str:
  &middot; {e(data.get('started_at',''))} → {e(data.get('finished_at',''))}</div>
 {grade_banner}
 {advisor_html}
-{topo_html}
+{recon_html}
 <h2>Detected services</h2>
 <table><tr><th>Product</th><th>Version</th><th>Port</th><th>Source</th></tr>{rows_services}</table>
 <h2>Known CVEs</h2>
