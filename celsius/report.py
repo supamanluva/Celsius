@@ -377,6 +377,26 @@ def html_report(data: dict) -> str:
                         f"<p>{e(adv.get('headline', ''))}</p>"
                         f"<ol class='advlist'>{steps}</ol>{well}")
 
+    topo = (data.get("recon") or {}).get("topology") or {}
+    topo_html = ""
+    if topo.get("hosts"):
+        _ICON = {"home": "🏠", "vps": "☁️", "saas": "📦", "cdn": "🌐", "unknown": "❔"}
+        _KIND = {"home": "home self-host", "vps": "VPS / datacenter",
+                 "saas": "managed SaaS", "cdn": "CDN / edge", "unknown": "unknown"}
+        rows_topo = "".join(
+            f"<tr><td>{_ICON.get(h.get('kind'), '❔')} {e(_KIND.get(h.get('kind'), h.get('kind', '')))}</td>"
+            f"<td>{e(h.get('ip', ''))}</td>"
+            f"<td>{e(h.get('org') or h.get('isp') or '?')}"
+            f"{(' · ' + e(str(h.get('asn')))) if h.get('asn') else ''}</td>"
+            f"<td>{e(h.get('ptr') or '-')}</td>"
+            f"<td>{e(', '.join(str(p) for p in (h.get('ports') or [])) or '-')}</td>"
+            f"<td>{e(', '.join(h.get('hostnames') or []))}</td></tr>"
+            for h in topo["hosts"])
+        topo_html = (
+            f"<h2>🗺️ Infrastructure topology ({topo.get('n_hosts', len(topo['hosts']))} host(s))</h2>"
+            f"<table><tr><th>Type</th><th>IP</th><th>Org / ASN</th><th>PTR</th>"
+            f"<th>Ports</th><th>Hostnames</th></tr>{rows_topo}</table>")
+
     return f"""<!doctype html><html><head><meta charset="utf-8">
 <title>celsius — {e(data.get('target',''))}</title>
 <style>
@@ -401,6 +421,7 @@ def html_report(data: dict) -> str:
  &middot; {e(data.get('started_at',''))} → {e(data.get('finished_at',''))}</div>
 {grade_banner}
 {advisor_html}
+{topo_html}
 <h2>Detected services</h2>
 <table><tr><th>Product</th><th>Version</th><th>Port</th><th>Source</th></tr>{rows_services}</table>
 <h2>Known CVEs</h2>
