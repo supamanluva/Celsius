@@ -208,6 +208,23 @@ def _cache_write(domain: str, subs: set[str]) -> None:
 
 # ---- safe-active wordlist -----------------------------------------------------
 
+# Labels that should never exist — if they resolve, the zone has a wildcard
+# (*.domain) and brute-force can't tell a real host from the catch-all.
+_WILDCARD_PROBES = ("zz-no-such-host-9x7q", "definitely-not-real-4k2p3", "wildcard-probe-8h3v")
+
+
+def detect_wildcard(domain: str) -> set[str]:
+    """Resolve a few random non-existent labels. Any IPs returned are a wildcard
+    catch-all — a non-empty result means brute-force results are unreliable."""
+    ips: set[str] = set()
+    for label in _WILDCARD_PROBES:
+        try:
+            ips.add(socket.gethostbyname(f"{label}.{domain}"))
+        except (socket.gaierror, OSError):
+            pass
+    return ips
+
+
 def resolve_wordlist(domain: str, words=DEFAULT_WORDLIST) -> set[str]:
     """Safe-active: which <word>.<domain> resolve. DNS only."""
     found: set[str] = set()
@@ -257,5 +274,12 @@ def enumerate_subdomains(host: str, *, bruteforce: bool = False) -> tuple[list[s
                 errors.append("all live CT sources failed — used subdomains cached from an earlier scan")
 
     if bruteforce:
-        subs |= resolve_wordlist(domain)
+        wildcard = detect_wildcard(domain)
+        if wildcard:
+            errors.append(
+                f"wildcard DNS detected (*.{domain} → {', '.join(sorted(wildcard))}) — "
+                "brute-force skipped (it would match every name); CT / passive-DNS "
+                "results are still reliable")
+        else:
+            subs |= resolve_wordlist(domain)
     return sorted(subs), errors
