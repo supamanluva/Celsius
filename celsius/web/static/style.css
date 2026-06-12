@@ -402,6 +402,16 @@ footer { color: var(--faint); font-size: .78rem; text-align: center; margin-top:
 .hc-list li { line-height: 1.5; }
 .hc-fix { color: var(--muted); font-size: .88rem; margin-top: .15rem; }
 .hc-why { color: #b4540a; font-size: .86rem; font-weight: 600; }
+.howfix { margin: .4rem 0 .2rem; font-size: .9rem; }
+.howfix > summary { cursor: pointer; color: var(--accent, #2e9e44); font-weight: 600; }
+.fixsteps { margin: .4rem 0 .4rem 1.2rem; color: var(--muted); }
+.snipwrap { position: relative; }
+.snipwrap .copyBtn { position: absolute; top: .35rem; right: .35rem; font-size: .72rem;
+  padding: .1rem .5rem; cursor: pointer; border: 1px solid var(--border); border-radius: 5px;
+  background: var(--surface); color: var(--fg); }
+.fixsnippet { margin: .3rem 0; padding: .7rem .8rem; overflow-x: auto; border-radius: 8px;
+  background: #1b1f2a; color: #e6e6e6; font-size: .82rem; line-height: 1.45;
+  border: 1px solid var(--border); }
 .hc-more { color: var(--faint); font-size: .84rem; margin-top: .5rem; }
 .healthcard.grade-A { border-left-color: var(--ok); } .healthcard.grade-A .hc-grade { color: #5fd083; }
 .healthcard.grade-B { border-left-color: #74c34a; } .healthcard.grade-B .hc-grade { color: #93d65f; }

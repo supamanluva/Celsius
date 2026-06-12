@@ -501,10 +501,21 @@ def html_report(data: dict) -> str:
                         key=lambda x: _SEV_RANK.get(x.get("severity"), 0), reverse=True)
     _real_finds = [f for f in _all_finds if f.get("category") != "ai-hypothesis"]
     _ai_finds = [f for f in _all_finds if f.get("category") == "ai-hypothesis"]
+    def _fix_block(f: dict) -> str:
+        pb = (f.get("exploitability") or {}).get("remediation")
+        if not pb:
+            return ""
+        steps = "".join(f"<li>{e(s)}</li>" for s in pb.get("steps", []))
+        steps_html = f"<ol class='fixsteps'>{steps}</ol>" if steps else ""
+        snip = pb.get("snippet") or ""
+        snip_html = (f"<pre class='fixsnippet'><code>{e(snip)}</code></pre>") if snip else ""
+        return (f"<details class='howfix'><summary>How to fix — {e(pb.get('summary',''))}</summary>"
+                f"{steps_html}{snip_html}</details>")
+
     rows_find = "".join(
         f"<tr><td>{sev_badge(f.get('severity','INFO'))}</td><td>{e(f.get('title',''))}</td>"
         f"<td>{e(f.get('category',''))}</td><td>{e(f.get('description',''))}"
-        f"<br><em>{e(f.get('recommendation',''))}</em></td></tr>"
+        f"<br><em>{e(f.get('recommendation',''))}</em>{_fix_block(f)}</td></tr>"
         for f in _real_finds
     ) or '<tr><td colspan="4">none</td></tr>'
     rows_ai = "".join(

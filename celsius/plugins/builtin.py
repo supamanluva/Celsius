@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 
 from .. import defaultcreds
+from .. import remediation
 from .. import svcprobe
 from .. import cve as cve_mod
 from .. import http_analysis, nuclei_scan, portscan, webchecks, websecrets
@@ -411,6 +412,26 @@ class DefaultCreds(Plugin):
                                 "signals": {"default_credentials": True}},
             ))
             ctx.log(f"default-creds: WORKING default login on {res.target}")
+
+
+@register
+class RemediationPlaybooks(Plugin):
+    id = "remediation"
+    title = "copy-paste remediation playbooks"
+    phase = Phase.ENRICH          # after all findings exist
+    mode = Mode.PASSIVE
+    category = "remediation"
+
+    def enabled(self, ctx: ScanContext) -> bool:
+        return True
+
+    def run(self, ctx: ScanContext) -> None:
+        for f in ctx.result.findings:
+            pb = remediation.playbook_for(f.to_dict())
+            if pb:
+                ex = dict(f.exploitability or {})
+                ex["remediation"] = pb
+                f.exploitability = ex
 
 
 @register

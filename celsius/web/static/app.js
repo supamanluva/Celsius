@@ -200,6 +200,30 @@ function verdictBadge(ex) {
   const cls = VERDICT_CLASS[ex.verdict] || "v-unk";
   return ` <span class="verdict ${cls}" title="exploitability verdict">${esc(ex.verdict)}</span>`;
 }
+// Copy-paste remediation playbook (collapsible "How to fix") from exploitability.remediation.
+function fixBlock(ex) {
+  const pb = ex && ex.remediation;
+  if (!pb) return "";
+  const steps = (pb.steps || []).map((s) => `<li>${esc(s)}</li>`).join("");
+  const stepsHtml = steps ? `<ol class="fixsteps">${steps}</ol>` : "";
+  const snipHtml = pb.snippet
+    ? `<div class="snipwrap"><button class="copyBtn" type="button">copy</button>`
+      + `<pre class="fixsnippet"><code>${esc(pb.snippet)}</code></pre></div>`
+    : "";
+  return `<details class="howfix"><summary>🛠 How to fix — ${esc(pb.summary || "")}</summary>${stepsHtml}${snipHtml}</details>`;
+}
+// Delegated copy button for remediation snippets.
+document.addEventListener("click", (e) => {
+  if (e.target && e.target.classList && e.target.classList.contains("copyBtn")) {
+    const pre = e.target.parentElement.querySelector("pre");
+    if (pre) {
+      navigator.clipboard && navigator.clipboard.writeText(pre.innerText);
+      const old = e.target.textContent;
+      e.target.textContent = "copied!";
+      setTimeout(() => { e.target.textContent = old; }, 1500);
+    }
+  }
+});
 function shortUrl(u) {
   try { const x = new URL(u); return x.hostname.replace(/^www\./, "") + (x.pathname.length > 1 ? x.pathname.slice(0, 24) : ""); }
   catch (e) { return u.slice(0, 40); }
@@ -603,6 +627,7 @@ function renderResult(res, scanId) {
         <div class="meta">[${esc(f.category)}]${conf}</div>
         <div class="desc">${esc(f.description)}</div>
         ${f.recommendation ? `<div class="fix">↳ ${esc(f.recommendation)}</div>` : ""}
+        ${fixBlock(f.exploitability)}
         ${f.evidence ? `<div class="meta">evidence: ${esc(f.evidence)}</div>` : ""}
       </div>`;
     });
