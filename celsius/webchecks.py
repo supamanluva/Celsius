@@ -12,11 +12,36 @@ import base64
 import json
 import re
 import ssl
+import threading
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
 
 from .models import Finding, Severity
+
+# ---- shared client-side rate limit (scope.rate_limit_rps) ---------------------
+# Active checks here (CORS, takeover, security.txt) share one throttle so the
+# scanner never exceeds the operator-configured request rate against a target.
+# Set once per scan by the engine; 0 disables (no throttle).
+_rate_lock = threading.Lock()
+_min_interval = 0.0
+_last_request = [0.0]
+
+
+def set_rate_limit(rps: "float | int | None") -> None:
+    global _min_interval
+    _min_interval = (1.0 / rps) if rps and rps > 0 else 0.0
+
+
+def _throttle() -> None:
+    if _min_interval <= 0:
+        return
+    with _rate_lock:
+        wait = _last_request[0] + _min_interval - time.monotonic()
+        if wait > 0:
+            time.sleep(wait)
+        _last_request[0] = time.monotonic()
 
 USER_AGENT = "celsius/1.1 (+authorized security testing)"
 TIMEOUT = 10
@@ -140,6 +165,7 @@ def analyze_jwt(headers: dict, body: str) -> list[Finding]:
 # ---- security.txt (passive well-known fetch) ----------------------------------
 
 def _get(url: str, insecure: bool, auth=None, origin: str = ""):
+    _throttle()
     ctx = ssl.create_default_context()
     if insecure:
         ctx.check_hostname = False

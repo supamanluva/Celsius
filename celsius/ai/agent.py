@@ -36,6 +36,36 @@ def _safe_payload(p) -> bool:
     return isinstance(p, str) and 0 < len(p) <= 256 and not _DESTRUCTIVE.search(p)
 
 
+_SQL_ERR = re.compile(
+    r"SQL syntax|mysql_fetch|ORA-\d{5}|PostgreSQL.*?ERROR|psql:|SQLite3::|"
+    r"System\.Data\.SQLite|Unclosed quotation mark|quoted string not properly "
+    r"terminated|syntax error at or near|Microsoft OLE DB", re.I)
+_FILE_LEAK = re.compile(r"root:.*?:0:0:|\[(?:fonts|extensions|boot loader)\]", re.I)
+
+
+def _corroborated(probe: dict, resp) -> bool:
+    """Deterministic backstop before a model verdict is trusted as `verified`.
+
+    The judge sees target-controlled response content, so a confirmation must be
+    independently grounded in the real response — the exact payload reflected, a
+    SQL error signature, a file-leak marker, or the payload driving a redirect —
+    otherwise an injected/hallucinated 'confirmed' could mint a false verified
+    finding. Returns True only when such proof is present.
+    """
+    body = resp.body or ""
+    tech = (probe.get("technique") or "").lower()
+    payload = str(probe.get("payload") or "").strip()
+    if payload and len(payload) >= 4 and payload in body:
+        return True                                  # reflection (XSS/SSTI/etc.)
+    if "sql" in tech and _SQL_ERR.search(body):
+        return True
+    if ("travers" in tech or "lfi" in tech or "file" in tech) and _FILE_LEAK.search(body):
+        return True
+    if "redirect" in tech and payload and payload in (resp.location or ""):
+        return True
+    return False
+
+
 def _plan(result_dict: dict, points, provider, budget, audit) -> list[dict]:
     context = {
         "url": result_dict.get("url") or result_dict.get("target"),
@@ -104,6 +134,23 @@ def agentic_verify(result_dict: dict, points, provider: LLMProvider, lab, *,
         if str(verdict.get("confirmed")).lower() not in ("true", "1", "yes"):
             continue
         tech = probe.get("technique", "other")
+        # The model judged this confirmed off target-controlled content. Require
+        # deterministic proof in the real response before minting a *verified*
+        # finding; otherwise keep it as an unverified lead (never priority-90).
+        if not _corroborated(probe, resp):
+            findings.append(Finding(
+                title=f"[AI lead — unconfirmed] {tech}: {probe.get('hypothesis', 'potential issue')}"[:140],
+                severity=Severity.LOW, category="ai-hypothesis",
+                description=(verdict.get("reasoning", "") + " "
+                             "The model judged this confirmed, but the response carried no "
+                             "deterministic proof (payload reflection / error signature), so it "
+                             "is recorded as an unverified lead — verify manually."),
+                recommendation=f"Manually verify parameter '{probe.get('param')}' before acting.",
+                evidence=f"{tech} payload={probe.get('payload')!r}"[:300],
+                confidence="low",
+            ))
+            log(f"ai-verify: UNCORROBORATED {tech} on '{probe.get('param')}' — kept as a lead")
+            continue
         sev = _to_sev(verdict.get("severity")) if verdict.get("severity") else \
             _TECH_SEV.get(tech, Severity.MEDIUM)
         findings.append(Finding(
@@ -111,7 +158,7 @@ def agentic_verify(result_dict: dict, points, provider: LLMProvider, lab, *,
             severity=sev, category="ai-active-verify",
             description=(verdict.get("reasoning", "") + " "
                          + "Confirmed by an AI-planned, benign active probe on an authorized "
-                           "lab target (response judged to prove the issue)."),
+                           "lab target (response independently corroborated the issue)."),
             recommendation="Treat as verified — remediate the input handling for "
                            f"parameter '{probe.get('param')}'.",
             evidence=f"{tech} payload={probe.get('payload')!r} :: {verdict.get('evidence', '')}"[:300],

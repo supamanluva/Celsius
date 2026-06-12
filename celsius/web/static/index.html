@@ -21,6 +21,10 @@
           — I own them or have written permission.</span>
         <span class="authbar-state">confirm to enable scanning</span>
       </label>
+      <label class="token-field" title="Required when the server runs with CELSIUS_TOKEN (e.g. LAN/Docker exposure). Printed by 'celsius serve'.">
+        <span>Access token</span>
+        <input type="password" id="accessToken" placeholder="paste if the server requires one" autocomplete="off">
+      </label>
     </div>
 
     <nav class="tabs">
@@ -53,6 +57,7 @@
         <label title="Map IP topology of target+subdomains via Shodan/RDAP (passive): VPS vs home vs SaaS"><input type="checkbox" id="opt-topology"> topology</label>
         <label><input type="checkbox" id="opt-ports"> nmap ports</label>
         <label title="nmap OS/device fingerprint (-O; needs sudo/root)"><input type="checkbox" id="opt-osdetect"> OS detect</label>
+        <label title="Active: tries curated vendor default logins (admin/admin, tomcat/tomcat, anonymous FTP). Only on targets you're authorized to test."><input type="checkbox" id="opt-defaultcreds"> default creds</label>
         <label><input type="checkbox" id="opt-nuclei"> nuclei</label>
         <label title="Run the ENTIRE nuclei set (slow)"><input type="checkbox" id="opt-nucleifull"> nuclei full</label>
         <label title="Confirm detected CVEs with matching nuclei templates"><input type="checkbox" id="opt-cveverify"> verify CVEs</label>

@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import os
 
+from .. import defaultcreds
+from .. import svcprobe
 from .. import cve as cve_mod
 from .. import http_analysis, nuclei_scan, portscan, webchecks, websecrets
 from ..models import Finding, Service, Severity
@@ -54,8 +56,21 @@ class WebAnalysis(Plugin):
         ctx.result.findings.extend(findings)
         ctx.result.errors.extend(errs)
         if http_res is not None:
-            ctx.result.url = http_res.final_url
             ctx.http_result = http_res
+            # Only promote the post-redirect URL as the base for ACTIVE checks if
+            # the final host is still in scope and not internal — a target that
+            # 301s off-host must not silently move content-discovery / nuclei /
+            # etc. to a host we weren't authorized to actively probe.
+            final = http_res.final_url
+            from urllib.parse import urlparse
+            fhost = (urlparse(final).hostname or "").lower() if final else ""
+            if fhost and fhost != ctx.target.host.lower() \
+                    and not ctx.scope.allows_discovered_active(fhost):
+                ctx.result.errors.append(
+                    f"note: redirect to out-of-scope/internal host '{fhost}' — "
+                    f"active checks stay on {ctx.target.host}")
+            else:
+                ctx.result.url = final
 
 
 @register
@@ -281,6 +296,121 @@ class PortScan(Plugin):
                         f"({os_info.get('best_accuracy')}%) — type={types} vendor={vendors}")
         except portscan.NmapNotInstalled as e:
             ctx.result.errors.append(str(e))
+
+
+@register
+class ExposedServices(Plugin):
+    id = "exposed-services"
+    title = "internet-exposed unauthenticated service checks"
+    phase = Phase.DETECT          # runs after the port scan (RECON) surfaces services
+    mode = Mode.SAFE_ACTIVE
+    category = "exposure"
+
+    def enabled(self, ctx: ScanContext) -> bool:
+        return ctx.config.ports and getattr(ctx.config, "service_probe", True)
+
+    def run(self, ctx: ScanContext) -> None:
+        host = ctx.result.ip or ctx.target.host
+        seen: set = set()
+        for svc in ctx.result.services:
+            if not svc.port:
+                continue
+            checker = svcprobe.checker_for(svc.port, svc.name or "", svc.product or "")
+            if checker is None or svc.port in seen:
+                continue
+            seen.add(svc.port)
+            ctx.audit.active_probe(self.id, ctx.target.host, self.mode.value,
+                                   detail=f"{svc.name or '?'} :{svc.port}")
+            try:
+                res = checker(host, svc.port)
+            except Exception as e:   # a probe must never crash the scan
+                ctx.result.errors.append(f"exposed-services :{svc.port} error: {e}")
+                continue
+            if res is None:
+                continue
+            sev = _SEV_BY_NAME.get(res.severity, Severity.MEDIUM)
+            rec = ("Require authentication and restrict the port to trusted networks "
+                   "(firewall / bind to localhost or a private interface)."
+                   if res.exposed else
+                   "Restrict the port to trusted networks even though auth is enforced.")
+            ctx.result.findings.append(Finding(
+                title=res.title, severity=sev, category="exposure",
+                description=res.detail, recommendation=rec, evidence=res.evidence,
+                confidence="high" if res.exposed else "medium",
+                exploitability=({"verdict": "confirmed-exposed", "priority": 95,
+                                 "signals": {"unauthenticated": True, "service": res.service}}
+                                if res.exposed else {}),
+            ))
+            if res.exposed:
+                ctx.log(f"exposed-services: {res.service} UNAUTHENTICATED on :{svc.port}")
+
+
+@register
+class DefaultCreds(Plugin):
+    id = "default-creds"
+    title = "default / vendor credential check (curated, opt-in)"
+    phase = Phase.DETECT
+    mode = Mode.SAFE_ACTIVE
+    category = "exposure"
+
+    def enabled(self, ctx: ScanContext) -> bool:
+        return getattr(ctx.config, "default_creds", False)
+
+    def run(self, ctx: ScanContext) -> None:
+        insecure = ctx.config.insecure
+        # Fingerprint/server hints help pick the right product-specific defaults.
+        techs = ctx.result.recon.get("tech") or []
+        hints = " ".join(str(t.get("name", "")) for t in techs)
+        if ctx.http_result:
+            hints += " " + str(ctx.http_result.headers.get("server", ""))
+
+        base = ctx.result.url or ctx.target.web_url()
+        results: list = []
+
+        # 1) Web admin panels behind HTTP Basic auth (routers, cameras, BMCs, …).
+        seen_urls: set = set()
+        paths = ["/", "/admin", "/manager/html", "/login"]
+        for p in paths:
+            url = base.rstrip("/") + p if p != "/" else base
+            if url in seen_urls:
+                continue
+            seen_urls.add(url)
+            ctx.audit.active_probe(self.id, ctx.target.host, self.mode.value,
+                                   detail=f"basic-auth default creds {p}")
+            try:
+                res = defaultcreds.check_http_basic(url, insecure=insecure, hints=hints)
+            except Exception as e:
+                ctx.result.errors.append(f"default-creds {p} error: {e}")
+                res = None
+            if res:
+                results.append(res)
+                break   # found a working login on the web base — stop probing panels
+
+        # 2) Anonymous FTP on any discovered FTP service.
+        for svc in ctx.result.services:
+            if svc.port and (svc.port == 21 or "ftp" in (svc.name or "").lower()):
+                ctx.audit.active_probe(self.id, ctx.target.host, self.mode.value,
+                                       detail=f"anonymous ftp :{svc.port}")
+                try:
+                    res = defaultcreds.check_ftp_anonymous(ctx.result.ip or ctx.target.host, svc.port)
+                except Exception as e:
+                    ctx.result.errors.append(f"default-creds ftp:{svc.port} error: {e}")
+                    res = None
+                if res:
+                    results.append(res)
+                break
+
+        for res in results:
+            ctx.result.findings.append(Finding(
+                title=res.title, severity=_SEV_BY_NAME.get(res.severity, Severity.HIGH),
+                category="exposure", description=res.detail,
+                recommendation="Change the default credentials immediately and restrict the "
+                               "service to trusted networks.",
+                evidence=res.evidence, confidence="high",
+                exploitability={"verdict": "confirmed-exposed", "priority": 98,
+                                "signals": {"default_credentials": True}},
+            ))
+            ctx.log(f"default-creds: WORKING default login on {res.target}")
 
 
 @register
@@ -680,7 +810,12 @@ class OriginExposure(Plugin):
                 ctx.result.errors.append(f"origin-exposure: {err}")
                 continue   # one engine/query failing shouldn't stop the others
             for ip in ips:
-                if ip not in candidates and not origin_mod.cdn_for_ip(ip):
+                # Candidate IPs come from Shodan/Censys (untrusted third-party
+                # data). Skip CDN ranges, private/loopback/link-local/metadata
+                # addresses (SSRF), and anything an explicit scope disallows
+                # before we open a raw socket to it.
+                if (ip not in candidates and not origin_mod.cdn_for_ip(ip)
+                        and ctx.scope.allows_discovered_active(ip)):
                     candidates.append(ip)
         candidates = candidates[:20]
         recon["origin_exposure"]["candidates"] = candidates
@@ -966,6 +1101,17 @@ class SubdomainTakeover(Plugin):
         subs = ctx.result.recon.get("subdomains") or []
         if not subs:
             return
+        # Subdomains come from CT logs (crt.sh) — arbitrary hostnames sharing a
+        # cert, not necessarily ours. Re-validate each against scope before
+        # actively probing it; the entrypoint scope check only covered the
+        # entered target.
+        allowed = [s for s in subs if ctx.scope.allows_discovered_active(s)]
+        skipped = len(subs) - len(allowed)
+        if skipped:
+            ctx.log(f"takeover: skipped {skipped} out-of-scope/internal subdomain(s)")
+        subs = allowed
+        if not subs:
+            return
         ctx.audit.active_probe(self.id, ctx.target.host, self.mode.value,
                                detail=f"{len(subs)} subdomains")
         ctx.log(f"checking {min(len(subs), 40)} subdomain(s) for takeover ...")
@@ -1013,7 +1159,10 @@ class Nuclei(Plugin):
                                detail=f"tags={tags or 'ALL'}")
         hdrs = ([f"{k}: {v}" for k, v in ctx.config.auth.headers.items()]
                 if ctx.config.auth else None)
-        nf, errs = nuclei_scan.scan(url, tags=tags, headers=hdrs)
+        # Honour the scope's rate limit (nuclei is the heaviest request source);
+        # never exceed its default ceiling.
+        rl = min(150, max(1, getattr(ctx.scope, "rate_limit_rps", 150) or 150))
+        nf, errs = nuclei_scan.scan(url, tags=tags, headers=hdrs, rate_limit=rl)
         ctx.result.findings.extend(nf)
         ctx.result.errors.extend(errs)
 

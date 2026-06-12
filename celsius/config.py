@@ -19,6 +19,8 @@ class ScanConfig:
     web_secrets: bool = True
     ports: bool = False
     nuclei: bool = False
+    service_probe: bool = True        # safe-active: test open ports for unauthenticated exposed services
+    default_creds: bool = False       # safe-active (opt-in): try curated vendor default logins (lockout-safe)
 
     # M1: recon / attack surface
     dns: bool = True

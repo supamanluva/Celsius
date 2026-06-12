@@ -29,7 +29,7 @@ CONSENT_TEXT = """\
 │  authorized to test the target below.                                      │
 ╰───────────────────────────────────────────────────────────────────────────╯"""
 
-_SUBCOMMANDS = {"scan", "code", "serve", "history"}
+_SUBCOMMANDS = {"scan", "code", "serve", "history", "recheck"}
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -68,6 +68,9 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--content-discovery", action="store_true", help="probe for exposed sensitive files (.git/.env/backups)")
     s.add_argument("--dynamic", action="store_true", help="use Playwright dynamic crawl if installed")
     s.add_argument("--ports", action="store_true", help="run nmap port/service scan")
+    s.add_argument("--default-creds", action="store_true",
+                   help="safe-active: try curated vendor default logins (admin/admin, "
+                        "tomcat/tomcat, anonymous FTP, …) on identified panels/services")
     s.add_argument("--nuclei", action="store_true", help="run nuclei templates")
     s.add_argument("--nuclei-full", action="store_true", help="run the ENTIRE nuclei set (slow)")
     s.add_argument("--top-ports", type=int, default=100)
@@ -119,6 +122,19 @@ def build_parser() -> argparse.ArgumentParser:
     h = sub.add_parser("history", help="list past scans from the local store")
     h.add_argument("--target", help="filter by target")
     h.add_argument("--limit", type=int, default=30)
+
+    # recheck — re-evaluate stored fingerprints against the latest CVE feed
+    rc = sub.add_parser("recheck",
+                        help="re-match stored scans against the latest CVEs (no new target traffic)")
+    rc.add_argument("--target", help="only re-check this target (default: latest scan per host)")
+    rc.add_argument("--limit", type=int, default=100, help="how many recent scans to consider")
+    rc.add_argument("--firm-only", action="store_true",
+                    help="show only firm (range-confirmed) new CVEs, hiding weak leads")
+    rc.add_argument("--no-refresh", action="store_true",
+                    help="use the CVE cache instead of forcing a fresh NVD fetch")
+    rc.add_argument("--nvd-api-key", default=os.environ.get("NVD_API_KEY"),
+                    help="NVD API key (faster lookups; env NVD_API_KEY)")
+    rc.add_argument("--json", metavar="FILE", help="write the full result as JSON")
 
     # code
     c = sub.add_parser("code", help="static code/secret scan")
@@ -218,7 +234,8 @@ def _cmd_scan(args) -> int:
     config = ScanConfig(
         target=args.target, web=not args.no_web, cve=not args.no_cve,
         cve_pocs=not args.no_cve_pocs,
-        web_secrets=not args.no_secrets, ports=args.ports, nuclei=args.nuclei,
+        web_secrets=not args.no_secrets, ports=args.ports, default_creds=args.default_creds,
+        nuclei=args.nuclei,
         nuclei_full=args.nuclei_full, top_ports=args.top_ports, port_range=args.port_range,
         os_detect=args.os_detect,
         nvd_api_key=args.nvd_api_key, insecure=args.insecure,
@@ -403,6 +420,57 @@ def _cmd_history(args) -> int:
     return 0
 
 
+def _cmd_recheck(args) -> int:
+    from .store import Store
+    from . import reeval
+
+    store = Store()
+    print("[*] Re-evaluating stored fingerprints against the latest CVE feed "
+          "(no new requests to targets)…", file=sys.stderr)
+    results = reeval.reevaluate(
+        store, target=args.target, limit=args.limit,
+        api_key=args.nvd_api_key, force_refresh=not args.no_refresh,
+        log=lambda m: print(f"    {m}", file=sys.stderr),
+    )
+
+    total_new = 0
+    affected = []
+    for r in results:
+        new = r.firm_new() if args.firm_only else r.new_cves
+        if not new:
+            continue
+        affected.append((r, new))
+        total_new += len(new)
+
+    if not results:
+        print("No stored scans with fingerprinted software to re-check.")
+    elif not affected:
+        print(f"✓ Re-checked {len(results)} host(s) — no new CVEs since their last scan.")
+    else:
+        for r, new in affected:
+            new = sorted(new, key=lambda c: (c.severity.rank, c.cvss or 0), reverse=True)
+            print(f"\n⚠  {r.host}  ({len(new)} new CVE(s) since {r.last_scanned or 'last scan'})")
+            for c in new:
+                tag = "" if getattr(c, "confidence", "firm") != "weak" else "  [weak]"
+                cvss = f" CVSS {c.cvss}" if c.cvss else ""
+                print(f"     {c.severity.value:<8} {c.id:<18} {c.affects or ''}{cvss}{tag}")
+                print(f"              {c.url}")
+        print(f"\n{total_new} new CVE(s) across {len(affected)} host(s). "
+              f"Re-scan affected hosts to confirm and remediate.")
+
+    if args.json:
+        import json
+        payload = [{
+            "scan_id": r.scan_id, "target": r.target, "host": r.host,
+            "last_scanned": r.last_scanned, "checked_services": r.checked_services,
+            "new_cves": [c.to_dict() for c in r.new_cves], "notes": r.notes,
+        } for r in results]
+        with open(args.json, "w") as fh:
+            json.dump(payload, fh, indent=2, default=str)
+        print(f"\n[*] Wrote {args.json}", file=sys.stderr)
+    return 0
+
+
 def _cmd_serve(args) -> int:
     try:
         import uvicorn
@@ -411,6 +479,26 @@ def _cmd_serve(args) -> int:
               "  python3 -m venv .venv && .venv/bin/pip install 'fastapi' 'uvicorn[standard]' python-multipart\n"
               "then run:  .venv/bin/python -m celsius serve", file=sys.stderr)
         return 1
+    # When exposed beyond loopback, require a token. If the operator didn't set
+    # CELSIUS_TOKEN, generate one and print it so LAN/Docker exposure is never
+    # silently unauthenticated. The env var is inherited by the uvicorn worker
+    # (including the reload subprocess) and read by celsius.web.app.
+    import os
+    import secrets
+    loopback = args.host in ("127.0.0.1", "localhost", "::1", "")
+    token = os.environ.get("CELSIUS_TOKEN", "").strip()
+    if not loopback:
+        if not token:
+            token = secrets.token_urlsafe(24)
+            os.environ["CELSIUS_TOKEN"] = token
+            print("[*] No CELSIUS_TOKEN set and binding beyond localhost — "
+                  "generated an access token:", file=sys.stderr)
+            print(f"\n      {token}\n", file=sys.stderr)
+            print("    Paste it into the web UI's \"Access token\" field "
+                  "(or send header  X-Celsius-Token: <token>).", file=sys.stderr)
+        else:
+            print("[*] Access-token auth enabled (CELSIUS_TOKEN).", file=sys.stderr)
+
     mode = " (auto-reload)" if args.reload else ""
     print(f"[*] Celsius web app on http://{args.host}:{args.port}{mode}", file=sys.stderr)
     uvicorn.run("celsius.web.app:app", host=args.host, port=args.port,
@@ -431,6 +519,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_serve(args)
     if args.command == "history":
         return _cmd_history(args)
+    if args.command == "recheck":
+        return _cmd_recheck(args)
     if args.command == "scan":
         return _cmd_scan(args)
     build_parser().print_help()

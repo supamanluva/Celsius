@@ -130,10 +130,12 @@ def _cache_put(key: str, data: dict) -> None:
         pass
 
 
-def _get_json(url: str, *, api_key: Optional[str] = None, retries: int = 3) -> Optional[dict]:
-    cached = _cache_get(url)
-    if cached is not None:
-        return cached
+def _get_json(url: str, *, api_key: Optional[str] = None, retries: int = 3,
+              force_refresh: bool = False) -> Optional[dict]:
+    if not force_refresh:
+        cached = _cache_get(url)
+        if cached is not None:
+            return cached
     headers = {"User-Agent": USER_AGENT}
     if api_key:
         headers["apiKey"] = api_key
@@ -497,9 +499,13 @@ def _build_cve(
 
 
 def lookup_for_service(
-    svc: Service, *, api_key: Optional[str] = None, max_cna_fetch: int = 60
+    svc: Service, *, api_key: Optional[str] = None, max_cna_fetch: int = 60,
+    force_refresh: bool = False
 ) -> tuple[list[CVE], Optional[str]]:
-    """Find CVEs affecting one detected service version. Returns (cves, note)."""
+    """Find CVEs affecting one detected service version. Returns (cves, note).
+
+    `force_refresh` bypasses the NVD discovery cache so a re-evaluation picks up
+    CVEs published since the entry was cached (used by `celsius recheck`)."""
     if not svc.version:
         return [], "no version detected — skipped CVE lookup (would be too noisy)"
 
@@ -510,7 +516,7 @@ def lookup_for_service(
 
     product = mapping.product
     url = f"{NVD_BASE}?{urllib.parse.urlencode({'keywordSearch': mapping.keyword, 'resultsPerPage': '2000'})}"
-    data = _get_json(url, api_key=api_key)
+    data = _get_json(url, api_key=api_key, force_refresh=force_refresh)
     if data is None:
         return [], "NVD request failed (rate limit or network)"
 
@@ -566,9 +572,12 @@ def _dedupe(cves: list[CVE]) -> list[CVE]:
 
 
 def lookup_all(
-    services: list[Service], *, api_key: Optional[str] = None, progress=None
+    services: list[Service], *, api_key: Optional[str] = None, progress=None,
+    force_refresh: bool = False
 ) -> tuple[list[CVE], list[str]]:
-    """Look up CVEs for every versioned service. Returns (cves, notes)."""
+    """Look up CVEs for every versioned service. Returns (cves, notes).
+
+    `force_refresh` bypasses the NVD discovery cache (for re-evaluation)."""
     all_cves: list[CVE] = []
     notes: list[str] = []
     cache: dict[str, list[CVE]] = {}
@@ -589,7 +598,7 @@ def lookup_all(
             continue
         if progress:
             progress(f"  querying NVD for {svc.label()} ...")
-        cves, note = lookup_for_service(svc, api_key=api_key)
+        cves, note = lookup_for_service(svc, api_key=api_key, force_refresh=force_refresh)
         cache[key] = cves
         all_cves.extend(cves)
         if note:

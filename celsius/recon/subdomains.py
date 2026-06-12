@@ -86,7 +86,9 @@ def _fetch(url: str, *, retries: int = 1) -> tuple[str | None, str]:
     for attempt in range(retries + 1):
         try:
             with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
-                return resp.read().decode("utf-8", errors="replace"), ""
+                # Cap the read: these are third-party (attacker-influenceable)
+                # pages, and an unbounded body can feed a pathological regex.
+                return resp.read(4_000_000).decode("utf-8", errors="replace"), ""
         except (urllib.error.URLError, OSError) as e:
             last_err = str(e)
             if attempt < retries:
@@ -156,8 +158,13 @@ def from_rapiddns(domain: str) -> tuple[set[str], list[str]]:
     body, err = _fetch(url)
     if body is None:
         return set(), [f"rapiddns lookup failed: {err}"]
-    subs = {k for m in re.findall(r'[A-Za-z0-9_.\-]+\.' + re.escape(domain), body)
-            if (k := _keep(m, domain))}
+    # DNS-shaped, length-bounded host matcher. The previous `[..]+\.<domain>`
+    # backtracked quadratically on a long run of matching chars that never
+    # reached the suffix (a scan-stalling ReDoS on a crafted page); bounding each
+    # label (≤63) and the label count (≤16) keeps it linear.
+    host_re = re.compile(r'(?<![A-Za-z0-9_.\-])(?:[A-Za-z0-9_-]{1,63}\.){1,16}'
+                         + re.escape(domain), re.I)
+    subs = {k for m in host_re.findall(body) if (k := _keep(m, domain))}
     return subs, []
 
 

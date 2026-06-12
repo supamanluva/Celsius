@@ -24,6 +24,14 @@ services:
       - /home/oldirty/.cache/celsius:/data/.cache/celsius
     # API keys for the AI layer / NVD — read from .env (gitignored). Empty if unset.
     environment:
+      # Access token for the web API. The container binds 0.0.0.0 (LAN-reachable
+      # via the port mapping above), so set this in .env to require auth — every
+      # /api/* request must then send it (UI "Access token" field, or header
+      # X-Celsius-Token). If left empty, `celsius serve` auto-generates one at
+      # startup and prints it to the logs (docker compose logs celsius).
+      CELSIUS_TOKEN: ${CELSIUS_TOKEN:-}
+      # /api/code may only read files under this path (default: container CWD).
+      CELSIUS_CODE_ROOT: ${CELSIUS_CODE_ROOT:-}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}

@@ -13,14 +13,16 @@ Scan jobs run in a thread pool; state is kept in-memory (single-process).
 
 from __future__ import annotations
 
+import hmac
+import ipaddress
 import os
 import threading
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Optional
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse, HTMLResponse, Response
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -46,6 +48,55 @@ _jobs: dict[str, dict[str, Any]] = {}
 _jobs_lock = threading.Lock()
 _store = Store()
 
+# ---- access control -----------------------------------------------------------
+# When CELSIUS_TOKEN is set, every /api/* request must present it (header
+# `X-Celsius-Token`, `Authorization: Bearer <token>`, or `?token=` for the
+# report links opened directly in a browser tab). When unset, the API is open —
+# fine for a loopback-only bind, but `celsius serve` auto-generates a token when
+# binding to a non-loopback host so LAN exposure is never unauthenticated.
+_TOKEN = os.environ.get("CELSIUS_TOKEN", "").strip()
+
+# /api/code may only read files under this root (defaults to the working dir).
+# Without it, an authenticated caller could read arbitrary host files (e.g.
+# /proc/self/environ, which holds the API keys).
+_CODE_ROOT = os.path.realpath(os.environ.get("CELSIUS_CODE_ROOT", os.getcwd()))
+
+
+def _presented_token(request: "Request") -> str:
+    auth = request.headers.get("authorization", "")
+    if auth[:7].lower() == "bearer ":
+        return auth[7:].strip()
+    return (request.headers.get("x-celsius-token")
+            or request.query_params.get("token") or "").strip()
+
+
+@app.middleware("http")
+async def _require_token(request: "Request", call_next):
+    if _TOKEN and request.url.path.startswith("/api/"):
+        if not hmac.compare_digest(_presented_token(request), _TOKEN):
+            return JSONResponse(
+                {"detail": "Missing or invalid access token (X-Celsius-Token)."},
+                status_code=401)
+    return await call_next(request)
+
+
+def _within_code_root(path: str) -> bool:
+    rp = os.path.realpath(path)
+    return rp == _CODE_ROOT or rp.startswith(_CODE_ROOT + os.sep)
+
+
+def _is_metadata_or_linklocal(host: str) -> bool:
+    """Block cloud-metadata / link-local targets outright — there is never a
+    legitimate reason to scan 169.254.169.254 et al., and it's the classic SSRF
+    pivot. RFC1918/loopback are allowed (legitimate lab targets the operator
+    explicitly entered and attested to)."""
+    if host.lower() in ("metadata.google.internal", "metadata.goog"):
+        return True
+    try:
+        return ipaddress.ip_address(host).is_link_local
+    except ValueError:
+        return False
+
 
 # ---- request models -----------------------------------------------------------
 
@@ -56,6 +107,7 @@ class ScanRequest(BaseModel):
     cve: bool = True
     web_secrets: bool = True
     ports: bool = False
+    default_creds: bool = False
     nuclei: bool = False
     top_ports: int = 100
     port_range: Optional[str] = None
@@ -156,6 +208,11 @@ def start_scan(req: ScanRequest) -> dict:
     if not req.target.strip():
         raise HTTPException(status_code=400, detail="Target is required.")
 
+    if _is_metadata_or_linklocal(parse_target(req.target.strip()).host):
+        raise HTTPException(
+            status_code=400,
+            detail="Refusing to scan a link-local / cloud-metadata address.")
+
     # Lab mode (active exploitation) is permissive-scope-blocked by default; it
     # needs an attestation and an explicit scope authorizing EXPLOIT for the host.
     scope: Optional[Scope] = None
@@ -171,7 +228,7 @@ def start_scan(req: ScanRequest) -> dict:
     job_id = uuid.uuid4().hex[:12]
     config = ScanConfig(
         target=req.target.strip(), web=req.web, cve=req.cve, web_secrets=req.web_secrets,
-        ports=req.ports, nuclei=req.nuclei, nuclei_full=req.nuclei_full,
+        ports=req.ports, default_creds=req.default_creds, nuclei=req.nuclei, nuclei_full=req.nuclei_full,
         nuclei_tags=req.nuclei_tags, top_ports=req.top_ports,
         port_range=req.port_range, insecure=req.insecure, os_detect=req.os_detect,
         nvd_api_key=os.environ.get("NVD_API_KEY"),   # faster NVD CVE lookups (6s -> 0.8s/req)
@@ -336,6 +393,11 @@ def code_scan(req: CodeRequest) -> dict:
     if req.text:
         return codescan.scan_text_blob(req.text).to_dict()
     if req.path:
+        if not _within_code_root(req.path):
+            raise HTTPException(
+                status_code=403,
+                detail="Path is outside the allowed code root "
+                       "(set CELSIUS_CODE_ROOT to scan elsewhere).")
         if not os.path.exists(req.path):
             raise HTTPException(status_code=400, detail=f"Path not found: {req.path}")
         return codescan.scan_path(req.path, use_external=req.use_external).to_dict()
