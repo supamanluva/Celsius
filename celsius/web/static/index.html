@@ -7,15 +7,25 @@
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-  <header class="masthead">
-    <button id="themeToggle" class="theme-toggle" title="Toggle light / dark" aria-label="Toggle theme"></button>
-    <img id="brandLogo" src="/static/logo-dark.png" class="brand-logo" alt="Celsius — local security scanner">
-    <span class="pill-soft">passive · active · AI</span>
+  <!-- ── App bar ─────────────────────────────────────────────── -->
+  <header class="appbar">
+    <a class="brand" href="/">
+      <img id="brandLogo" src="/static/logo-dark.png" alt="" class="brand-logo">
+      <span class="brand-text">
+        <span class="wordmark">CEL<b>SIUS</b></span>
+        <span class="tag">local security scanner</span>
+      </span>
+    </a>
+    <div class="appbar-right">
+      <span class="pill-soft">passive · active · AI</span>
+      <button id="themeToggle" class="theme-toggle" title="Toggle light / dark" aria-label="Toggle theme"></button>
+    </div>
   </header>
 
   <main class="container">
+    <!-- ── Session bar (authorization + token) ───────────────── -->
     <div class="authbar" id="authbar">
-      <label>
+      <label class="authbar-main">
         <input type="checkbox" id="authorized">
         <span class="authbar-text">I am <strong>authorized</strong> to test the targets I enter
           — I own them or have written permission.</span>
@@ -36,43 +46,68 @@
 
     <!-- HOST / WEB SCAN -->
     <section id="tab-host" class="panel active">
-      <form id="scanForm" class="form">
+      <form id="scanForm" class="console">
+        <span class="prompt">&gt;_</span>
         <input type="text" id="target" placeholder="https://example.com   or   203.0.113.10" autocomplete="off">
         <button type="submit" id="scanBtn">Scan</button>
       </form>
+
       <div class="opts" id="hostOpts">
-        <label><input type="checkbox" id="opt-web" checked> web headers</label>
-        <label><input type="checkbox" id="opt-cve" checked> CVE lookup</label>
-        <label><input type="checkbox" id="opt-secrets" checked> front-end secrets</label>
-        <label><input type="checkbox" id="opt-dns" checked> DNS</label>
-        <label><input type="checkbox" id="opt-tls" checked> TLS</label>
-        <label><input type="checkbox" id="opt-fingerprint" checked> fingerprint</label>
-        <label><input type="checkbox" id="opt-crawl"> crawl + JS</label>
-        <label title="Render single-page apps with a headless browser (needs the 'dynamic' extra)"><input type="checkbox" id="opt-dynamic"> dynamic (SPA)</label>
-        <label><input type="checkbox" id="opt-apidisco"> API discovery</label>
-        <label title="Harvest historical URLs/params from archive.org (passive)"><input type="checkbox" id="opt-wayback"> wayback</label>
-        <label title="Probe for exposed sensitive files (.git/.env/backups)"><input type="checkbox" id="opt-content"> content discovery</label>
-        <label><input type="checkbox" id="opt-subdomains"> subdomains</label>
-        <label title="Also DNS-bruteforce a subdomain wordlist"><input type="checkbox" id="opt-subbrute"> subdomain brute</label>
-        <label title="Map IP topology of target+subdomains via Shodan/RDAP (passive): VPS vs home vs SaaS"><input type="checkbox" id="opt-topology"> topology</label>
-        <label><input type="checkbox" id="opt-ports"> nmap ports</label>
-        <label title="nmap OS/device fingerprint (-O; needs sudo/root)"><input type="checkbox" id="opt-osdetect"> OS detect</label>
-        <label title="Active: tries curated vendor default logins (admin/admin, tomcat/tomcat, anonymous FTP). Only on targets you're authorized to test."><input type="checkbox" id="opt-defaultcreds"> default creds</label>
-        <label><input type="checkbox" id="opt-nuclei"> nuclei</label>
-        <label title="Run the ENTIRE nuclei set (slow)"><input type="checkbox" id="opt-nucleifull"> nuclei full</label>
-        <label title="Confirm detected CVEs with matching nuclei templates"><input type="checkbox" id="opt-cveverify"> verify CVEs</label>
-        <input type="text" id="opt-nucleitags" class="aikey" placeholder="nuclei tags (optional, e.g. cve,exposure)" autocomplete="off">
-        <label class="opt-ai"><input type="checkbox" id="opt-ai"> AI analysis</label>
-        <select id="opt-ai-provider" title="AI provider">
-          <option value="deepseek">DeepSeek</option>
-          <option value="openai">OpenAI</option>
-          <option value="anthropic">Anthropic</option>
-          <option value="local">Local (Ollama)</option>
-          <option value="mock">Mock (offline)</option>
-        </select>
-        <input type="password" id="opt-ai-key" class="aikey" placeholder="AI API key (optional — else env var)" autocomplete="off">
-        <input type="text" id="opt-ai-model" class="aikey" placeholder="model (optional, e.g. llama3.1)" autocomplete="off">
-        <input type="text" id="opt-ai-base" class="aikey" placeholder="base URL (local Ollama: http://localhost:11434/v1)" autocomplete="off">
+        <div class="optgroup">
+          <h4 class="optgroup-title">Recon <span>passive</span></h4>
+          <div class="optgroup-row">
+            <label><input type="checkbox" id="opt-web" checked> web headers</label>
+            <label><input type="checkbox" id="opt-cve" checked> CVE lookup</label>
+            <label><input type="checkbox" id="opt-secrets" checked> front-end secrets</label>
+            <label><input type="checkbox" id="opt-dns" checked> DNS</label>
+            <label><input type="checkbox" id="opt-tls" checked> TLS</label>
+            <label><input type="checkbox" id="opt-fingerprint" checked> fingerprint</label>
+            <label><input type="checkbox" id="opt-subdomains"> subdomains</label>
+            <label title="Map IP topology of target+subdomains via Shodan/RDAP (passive): VPS vs home vs SaaS"><input type="checkbox" id="opt-topology"> topology</label>
+            <label title="Harvest historical URLs/params from archive.org (passive)"><input type="checkbox" id="opt-wayback"> wayback</label>
+          </div>
+        </div>
+
+        <div class="optgroup">
+          <h4 class="optgroup-title">Discovery</h4>
+          <div class="optgroup-row">
+            <label><input type="checkbox" id="opt-crawl"> crawl + JS</label>
+            <label title="Render single-page apps with a headless browser (needs the 'dynamic' extra)"><input type="checkbox" id="opt-dynamic"> dynamic (SPA)</label>
+            <label><input type="checkbox" id="opt-apidisco"> API discovery</label>
+            <label title="Probe for exposed sensitive files (.git/.env/backups)"><input type="checkbox" id="opt-content"> content discovery</label>
+          </div>
+        </div>
+
+        <div class="optgroup optgroup-active">
+          <h4 class="optgroup-title">Active <span>sends traffic</span></h4>
+          <div class="optgroup-row">
+            <label><input type="checkbox" id="opt-ports"> nmap ports</label>
+            <label title="nmap OS/device fingerprint (-O; needs sudo/root)"><input type="checkbox" id="opt-osdetect"> OS detect</label>
+            <label title="Also DNS-bruteforce a subdomain wordlist"><input type="checkbox" id="opt-subbrute"> subdomain brute</label>
+            <label title="Active: tries curated vendor default logins (admin/admin, tomcat/tomcat, anonymous FTP). Only on targets you're authorized to test."><input type="checkbox" id="opt-defaultcreds"> default creds</label>
+            <label><input type="checkbox" id="opt-nuclei"> nuclei</label>
+            <label title="Run the ENTIRE nuclei set (slow)"><input type="checkbox" id="opt-nucleifull"> nuclei full</label>
+            <label title="Confirm detected CVEs with matching nuclei templates"><input type="checkbox" id="opt-cveverify"> verify CVEs</label>
+            <input type="text" id="opt-nucleitags" class="aikey" placeholder="nuclei tags (e.g. cve,exposure)" autocomplete="off">
+          </div>
+        </div>
+
+        <div class="optgroup optgroup-ai">
+          <h4 class="optgroup-title">AI analysis</h4>
+          <div class="optgroup-row">
+            <label class="opt-ai"><input type="checkbox" id="opt-ai"> enable</label>
+            <select id="opt-ai-provider" title="AI provider">
+              <option value="deepseek">DeepSeek</option>
+              <option value="openai">OpenAI</option>
+              <option value="anthropic">Anthropic</option>
+              <option value="local">Local (Ollama)</option>
+              <option value="mock">Mock (offline)</option>
+            </select>
+            <input type="password" id="opt-ai-key" class="aikey" placeholder="AI API key (optional — else env var)" autocomplete="off">
+            <input type="text" id="opt-ai-model" class="aikey" placeholder="model (optional, e.g. llama3.1)" autocomplete="off">
+            <input type="text" id="opt-ai-base" class="aikey" placeholder="base URL (local Ollama: http://localhost:11434/v1)" autocomplete="off">
+          </div>
+        </div>
       </div>
 
       <details id="authscan" class="labmode">
@@ -91,7 +126,7 @@
         <input type="text" id="opt-login-fpass" class="aikey" placeholder="password field name (optional, default: password)" autocomplete="off">
       </details>
 
-      <details id="labmode" class="labmode">
+      <details id="labmode" class="labmode labmode-danger">
         <summary>⚠️ Lab mode — active exploitation (advanced)</summary>
         <p class="or">Non-destructive active <strong>verification</strong> — reflected-XSS, open-redirect,
           path-traversal and SQLi probes that send <em>real payloads</em>. Rate-limited and request-capped.
@@ -118,7 +153,8 @@
 
     <!-- MAIL SECURITY -->
     <section id="tab-mail" class="panel">
-      <form id="mailForm" class="form">
+      <form id="mailForm" class="console">
+        <span class="prompt">&gt;_</span>
         <input type="text" id="mailDomain" placeholder="example.com   (domain, URL or e-mail address)" autocomplete="off">
         <button type="submit" id="mailBtn">Check</button>
       </form>
@@ -129,7 +165,8 @@
 
     <!-- CODE SCAN -->
     <section id="tab-code" class="panel">
-      <form id="codeForm" class="form">
+      <form id="codeForm" class="console">
+        <span class="prompt">&gt;_</span>
         <input type="text" id="codePath" placeholder="/path/to/repo   (server-side path)" autocomplete="off">
         <button type="submit" id="codeBtn">Scan path</button>
       </form>
@@ -142,7 +179,8 @@
 
     <!-- HISTORY -->
     <section id="tab-history" class="panel">
-      <div class="form">
+      <div class="console">
+        <span class="prompt">&gt;_</span>
         <input type="text" id="historyFilter" placeholder="filter by target (optional)" autocomplete="off">
         <button id="refreshHistory">Refresh</button>
       </div>
