@@ -10,6 +10,8 @@ means something — it isn't dragged down by maybes.
 
 from __future__ import annotations
 
+from . import priority
+
 # Per-issue penalty subtracted from 100. A confirmed CRITICAL should dominate, an
 # INFO costs nothing. Caps below stop "many small issues" from masking a big one.
 _PENALTY = {"CRITICAL": 55, "HIGH": 25, "MEDIUM": 8, "LOW": 2, "INFO": 0}
@@ -42,22 +44,28 @@ def assess(result_dict: dict) -> dict:
     """
     items: list[dict] = []
     for c in _firm_cves(result_dict):
+        risk, why = priority.score(
+            severity=c.get("severity", "INFO"), exploitability=c.get("exploitability"),
+            confidence=c.get("confidence", "firm"), verified=bool(c.get("verified")))
         items.append({
             "kind": "cve", "severity": c.get("severity", "INFO"),
             "verified": bool(c.get("verified")),
             "title": c.get("id", "CVE"),
             "detail": (c.get("description") or "")[:160],
             "fix": _cve_fix(c),
-            "_priority": (c.get("exploitability") or {}).get("priority", 0),
+            "why": priority.reason_line(why), "_risk": risk,
         })
     for f in _real_findings(result_dict):
+        risk, why = priority.score(
+            severity=f.get("severity", "INFO"), exploitability=f.get("exploitability"),
+            confidence=f.get("confidence", "firm"), verified=f.get("confidence") == "high")
         items.append({
             "kind": "finding", "severity": f.get("severity", "INFO"),
             "verified": f.get("confidence") == "high",
             "title": f.get("title", ""),
             "detail": (f.get("description") or "")[:160],
             "fix": f.get("recommendation") or "",
-            "_priority": (f.get("exploitability") or {}).get("priority", 0),
+            "why": priority.reason_line(why), "_risk": risk,
         })
 
     score = max(0, 100 - sum(_PENALTY.get(it["severity"], 0) for it in items))
@@ -69,10 +77,10 @@ def assess(result_dict: dict) -> dict:
         score = min(score, 65)        # at best C
     grade = next(g for thr, g in _GRADE if score >= thr)
 
-    items.sort(key=lambda it: (it["verified"], _RANK.get(it["severity"], 0), it["_priority"]),
-               reverse=True)
+    # Attacker-first ordering: blended risk score, then severity as a tiebreak.
+    items.sort(key=lambda it: (it["_risk"], _RANK.get(it["severity"], 0)), reverse=True)
     for it in items:
-        it.pop("_priority", None)
+        it.pop("_risk", None)
 
     return {
         "grade": grade, "score": score, "clean": not items,

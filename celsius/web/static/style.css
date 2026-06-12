@@ -401,6 +401,7 @@ footer { color: var(--faint); font-size: .78rem; text-align: center; margin-top:
 .hc-list { margin: .4rem 0 0; padding-left: 1.2rem; display: flex; flex-direction: column; gap: .5rem; }
 .hc-list li { line-height: 1.5; }
 .hc-fix { color: var(--muted); font-size: .88rem; margin-top: .15rem; }
+.hc-why { color: #b4540a; font-size: .86rem; font-weight: 600; }
 .hc-more { color: var(--faint); font-size: .84rem; margin-top: .5rem; }
 .healthcard.grade-A { border-left-color: var(--ok); } .healthcard.grade-A .hc-grade { color: #5fd083; }
 .healthcard.grade-B { border-left-color: #74c34a; } .healthcard.grade-B .hc-grade { color: #93d65f; }
