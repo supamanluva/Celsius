@@ -295,8 +295,41 @@ class PortScan(Plugin):
                 types = ", ".join(os_info.get("device_types") or []) or "?"
                 ctx.log(f"OS/device: {os_info.get('best_match')} "
                         f"({os_info.get('best_accuracy')}%) — type={types} vendor={vendors}")
+
+            # Seed the active scan with ports Shodan/RDAP (topology) already saw —
+            # they're often non-standard high ports the top-N sweep misses entirely.
+            self._scan_seed_ports(ctx, already={s.port for s in svcs if s.port})
         except portscan.NmapNotInstalled as e:
             ctx.result.errors.append(str(e))
+
+    def _scan_seed_ports(self, ctx: ScanContext, *, already: set) -> None:
+        topo = ctx.result.recon.get("topology") or {}
+        seen: set = set()
+        for h in topo.get("hosts", []) or []:
+            for p in h.get("ports", []) or []:
+                if isinstance(p, int) and p not in already:
+                    seen.add(p)
+        if not seen:
+            return
+        ports_csv = ",".join(str(p) for p in sorted(seen))
+        ctx.log(f"port-scan: probing {len(seen)} port(s) discovered via Shodan/topology: {ports_csv}")
+        ctx.audit.active_probe(self.id, ctx.target.host, self.mode.value,
+                               detail=f"shodan-seeded ports {ports_csv}")
+        try:
+            seed_svcs, _os, seed_errs = portscan.scan(
+                ctx.target.host, ports=ports_csv, resolved_ip=ctx.result.ip)
+        except portscan.NmapNotInstalled:
+            return
+        ctx.result.services.extend(seed_svcs)
+        ctx.result.errors.extend(e for e in seed_errs if "reused" not in e)
+        confirmed = sorted({s.port for s in seed_svcs if s.port})
+        if confirmed:
+            ctx.log(f"port-scan: Shodan-seeded probe confirmed open: "
+                    f"{', '.join(map(str, confirmed))}")
+        else:
+            ctx.result.errors.append(
+                f"note: Shodan reported port(s) {ports_csv} but the active TCP scan "
+                "couldn't confirm them (filtered, closed now, or UDP — e.g. OpenVPN/1194 is UDP).")
 
 
 @register

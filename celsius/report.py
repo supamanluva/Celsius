@@ -588,6 +588,21 @@ def html_report(data: dict) -> str:
 
     recon_html = _recon_html(data.get("recon") or {}, e)
 
+    # passively-discovered ports (Shodan/RDAP topology) — surfaced by the services
+    # section so they aren't missed when no active port scan confirmed them.
+    _passive_ports: set = set()
+    for _h in ((data.get("recon") or {}).get("topology") or {}).get("hosts", []) or []:
+        for _p in _h.get("ports", []) or []:
+            if isinstance(_p, int):
+                _passive_ports.add(_p)
+    _active_ports = {s.get("port") for s in data.get("services", []) if s.get("port")}
+    _passive_only = sorted(_passive_ports - _active_ports)
+    passive_ports_html = (
+        f"<p class='passive-ports'><b>Seen by Shodan (passive), not confirmed by an active scan:</b> "
+        f"ports {', '.join(map(str, _passive_only))} — enable an active port scan to verify "
+        f"(note: some may be UDP, e.g. OpenVPN/1194).</p>"
+        if _passive_only else "")
+
     return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Security Assessment — {e(data.get('target',''))}</title>
@@ -644,6 +659,8 @@ def html_report(data: dict) -> str:
  .fc-why{{color:var(--high);font:600 .82rem/1.5 var(--mono);margin-top:.35rem}}
  .fc-fix{{color:var(--muted);font-size:.86rem;margin-top:.3rem}}
  .more{{color:var(--faint);font:.84rem var(--mono);margin:.7rem 0 0}}
+ .passive-ports{{background:#fff7e6;border:1px solid #f1d79a;border-radius:8px;padding:.6rem .8rem;margin:0 0 .8rem;font-size:.86rem;color:#7a5b12}}
+ .passive-ports b{{color:#8a5a00;font-family:var(--mono);font-size:.8rem}}
  /* tables */
  table{{border-collapse:collapse;width:100%;font-size:.86rem;border:1px solid var(--line);border-radius:10px;overflow:hidden}}
  th,td{{text-align:left;padding:.6rem .75rem;border-bottom:1px solid var(--line2);vertical-align:top}}
@@ -680,6 +697,7 @@ def html_report(data: dict) -> str:
   {f'<section>{advisor_html}</section>' if advisor_html else ''}
   {f'<section>{recon_html}</section>' if recon_html else ''}
   <section><h2>Detected services <span class="n">{len(data.get('services', []))}</span></h2>
+   {passive_ports_html}
    <table><thead><tr><th>Product</th><th>Version</th><th>Port</th><th>Source</th></tr></thead><tbody>{rows_services}</tbody></table></section>
   <section><h2>Known CVEs <span class="n">{len(data.get('cves', []))}</span></h2>
    <table><thead><tr><th>Severity</th><th>CVE</th><th>CVSS</th><th>Affects</th><th>Description</th></tr></thead><tbody>{rows_cves}</tbody></table></section>
