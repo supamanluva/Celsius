@@ -90,6 +90,10 @@ body {
 .authbar.ok { border-left-color: var(--ok); }
 .authbar.ok .authbar-state { color: var(--ok); }
 .authbar.ok .authbar-state::before { content: "✓ "; }
+.token-field { margin-top: .6rem; width: 100%; gap: .5rem !important; cursor: default !important; }
+.token-field > span { font-size: .72rem; text-transform: uppercase; letter-spacing: .05em; color: var(--med); font-weight: 600; }
+.token-field input { flex: 1; min-width: 12rem; padding: .35rem .55rem; font-size: .85rem;
+  background: var(--bg); color: var(--fg); border: 1px solid var(--border); border-radius: var(--r); }
 
 /* ---- tabs ------------------------------------------------------------------ */
 .tabs {

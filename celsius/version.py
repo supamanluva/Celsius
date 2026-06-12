@@ -10,21 +10,62 @@ from __future__ import annotations
 import re
 from typing import Optional
 
-_NUM = re.compile(r"\d+")
+_PARTS = re.compile(r"\d+|[A-Za-z]+")
+
+# Multi-character pre-release words (sort BELOW the matching release). Single
+# letters are NOT here — in OpenSSL's scheme a trailing letter is a *post*-release
+# patch (1.1.1a comes after 1.1.1), which is the common real-world case.
+_PRE = {"rc", "alpha", "beta", "pre", "preview", "dev", "snapshot", "nightly",
+        "milestone", "pl"}
 
 # sentinel for "*" / unbounded
 INF = (10**9,)
 
 
+def _letter_ord(s: str) -> int:
+    """'a'->1 ... 'z'->26, 'aa'->27 ... — orders OpenSSL letter releases."""
+    n = 0
+    for ch in s.lower():
+        if "a" <= ch <= "z":
+            n = n * 26 + (ord(ch) - 96)
+    return n
+
+
 def parse(v: str) -> tuple[int, ...]:
-    """Turn '1.29.6' into (1, 29, 6). '*' / '-' / '' -> empty tuple."""
+    """Turn '1.29.6' into (1, 29, 6).
+
+    Trailing release letters (OpenSSL '1.1.1w') become an extra ordinal so letter
+    releases discriminate correctly — '1.1.1f' < '1.1.1t' — instead of all
+    collapsing to (1,1,1) (which made every OpenSSL letter-release CVE a silent
+    miss). Pre-release tags ('-rc1', 'beta') sort BELOW the matching release.
+    A letter immediately followed by digits (OpenSSH '8.1p1') stays a separator,
+    preserving the existing numeric behaviour. '*' -> INF, '-'/'' -> ().
+    """
     if v is None:
         return ()
     v = v.strip()
     if v in ("*", "-", ""):
         return INF if v == "*" else ()
-    parts = _NUM.findall(v)
-    return tuple(int(p) for p in parts) if parts else ()
+    toks = _PARTS.findall(v)
+    nums: list[int] = []
+    tail = 0  # extra trailing component: <0 pre-release, 0 plain, >0 letter patch
+    for idx, tok in enumerate(toks):
+        if tok.isdigit():
+            nums.append(int(tok))
+            continue
+        low = tok.lower()
+        is_last = idx == len(toks) - 1
+        nxt = toks[idx + 1] if not is_last else ""
+        if low in _PRE:
+            # pre-release: -1000 base keeps every pre-release below the release (0)
+            tail = -1000 + (int(nxt) if nxt.isdigit() else 0)
+            break
+        if is_last and 1 <= len(low) <= 3:
+            tail = _letter_ord(low)          # OpenSSL-style post-release letter
+        # else: a letter followed by digits (e.g. 'p' in 8.1p1) — a separator
+    if not nums:
+        return ()
+    return tuple(nums) + ((tail,) if tail else ())
 
 
 def _cmp(a: tuple[int, ...], b: tuple[int, ...]) -> int:

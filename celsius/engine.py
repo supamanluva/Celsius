@@ -42,6 +42,12 @@ def run_scan(
     result = ScanResult(target=config.target, started_at=_now())
 
     scope = scope or load_scope(config.scope_file)
+    # Apply the scope's request-rate cap to the shared active-HTTP helpers.
+    try:
+        from . import webchecks
+        webchecks.set_rate_limit(getattr(scope, "rate_limit_rps", 0))
+    except Exception:
+        pass
     audit = AuditLog()
 
     # resolve + record

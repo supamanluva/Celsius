@@ -231,4 +231,24 @@ def get_provider(name: str = "deepseek", *, model: Optional[str] = None,
         raise AIError(f"unknown AI provider '{name}'. Options: {', '.join(_PROVIDERS)}")
     if api_key is None and name in _ENV_KEYS:
         api_key = os.environ.get(_ENV_KEYS[name])
+    _validate_base_url(base_url, name)
     return cls(model=model, api_key=api_key, base_url=base_url, timeout=timeout)
+
+
+def _validate_base_url(base_url: Optional[str], provider: str) -> None:
+    """A user-supplied base_url receives the full prompt (scan findings, source,
+    detected secrets) plus the Authorization bearer key. Require https:// so a
+    typo'd or hostile http endpoint can't silently exfiltrate that data; allow
+    plain http only for an explicitly local server."""
+    if not base_url:
+        return
+    from urllib.parse import urlparse
+    u = urlparse(base_url.strip())
+    if u.scheme not in ("http", "https"):
+        raise AIError(f"invalid AI base_url scheme '{u.scheme or '?'}' — use https://")
+    host = (u.hostname or "").lower()
+    is_local = host in ("localhost", "127.0.0.1", "::1") or provider == "local"
+    if u.scheme == "http" and not is_local:
+        raise AIError(
+            "refusing to send scan data + API key over plain http to a non-local "
+            f"AI endpoint ({host or base_url!r}); use https:// (or the 'local' provider).")

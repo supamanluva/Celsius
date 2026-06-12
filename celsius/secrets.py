@@ -57,8 +57,11 @@ _RULES: list[tuple[str, str, re.Pattern, str]] = [
      re.compile(r"(?i)heroku.{0,20}?\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b"), "HIGH"),
     ("generic-assignment", "Hardcoded credential assignment",
      re.compile(r"""(?i)\b(api[_-]?key|secret|passwd|password|token|access[_-]?key)\b\s*[:=]\s*['"]([^'"\s]{8,})['"]"""), "MEDIUM"),
+    # Capture just the user:pass so the placeholder check below runs on the
+    # credentials, not the host (else a real secret pointing at e.g.
+    # sample-svc.corp.internal is wrongly suppressed by "sample" in the host).
     ("basic-auth-url", "Credentials in URL",
-     re.compile(r"\b[a-z][a-z0-9+.\-]*://[^/\s:@]+:[^/\s:@]+@[^\s/]+"), "HIGH"),
+     re.compile(r"\b[a-z][a-z0-9+.\-]*://([^/\s:@]+:[^/\s:@]+)@[^\s/]+"), "HIGH"),
 ]
 
 # Strings that look like secrets but are placeholders — suppress these.

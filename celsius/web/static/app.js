@@ -4,6 +4,49 @@ const $ = (id) => document.getElementById(id);
 const SEV_ORDER = { CRITICAL: 4, HIGH: 3, MEDIUM: 2, LOW: 1, INFO: 0 };
 let lastUrl = null; // url of last scan, for PoC context
 
+// ---- access token ------------------------------------------------------------
+// When the server runs with CELSIUS_TOKEN (LAN/Docker exposure), every /api/*
+// request must carry it. We inject it as a header on fetch() and as a ?token=
+// query param on report links opened directly in a browser tab.
+const ACCESS_TOKEN = (function () {
+  let tok = "";
+  try { tok = localStorage.getItem("celsius_token") || ""; } catch (_) {}
+  document.addEventListener("DOMContentLoaded", () => {
+    const el = $("accessToken");
+    if (!el) return;
+    el.value = tok;
+    el.addEventListener("input", (e) => {
+      tok = e.target.value.trim();
+      try { localStorage.setItem("celsius_token", tok); } catch (_) {}
+    });
+  });
+  return { get: () => tok };
+})();
+
+// Wrap fetch: add the token header for same-origin /api/ calls.
+(function patchFetch() {
+  const orig = window.fetch.bind(window);
+  window.fetch = function (input, init) {
+    const url = typeof input === "string" ? input : (input && input.url) || "";
+    const isApi = url.startsWith("/api/") || url.startsWith(location.origin + "/api/");
+    const tok = ACCESS_TOKEN.get();
+    if (isApi && tok) {
+      init = init || {};
+      const h = new Headers(init.headers || (typeof input !== "string" && input.headers) || {});
+      h.set("X-Celsius-Token", tok);
+      init.headers = h;
+    }
+    return orig(input, init);
+  };
+})();
+
+// Append ?token= to an /api/ report link so a plain browser navigation authenticates.
+function withToken(url) {
+  const tok = ACCESS_TOKEN.get();
+  if (!tok || !url.startsWith("/api/")) return url;
+  return url + (url.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(tok);
+}
+
 // ---- theme (light / dark) ----------------------------------------------------
 (function initTheme() {
   const KEY = "celsius_theme";
@@ -77,7 +120,7 @@ function renderMail(info) {
     `${info.domain} · grade ${info.grade} (${info.score}/100) · ${todo} to fix`, false);
 
   const mx = (info.mx || []).join(", ") || "no MX";
-  const reportUrl = "/api/mailsec/report.html?domain=" + encodeURIComponent(info.domain || "");
+  const reportUrl = withToken("/api/mailsec/report.html?domain=" + encodeURIComponent(info.domain || ""));
   let html = `<div class="mail-score grade-${(info.grade || "F")[0]}">
       <div class="grade">${esc(info.grade)}</div>
       <div class="score"><strong>${info.score}</strong>/100</div>
@@ -178,6 +221,7 @@ function currentScanOptions() {
   return {
     web: $("opt-web").checked, cve: $("opt-cve").checked,
     web_secrets: $("opt-secrets").checked, ports: $("opt-ports").checked,
+    default_creds: $("opt-defaultcreds").checked,
     nuclei: $("opt-nuclei").checked,
     dns: $("opt-dns").checked, tls: $("opt-tls").checked,
     fingerprint: $("opt-fingerprint").checked, subdomains: $("opt-subdomains").checked,
@@ -361,11 +405,11 @@ function renderResult(res, scanId) {
     .map((s) => `<span class="chip sev-${s}">${s} ${counts[s]}</span>`).join("")
     + (weakCount ? `<span class="chip sev-UNCONFIRMED" title="Reported but not confirmed — verify before acting">⚠ UNCONFIRMED ${weakCount}</span>` : "")
     + (aiCount ? `<span class="chip sev-AILEADS" title="AI hypotheses — unverified leads, not counted in severity">🤖 AI LEADS ${aiCount}</span>` : "")
-    + (scanId ? `<a class="reportlink" href="/api/scans/${encodeURIComponent(scanId)}/report.html" target="_blank">📄 HTML report</a>` : "")
-    + (scanId ? `<a class="reportlink" href="/api/scans/${encodeURIComponent(scanId)}/report.html?download=1" download title="Download the scan report (.html)">⬇</a>` : "")
-    + (apex ? `<a class="reportlink" href="/api/domain/${encodeURIComponent(apex)}/report.html" target="_blank" title="Aggregated report across ${esc(apex)} and its scanned subdomains">🌐 Domain report (${esc(apex)})</a>` : "")
-    + (apex ? `<a class="reportlink" href="/api/domain/${encodeURIComponent(apex)}/report.html?download=1" download title="Download the domain report (.html)">⬇</a>` : "")
-    + (apex ? `<a class="reportlink" href="/api/domain/${encodeURIComponent(apex)}/report.zip" download title="Download a ZIP: domain overview + a report for every scanned subdomain">🗜 Domain bundle (.zip)</a>` : "");
+    + (scanId ? `<a class="reportlink" href="${withToken(`/api/scans/${encodeURIComponent(scanId)}/report.html`)}" target="_blank">📄 HTML report</a>` : "")
+    + (scanId ? `<a class="reportlink" href="${withToken(`/api/scans/${encodeURIComponent(scanId)}/report.html?download=1`)}" download title="Download the scan report (.html)">⬇</a>` : "")
+    + (apex ? `<a class="reportlink" href="${withToken(`/api/domain/${encodeURIComponent(apex)}/report.html`)}" target="_blank" title="Aggregated report across ${esc(apex)} and its scanned subdomains">🌐 Domain report (${esc(apex)})</a>` : "")
+    + (apex ? `<a class="reportlink" href="${withToken(`/api/domain/${encodeURIComponent(apex)}/report.html?download=1`)}" download title="Download the domain report (.html)">⬇</a>` : "")
+    + (apex ? `<a class="reportlink" href="${withToken(`/api/domain/${encodeURIComponent(apex)}/report.zip`)}" download title="Download a ZIP: domain overview + a report for every scanned subdomain">🗜 Domain bundle (.zip)</a>` : "");
 
   let html = "";
 

@@ -12,6 +12,7 @@ published policy URL — nothing is sent to the mail server, no packets to port 
 from __future__ import annotations
 
 import json
+import re
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -95,17 +96,32 @@ def _check_spf(domain: str) -> dict:
         return {"key": "spf", "label": "SPF", "status": "bad", "value": "",
                 "detail": "No SPF record — sender addresses can be spoofed.",
                 "fix": f'Add a TXT record on {domain}:  "v=spf1 include:<your-provider> -all"'}
-    tail = spf.split()[-1].lower()
-    if tail == "-all":
+    # Find the `all` mechanism anywhere in the record (not just the last token —
+    # a valid record can end with exp=/redirect=). A `redirect=` modifier with no
+    # local `all` delegates policy to the redirect target, which is valid; don't
+    # flag it as "no protection".
+    tokens = spf.lower().split()
+    allmech = next((t for t in tokens if re.fullmatch(r"[-~?+]?all", t)), None)
+    has_redirect = any(t.startswith("redirect=") for t in tokens)
+    if allmech == "-all":
         return {"key": "spf", "label": "SPF", "status": "ok", "value": spf,
                 "detail": "Hard fail (-all) — strict.", "fix": ""}
-    if tail == "~all":
+    if allmech == "~all":
         return {"key": "spf", "label": "SPF", "status": "warn", "value": spf,
                 "detail": "Softfail (~all) — lets failing checks through.",
                 "fix": "Tighten the end of the SPF record from ~all to -all once you have verified "
                        "that all legitimate senders are covered."}
+    if allmech in ("?all", "+all"):
+        return {"key": "spf", "label": "SPF", "status": "bad", "value": spf,
+                "detail": f"Neutral/pass ('{allmech}') — provides no spoofing protection.",
+                "fix": "End the SPF record with -all (or at least ~all)."}
+    if allmech is None and has_redirect:
+        return {"key": "spf", "label": "SPF", "status": "warn", "value": spf,
+                "detail": "Policy delegated via redirect= — the redirect target supplies the "
+                          "fail rule. Verify that target ends with -all.",
+                "fix": "Confirm the redirect= target's SPF ends with -all."}
     return {"key": "spf", "label": "SPF", "status": "bad", "value": spf,
-            "detail": f"Missing fail mechanism ('{tail}') — provides no spoofing protection.",
+            "detail": "No 'all' mechanism — provides no spoofing protection.",
             "fix": "End the SPF record with -all (or at least ~all)."}
 
 

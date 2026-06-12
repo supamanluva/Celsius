@@ -60,14 +60,18 @@ def recover(js_url: str, js_body: str, *, insecure: bool = False
 
     try:
         if map_url.startswith("data:"):
-            # data:application/json;base64,....
+            # data:application/json;base64,....  (a comma-less data: URI served by
+            # a target would otherwise raise IndexError and abort the whole plugin)
+            if "," not in map_url:
+                return {}, [], []
             b64 = map_url.split(",", 1)[1]
             import base64
             raw = base64.b64decode(b64).decode("utf-8", errors="replace")
         else:
             raw = _fetch(map_url, insecure)
         data = json.loads(raw)
-    except (urllib.error.URLError, ssl.SSLError, OSError, ValueError, json.JSONDecodeError):
+    except (urllib.error.URLError, ssl.SSLError, OSError, ValueError,
+            json.JSONDecodeError, IndexError):
         return {}, [], []  # no usable map — silent (guesses miss often)
 
     names = data.get("sources", []) or []

@@ -54,6 +54,22 @@ class Scope:
         host = (host or "").lower()
         return any(fnmatch.fnmatch(host, pat) for pat in self.exclusions)
 
+    def allows_discovered_active(self, host: str, *, block_private: bool = True) -> bool:
+        """Gate a host/IP that was DISCOVERED mid-scan (a subdomain, redirect
+        target, or origin IP) before actively probing it — the entrypoint
+        scope check only covered the entered target. Blocks private / loopback /
+        link-local / metadata addresses outright (the classic SSRF pivot) and
+        honours exclusions + an explicit scope.yml. In permissive mode a public
+        host stays allowed, so default discovery workflows are unaffected."""
+        host = (host or "").strip().lower()
+        if not host:
+            return False
+        if block_private:
+            from .targets import is_private_or_local
+            if is_private_or_local(host):
+                return False
+        return self.allows(host, Mode.SAFE_ACTIVE)
+
     def allows(self, host: str, mode: Mode) -> bool:
         host = (host or "").lower()
         if self.is_excluded(host):
