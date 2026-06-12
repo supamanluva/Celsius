@@ -29,7 +29,7 @@ CONSENT_TEXT = """\
 │  authorized to test the target below.                                      │
 ╰───────────────────────────────────────────────────────────────────────────╯"""
 
-_SUBCOMMANDS = {"scan", "code", "serve", "history", "recheck", "monitor"}
+_SUBCOMMANDS = {"scan", "code", "serve", "history", "recheck", "monitor", "typosquat"}
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -150,8 +150,17 @@ def build_parser() -> argparse.ArgumentParser:
     mon.add_argument("--webhook", help="POST a JSON alert to this URL")
     mon.add_argument("--always", action="store_true",
                      help="send the alert even when nothing new (heartbeat)")
+    mon.add_argument("--typosquat", action="store_true",
+                     help="also watch for newly-registered look-alike/phishing domains")
     mon.add_argument("--limit", type=int, default=200, help="how many stored hosts to consider")
     mon.add_argument("--nvd-api-key", default=os.environ.get("NVD_API_KEY"))
+
+    # typosquat — find registered look-alike / phishing domains
+    ts = sub.add_parser("typosquat", help="find registered look-alike / phishing domains")
+    ts.add_argument("domain", help="your domain, e.g. example.com")
+    ts.add_argument("--max", type=int, default=1000, help="max lookalike candidates to check")
+    ts.add_argument("--no-mail", action="store_true", help="skip the MX (mail-capable) check")
+    ts.add_argument("--json", metavar="FILE", help="write results as JSON")
 
     # code
     c = sub.add_parser("code", help="static code/secret scan")
@@ -509,8 +518,8 @@ def _cmd_monitor(args) -> int:
     report = monitor_mod.run_monitor(
         store, targets=args.targets, watchlist_file=args.watchlist, rescan=args.rescan,
         scan_config_factory=cfg_factory if args.rescan else None,
-        api_key=args.nvd_api_key, firm_only=args.firm_only, limit=args.limit,
-        log=lambda m: print(f"    {m}", file=sys.stderr),
+        api_key=args.nvd_api_key, firm_only=args.firm_only, typosquat=args.typosquat,
+        limit=args.limit, log=lambda m: print(f"    {m}", file=sys.stderr),
     )
 
     _subject, body = monitor_mod.format_report(report)
@@ -524,6 +533,29 @@ def _cmd_monitor(args) -> int:
         print("\n[*] New exposure found — pass --email / --webhook to get alerted.",
               file=sys.stderr)
 
+    return 0
+
+
+def _cmd_typosquat(args) -> int:
+    from . import typosquat
+
+    print(f"[*] Hunting look-alike domains for {args.domain} …", file=sys.stderr)
+    live = typosquat.scan(args.domain, max_candidates=args.max, mail=not args.no_mail,
+                          log=lambda m: print(f"    {m}", file=sys.stderr))
+    if not live:
+        print("No live look-alike domains found.")
+    else:
+        print(f"\n{len(live)} live look-alike domain(s):")
+        for r in live:
+            mail = "  ✉ MAIL-CAPABLE" if r.get("mail") else ""
+            print(f"  {r['domain']:<40} {r.get('ip',''):<16}{mail}")
+        print("\nLook-alikes that resolve can be used for phishing; mail-capable ones can "
+              "send mail impersonating you. Consider defensive registration or takedown.")
+    if args.json:
+        import json
+        with open(args.json, "w") as fh:
+            json.dump(live, fh, indent=2)
+        print(f"\n[*] Wrote {args.json}", file=sys.stderr)
     return 0
 
 
@@ -579,6 +611,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_recheck(args)
     if args.command == "monitor":
         return _cmd_monitor(args)
+    if args.command == "typosquat":
+        return _cmd_typosquat(args)
     if args.command == "scan":
         return _cmd_scan(args)
     build_parser().print_help()
