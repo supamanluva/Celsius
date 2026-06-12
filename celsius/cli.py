@@ -29,7 +29,7 @@ CONSENT_TEXT = """\
 │  authorized to test the target below.                                      │
 ╰───────────────────────────────────────────────────────────────────────────╯"""
 
-_SUBCOMMANDS = {"scan", "code", "serve", "history", "recheck"}
+_SUBCOMMANDS = {"scan", "code", "serve", "history", "recheck", "monitor"}
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -135,6 +135,23 @@ def build_parser() -> argparse.ArgumentParser:
     rc.add_argument("--nvd-api-key", default=os.environ.get("NVD_API_KEY"),
                     help="NVD API key (faster lookups; env NVD_API_KEY)")
     rc.add_argument("--json", metavar="FILE", help="write the full result as JSON")
+
+    # monitor — watch known hosts for new exposure and alert
+    mon = sub.add_parser("monitor",
+                         help="watch hosts for NEW exposure (CVEs/subdomains/ports) and alert")
+    mon.add_argument("--target", action="append", dest="targets",
+                     help="host to watch (repeatable; default: all stored hosts)")
+    mon.add_argument("--watchlist", help="file with one host per line (# comments allowed)")
+    mon.add_argument("--rescan", action="store_true",
+                     help="run a fresh scan per host (sends traffic) and diff vs last scan; "
+                          "default is a no-traffic CVE re-check only")
+    mon.add_argument("--firm-only", action="store_true", help="ignore weak CVE leads")
+    mon.add_argument("--email", help="send an alert to this address (SMTP_* env)")
+    mon.add_argument("--webhook", help="POST a JSON alert to this URL")
+    mon.add_argument("--always", action="store_true",
+                     help="send the alert even when nothing new (heartbeat)")
+    mon.add_argument("--limit", type=int, default=200, help="how many stored hosts to consider")
+    mon.add_argument("--nvd-api-key", default=os.environ.get("NVD_API_KEY"))
 
     # code
     c = sub.add_parser("code", help="static code/secret scan")
@@ -471,6 +488,45 @@ def _cmd_recheck(args) -> int:
     return 0
 
 
+def _cmd_monitor(args) -> int:
+    from .store import Store
+    from . import monitor as monitor_mod
+    from .config import ScanConfig
+
+    store = Store()
+
+    # In --rescan mode, each host gets a fresh exposure-focused scan that the
+    # engine diffs against the previous stored scan.
+    def cfg_factory(target: str) -> ScanConfig:
+        return ScanConfig(
+            target=target, web=True, cve=True, dns=True, tls=True, fingerprint=True,
+            subdomains=True, ports=True, service_probe=True,
+            nvd_api_key=args.nvd_api_key, diff=True, persist=True,
+        )
+
+    mode = "rescan (fresh scans + diff)" if args.rescan else "recheck (no target traffic)"
+    print(f"[*] Celsius monitor — {mode}", file=sys.stderr)
+    report = monitor_mod.run_monitor(
+        store, targets=args.targets, watchlist_file=args.watchlist, rescan=args.rescan,
+        scan_config_factory=cfg_factory if args.rescan else None,
+        api_key=args.nvd_api_key, firm_only=args.firm_only, limit=args.limit,
+        log=lambda m: print(f"    {m}", file=sys.stderr),
+    )
+
+    _subject, body = monitor_mod.format_report(report)
+    print(body)
+
+    if args.email or args.webhook:
+        monitor_mod.dispatch_alerts(
+            report, email=args.email, webhook=args.webhook, always=args.always,
+            log=lambda m: print(f"[*] {m}", file=sys.stderr))
+    elif report.any_changes():
+        print("\n[*] New exposure found — pass --email / --webhook to get alerted.",
+              file=sys.stderr)
+
+    return 0
+
+
 def _cmd_serve(args) -> int:
     try:
         import uvicorn
@@ -521,6 +577,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_history(args)
     if args.command == "recheck":
         return _cmd_recheck(args)
+    if args.command == "monitor":
+        return _cmd_monitor(args)
     if args.command == "scan":
         return _cmd_scan(args)
     build_parser().print_help()
