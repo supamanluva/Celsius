@@ -15,11 +15,15 @@ An alert (email and/or webhook) is sent only when something new appears, unless
 
 from __future__ import annotations
 
+import json
+import os
 from dataclasses import dataclass, field
 from typing import Callable, Optional
 
 from . import notify as notify_mod
 from . import reeval
+
+_TYPO_STATE_DIR = os.path.expanduser("~/.cache/celsius/typosquat")
 
 
 @dataclass
@@ -28,9 +32,44 @@ class HostChange:
     target: str
     new_cves: list = field(default_factory=list)          # list[CVE] newly applicable
     diff_findings: list = field(default_factory=list)      # "NEW since last scan" findings
+    new_lookalikes: list = field(default_factory=list)     # newly-live typosquat domains
 
     def has_changes(self) -> bool:
-        return bool(self.new_cves or self.diff_findings)
+        return bool(self.new_cves or self.diff_findings or self.new_lookalikes)
+
+
+def _typo_baseline(apex: str) -> tuple[set, str]:
+    """(known-live lookalike set, path) for an apex domain."""
+    path = os.path.join(_TYPO_STATE_DIR, apex.replace("/", "_") + ".json")
+    try:
+        with open(path) as fh:
+            return set(json.load(fh)), path
+    except (OSError, ValueError):
+        return set(), path
+
+
+def _save_typo_baseline(path: str, live: set) -> None:
+    try:
+        os.makedirs(_TYPO_STATE_DIR, exist_ok=True)
+        with open(path, "w") as fh:
+            json.dump(sorted(live), fh)
+    except OSError:
+        pass
+
+
+def _new_lookalikes(apex: str, log) -> list[dict]:
+    """Live lookalikes that are NEW vs the stored baseline (first run seeds it)."""
+    from . import typosquat
+    baseline, path = _typo_baseline(apex)
+    live = typosquat.scan(apex, log=log)
+    live_domains = {r["domain"] for r in live}
+    seeding = not os.path.exists(path)
+    _save_typo_baseline(path, live_domains)
+    if seeding:
+        log(f"typosquat: seeded baseline for {apex} ({len(live_domains)} live) — "
+            "no alert on first run")
+        return []
+    return [r for r in live if r["domain"] not in baseline]
 
 
 @dataclass
@@ -64,9 +103,23 @@ def run_monitor(store, *, targets: Optional[list] = None,
                 watchlist_file: Optional[str] = None, rescan: bool = False,
                 scan_config_factory: Optional[Callable[[str], object]] = None,
                 api_key: Optional[str] = None, firm_only: bool = False,
+                typosquat: bool = False,
                 limit: int = 200, log: Callable[[str], None] = lambda _m: None) -> MonitorReport:
     hosts = resolve_watchlist(store, targets=targets, watchlist_file=watchlist_file, limit=limit)
     changes: list[HostChange] = []
+
+    # Typosquat watch runs once per registrable apex (not per subdomain).
+    typo_by_apex: dict = {}
+    if typosquat:
+        from .typosquat import registrable
+        for tgt in hosts:
+            name, tld = registrable(tgt)
+            apex = f"{name}.{tld}" if tld else tgt
+            typo_by_apex.setdefault(apex, None)
+        for apex in typo_by_apex:
+            new = _new_lookalikes(apex, log)
+            if new:
+                changes.append(HostChange(host=apex, target=apex, new_lookalikes=new))
 
     for tgt in hosts:
         if rescan and scan_config_factory is not None:
@@ -120,6 +173,11 @@ def format_report(report: MonitorReport) -> tuple[str, str]:
             lines.append(f"   {f.title}")
             if getattr(f, "description", ""):
                 lines.append(f"     {f.description[:200]}")
+        if ch.new_lookalikes:
+            lines.append(f"   {len(ch.new_lookalikes)} new look-alike/phishing domain(s):")
+            for r in ch.new_lookalikes[:25]:
+                mail = "  ✉ mail-capable" if r.get("mail") else ""
+                lines.append(f"     {r['domain']:<38} {r.get('ip', '')}{mail}")
         lines.append("")
     lines.append(f"Checked {report.checked} host(s) ({report.mode}). "
                  "Re-scan affected hosts to confirm and remediate.")
@@ -145,6 +203,7 @@ def dispatch_alerts(report: MonitorReport, *, email: Optional[str] = None,
                 "host": ch.host, "target": ch.target,
                 "new_cves": [c.to_dict() for c in ch.new_cves],
                 "diff": [f.to_dict() for f in ch.diff_findings],
+                "new_lookalikes": ch.new_lookalikes,
             } for ch in report.changes],
         }
         ok, detail = notify_mod.send_webhook(webhook, payload)
