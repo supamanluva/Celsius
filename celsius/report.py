@@ -531,22 +531,45 @@ def html_report(data: dict) -> str:
     from . import grade as _grade
     asmt = _grade.assess(data)
     gcolor = _GRADE_COLOR.get(str(asmt["grade"])[0], "#888")
+    counts = asmt.get("counts", {})
+    total_issues = sum(counts.values())
+    _SEVS = ("CRITICAL", "HIGH", "MEDIUM", "LOW")
+
+    # risk-distribution bar + count chips for the scorecard
+    segs = "".join(
+        f"<span style='flex:{counts.get(s, 0)};background:{_SEV_BG.get(s)}'></span>"
+        for s in _SEVS if counts.get(s, 0))
+    riskbar = f"<div class='riskbar'>{segs}</div>" if total_issues else ""
+    chips = "".join(
+        f"<span class='cchip {s}'><b>{counts.get(s, 0)}</b>{s.title()}</span>" for s in _SEVS)
+
+    grade_letter = str(asmt["grade"])
+    gclass = "g" + grade_letter[0]
+    scorecard = (
+        f"<div class='scorecard {gclass}'>"
+        f"<div class='grade'>{e(grade_letter)}</div>"
+        f"<div class='sc-body'>"
+        f"<div class='sc-score'><b>{asmt['score']}</b><span>/100</span> security score</div>"
+        f"{riskbar}<div class='cchips'>{chips}</div></div></div>")
+
+    # executive "fix these first" cards
     if asmt["clean"]:
-        fix_html = ("<p style='color:#2e9e44;font-weight:600;margin:.2rem 0'>"
-                    "✅ No confident security issues found.</p>")
+        exec_html = "<div class='clean'>✓ No confident security issues found.</div>"
     else:
-        lis = "".join(
-            f"<li>{sev_badge(it['severity'])}"
-            f"{' <strong style=color:#1a7d33>✔ verified</strong>' if it.get('verified') else ''} "
-            f"<strong>{e(it['title'])}</strong>"
-            f"{(' <span style=color:#b4540a>— ' + e(it['why']) + '</span>') if it.get('why') else ''}"
-            f"{('<br><em>↳ ' + e(it['fix']) + '</em>') if it.get('fix') else ''}</li>"
-            for it in asmt["fix_first"])
-        fix_html = (f"<p style='font-weight:600;margin:.2rem 0'>Fix these first "
-                    f"({asmt['total_actionable']} total):</p><ol class='fixlist'>{lis}</ol>")
-    grade_banner = (
-        f"<div class='gradebar'><span class='gletter' style='color:{gcolor}'>{e(asmt['grade'])}</span>"
-        f"<span class='gscore'>{asmt['score']}<small>/100</small></span></div>{fix_html}")
+        parts = []
+        for it in asmt["fix_first"]:
+            verified = "<span class='verified'>✔ verified</span>" if it.get("verified") else ""
+            why = f"<div class='fc-why'>{e(it['why'])}</div>" if it.get("why") else ""
+            fix = f"<div class='fc-fix'>↳ {e(it['fix'])}</div>" if it.get("fix") else ""
+            parts.append(
+                f"<div class='fixcard {it['severity']}'>"
+                f"<div class='fc-top'>{sev_badge(it['severity'])}{verified}"
+                f"<span class='fc-title'>{e(it['title'])}</span></div>{why}{fix}</div>")
+        more = (f"<p class='more'>+{asmt['total_actionable'] - len(asmt['fix_first'])} "
+                "more issues in the detail below.</p>"
+                if asmt["total_actionable"] > len(asmt["fix_first"]) else "")
+        exec_html = (f"<p class='exec-lead'>Prioritised by real-world risk — work top-down.</p>"
+                     f"<div class='fixcards'>{''.join(parts)}</div>{more}")
 
     adv = (data.get("recon") or {}).get("advisor") or {}
     advisor_html = ""
@@ -565,40 +588,107 @@ def html_report(data: dict) -> str:
 
     recon_html = _recon_html(data.get("recon") or {}, e)
 
-    return f"""<!doctype html><html><head><meta charset="utf-8">
-<title>celsius — {e(data.get('target',''))}</title>
+    return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Security Assessment — {e(data.get('target',''))}</title>
 <style>
- body{{font:14px/1.5 system-ui,sans-serif;margin:2rem;color:#1a1a1a;background:#fafafa}}
- h1{{margin-bottom:0}} .meta{{color:#666;margin-bottom:1rem}}
- h3{{margin:1rem 0 .2rem;font-size:1.02rem;color:#333}}
- table{{border-collapse:collapse;width:100%;margin:.5rem 0 2rem;background:#fff}}
- th,td{{border:1px solid #ddd;padding:.5rem;text-align:left;vertical-align:top}}
- th{{background:#f0f0f0}}
- .badge{{color:#fff;padding:2px 8px;border-radius:4px;font-size:12px;font-weight:600}}
- a{{color:#2d7dd2}}
- .gradebar{{display:inline-flex;align-items:baseline;gap:.6rem;margin:.4rem 0 .6rem}}
- .gletter{{font-size:2.6rem;font-weight:800;line-height:1}}
- .gscore{{font-size:1.2rem;color:#444;font-weight:700}} .gscore small{{color:#888;font-weight:400}}
- .fixlist{{margin:.3rem 0 1.2rem}} .fixlist li{{margin:.3rem 0;line-height:1.5}}
- .advlist li{{margin:.4rem 0;line-height:1.5}} .advlist code{{display:block;white-space:pre-wrap;background:#f3f3f3;padding:.4rem .6rem;border-radius:4px;margin-top:.2rem;font-size:13px}}
- .aitag{{font-size:11px;color:#7c5cff;border:1px solid #cdbcff;border-radius:999px;padding:1px 7px;vertical-align:middle}}
- .adv-well{{color:#2e9e44}}
- @media print{{body{{margin:0}}}}
+ :root{{--ink:#10161f;--muted:#5a6b7b;--faint:#8a99a8;--line:#e4e9ef;--line2:#eef2f6;
+   --paper:#ffffff;--bg:#eef1f5;--accent:#0c8f5f;--accent-ink:#0a7a51;
+   --crit:#e5484d;--high:#e0660c;--med:#bd8400;--low:#2f6fe0;--info:#64748b;
+   --mono:"JetBrains Mono",ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+   --sans:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,system-ui,sans-serif;}}
+ *{{box-sizing:border-box}}
+ body{{font:14.5px/1.6 var(--sans);margin:0;color:var(--ink);background:var(--bg);
+   -webkit-font-smoothing:antialiased;padding-bottom:3rem}}
+ .doc{{max-width:1000px;margin:0 auto;background:var(--paper);box-shadow:0 1px 3px rgba(20,30,48,.08),0 24px 60px -30px rgba(20,30,48,.3)}}
+ /* hero */
+ .hero{{background:radial-gradient(900px 300px at 100% 0%,rgba(46,242,160,.12),transparent 60%),#0b1310;
+   color:#dbeee3;padding:2.2rem 2.4rem;position:relative;overflow:hidden}}
+ .hero::after{{content:"";position:absolute;inset:0;background-image:linear-gradient(rgba(46,242,160,.05) 1px,transparent 1px),linear-gradient(90deg,rgba(46,242,160,.05) 1px,transparent 1px);background-size:36px 36px;-webkit-mask-image:radial-gradient(600px 300px at 100% 0,#000,transparent 75%);mask-image:radial-gradient(600px 300px at 100% 0,#000,transparent 75%)}}
+ .hero>*{{position:relative}}
+ .hero .kicker{{font:600 .68rem/1 var(--mono);letter-spacing:.28em;text-transform:uppercase;color:#2ef2a0}}
+ .hero h1{{font:700 1.7rem/1.2 var(--sans);margin:.5rem 0 .2rem;letter-spacing:-.01em}}
+ .hero h1 span{{font-family:var(--mono);color:#9fe9c6;font-weight:600;font-size:1.4rem}}
+ .hero .hmeta{{color:#8fb3a3;font:.8rem/1.6 var(--mono);margin-top:.5rem;display:flex;flex-wrap:wrap;gap:.3rem 1.2rem}}
+ .hero .hmeta b{{color:#cfe9da;font-weight:600}}
+ /* scorecard */
+ .scorecard{{display:flex;align-items:center;gap:1.4rem;margin-top:1.5rem;padding:1.1rem 1.3rem;
+   background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);border-radius:14px}}
+ .scorecard .grade{{font:800 3rem/1 var(--mono);min-width:1.5em;text-align:center;text-shadow:0 0 30px currentColor}}
+ .scorecard.gA .grade,.scorecard.gA\\+ .grade{{color:#34f5a0}} .scorecard.gB .grade{{color:#9bdc63}}
+ .scorecard.gC .grade{{color:#ffd24d}} .scorecard.gD .grade{{color:#ff944a}} .scorecard.gF .grade{{color:#ff5d6c}}
+ .sc-body{{flex:1}}
+ .sc-score{{font:.85rem/1 var(--mono);color:#8fb3a3;letter-spacing:.02em}} .sc-score b{{font-size:1.5rem;color:#fff}} .sc-score span{{color:#6f9486}}
+ .riskbar{{display:flex;height:9px;border-radius:5px;overflow:hidden;margin:.7rem 0 .5rem;background:rgba(255,255,255,.08)}}
+ .riskbar span{{min-width:3px}}
+ .cchips{{display:flex;gap:.5rem;flex-wrap:wrap}}
+ .cchip{{font:.66rem/1 var(--mono);text-transform:uppercase;letter-spacing:.04em;color:#8fb3a3;display:inline-flex;align-items:center;gap:.35rem}}
+ .cchip b{{font-size:.92rem;color:#fff;font-weight:700}}
+ .cchip.CRITICAL b{{color:#ff8a90}} .cchip.HIGH b{{color:#ffb074}} .cchip.MEDIUM b{{color:#ffd877}} .cchip.LOW b{{color:#8ccbff}}
+ /* body */
+ .content{{padding:2rem 2.4rem 2.6rem}}
+ section{{margin-bottom:2.2rem}}
+ h2{{font:700 .95rem/1.3 var(--mono);letter-spacing:.04em;text-transform:uppercase;color:var(--ink);
+   margin:0 0 .9rem;padding-bottom:.5rem;border-bottom:2px solid var(--line);display:flex;align-items:center;gap:.5rem}}
+ h2 .n{{font-family:var(--mono);color:var(--faint);font-weight:600}}
+ h3{{margin:1.1rem 0 .3rem;font:600 .92rem/1.3 var(--sans);color:var(--ink)}}
+ .exec-lead{{color:var(--muted);margin:.2rem 0 1rem;font-size:.92rem}}
+ .clean{{color:var(--accent-ink);font-weight:600;background:#e7f7ef;border:1px solid #bfe8d4;border-radius:10px;padding:1rem 1.2rem}}
+ /* fix cards */
+ .fixcards{{display:flex;flex-direction:column;gap:.7rem}}
+ .fixcard{{border:1px solid var(--line);border-left:4px solid var(--info);border-radius:10px;padding:.8rem 1rem;background:#fcfdfe}}
+ .fixcard.CRITICAL{{border-left-color:var(--crit)}} .fixcard.HIGH{{border-left-color:var(--high)}}
+ .fixcard.MEDIUM{{border-left-color:var(--med)}} .fixcard.LOW{{border-left-color:var(--low)}}
+ .fc-top{{display:flex;align-items:center;gap:.55rem;flex-wrap:wrap}}
+ .fc-title{{font-weight:600}} .verified{{font:600 .7rem/1 var(--mono);color:var(--accent-ink);background:#e7f7ef;border:1px solid #bfe8d4;border-radius:5px;padding:.15rem .4rem}}
+ .fc-why{{color:var(--high);font:600 .82rem/1.5 var(--mono);margin-top:.35rem}}
+ .fc-fix{{color:var(--muted);font-size:.86rem;margin-top:.3rem}}
+ .more{{color:var(--faint);font:.84rem var(--mono);margin:.7rem 0 0}}
+ /* tables */
+ table{{border-collapse:collapse;width:100%;font-size:.86rem;border:1px solid var(--line);border-radius:10px;overflow:hidden}}
+ th,td{{text-align:left;padding:.6rem .75rem;border-bottom:1px solid var(--line2);vertical-align:top}}
+ th{{background:#f6f8fa;color:var(--muted);font:600 .68rem/1.3 var(--mono);text-transform:uppercase;letter-spacing:.05em}}
+ tr:last-child td{{border-bottom:none}} tbody tr:hover td{{background:#f9fbfc}}
+ td .mono,td code{{font-family:var(--mono);font-size:.84rem}}
+ .badge{{color:#fff;padding:2px 8px;border-radius:5px;font:700 11px/1.4 var(--mono);letter-spacing:.03em;white-space:nowrap}}
+ a{{color:var(--accent-ink);text-decoration:none}} a:hover{{text-decoration:underline}}
+ em{{color:var(--muted);font-style:normal}}
+ /* how-to-fix */
+ .howfix{{margin:.5rem 0 .2rem}} .howfix>summary{{cursor:pointer;color:var(--accent-ink);font:600 .82rem var(--mono)}}
+ .fixsteps{{margin:.45rem 0 .45rem 1.2rem;color:var(--muted)}}
+ .fixsnippet{{margin:.3rem 0;padding:.7rem .85rem;overflow-x:auto;border-radius:8px;background:#0b120e;color:#cfe9da;font:.82rem/1.5 var(--mono)}}
+ /* advisor */
+ .advlist li{{margin:.45rem 0;line-height:1.55}} .advlist code{{display:block;white-space:pre-wrap;background:#0b120e;color:#cfe9da;padding:.5rem .65rem;border-radius:6px;margin-top:.25rem;font:.82rem/1.5 var(--mono)}}
+ .aitag{{font:.62rem var(--mono);color:var(--accent-ink);border:1px solid #bfe8d4;border-radius:999px;padding:1px 8px;vertical-align:middle;text-transform:uppercase;letter-spacing:.08em}}
+ .adv-well{{color:var(--accent-ink);margin-top:.7rem}}
+ .footer{{color:var(--faint);font:.78rem var(--mono);text-align:center;padding:1.4rem;border-top:1px solid var(--line)}}
+ @media print{{body{{background:#fff}}.doc{{box-shadow:none;max-width:none}}.fixcard,table{{break-inside:avoid}}}}
 </style></head><body>
-<h1>celsius report</h1>
-<div class="meta">{e(data.get('target',''))} &middot; URL: {e(data.get('url') or '-')} &middot; IP: {e(data.get('ip') or '-')}
- &middot; {e(data.get('started_at',''))} → {e(data.get('finished_at',''))}</div>
-{grade_banner}
-{advisor_html}
-{recon_html}
-<h2>Detected services</h2>
-<table><tr><th>Product</th><th>Version</th><th>Port</th><th>Source</th></tr>{rows_services}</table>
-<h2>Known CVEs</h2>
-<table><tr><th>Severity</th><th>CVE</th><th>CVSS</th><th>Affects</th><th>Description</th></tr>{rows_cves}</table>
-<h2>Web / config findings</h2>
-<table><tr><th>Severity</th><th>Title</th><th>Category</th><th>Detail</th></tr>{rows_find}</table>
-{ai_section}
-<p class="meta">Generated by celsius {e(_version())}. For authorized testing only.</p>
+<div class="doc">
+ <header class="hero">
+  <div class="kicker">Security Assessment</div>
+  <h1>{e(data.get('target',''))} <span>celsius</span></h1>
+  <div class="hmeta">
+   <span><b>URL</b> {e(data.get('url') or '-')}</span>
+   <span><b>IP</b> {e(data.get('ip') or '-')}</span>
+   <span><b>Scanned</b> {e(data.get('finished_at') or data.get('started_at') or '-')}</span>
+  </div>
+  {scorecard}
+ </header>
+ <div class="content">
+  <section><h2>Executive summary</h2>{exec_html}</section>
+  {f'<section>{advisor_html}</section>' if advisor_html else ''}
+  {f'<section>{recon_html}</section>' if recon_html else ''}
+  <section><h2>Detected services <span class="n">{len(data.get('services', []))}</span></h2>
+   <table><thead><tr><th>Product</th><th>Version</th><th>Port</th><th>Source</th></tr></thead><tbody>{rows_services}</tbody></table></section>
+  <section><h2>Known CVEs <span class="n">{len(data.get('cves', []))}</span></h2>
+   <table><thead><tr><th>Severity</th><th>CVE</th><th>CVSS</th><th>Affects</th><th>Description</th></tr></thead><tbody>{rows_cves}</tbody></table></section>
+  <section><h2>Web / config findings <span class="n">{len(_real_finds)}</span></h2>
+   <table><thead><tr><th>Severity</th><th>Title</th><th>Category</th><th>Detail</th></tr></thead><tbody>{rows_find}</tbody></table></section>
+  {ai_section}
+ </div>
+ <div class="footer">Generated by celsius {e(_version())} · for authorized testing only · CVE data: NVD + MITRE</div>
+</div>
 </body></html>"""
 
 
