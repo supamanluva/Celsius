@@ -73,8 +73,8 @@ a:hover { text-decoration: underline; }
   backdrop-filter: blur(12px) saturate(1.1);
   border-bottom: 1px solid var(--border);
 }
-.brand { display: flex; align-items: center; gap: .7rem; }
-.brand-logo { height: 34px; width: auto; filter: drop-shadow(0 0 14px rgba(46,242,160,.25)); }
+.brand { display: flex; align-items: center; gap: .65rem; }
+.brand-mark { color: var(--accent); flex: none; filter: drop-shadow(0 0 10px var(--accent-glow)); }
 .brand-text { display: flex; flex-direction: column; line-height: 1.05; }
 .wordmark { font-family: var(--font-mono); font-weight: 700; font-size: 1.05rem; letter-spacing: .18em; color: var(--text); }
 .wordmark b { color: var(--accent); font-weight: 700; }
