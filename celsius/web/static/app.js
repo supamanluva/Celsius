@@ -425,7 +425,7 @@ function renderResult(res, scanId) {
     } else {
       const items = (a.fix_first || []).map((it) =>
         `<li><span class="badge sev-${it.severity}">${it.severity}</span>${it.verified ? ' <span class="verdict v-high">✔ verified</span>' : ""}
-          <strong>${esc(it.title)}</strong>${it.fix ? `<div class="hc-fix">↳ ${esc(it.fix)}</div>` : ""}</li>`).join("");
+          <strong>${esc(it.title)}</strong>${it.why ? `<span class="hc-why"> — ${esc(it.why)}</span>` : ""}${it.fix ? `<div class="hc-fix">↳ ${esc(it.fix)}</div>` : ""}</li>`).join("");
       const more = a.total_actionable > (a.fix_first || []).length
         ? `<div class="hc-more">+${a.total_actionable - a.fix_first.length} more below</div>` : "";
       html += `<div class="healthcard grade-${g}">

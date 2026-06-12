@@ -528,6 +528,7 @@ def html_report(data: dict) -> str:
             f"<li>{sev_badge(it['severity'])}"
             f"{' <strong style=color:#1a7d33>✔ verified</strong>' if it.get('verified') else ''} "
             f"<strong>{e(it['title'])}</strong>"
+            f"{(' <span style=color:#b4540a>— ' + e(it['why']) + '</span>') if it.get('why') else ''}"
             f"{('<br><em>↳ ' + e(it['fix']) + '</em>') if it.get('fix') else ''}</li>"
             for it in asmt["fix_first"])
         fix_html = (f"<p style='font-weight:600;margin:.2rem 0'>Fix these first "
