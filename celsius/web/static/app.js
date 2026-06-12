@@ -254,6 +254,7 @@ function currentScanOptions() {
     cve_verify: $("opt-cveverify").checked,
     dynamic: $("opt-dynamic").checked, wayback: $("opt-wayback").checked,
     content_discovery: $("opt-content").checked, os_detect: $("opt-osdetect").checked,
+    udp: $("opt-udp").checked, port_range: $("opt-portrange").value.trim() || null,
     subdomain_bruteforce: $("opt-subbrute").checked, nuclei_full: $("opt-nucleifull").checked,
     nuclei_tags: $("opt-nucleitags").value.trim() || null,
     allow_exploit: $("opt-exploit").checked,
