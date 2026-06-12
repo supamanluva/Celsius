@@ -70,9 +70,15 @@ def _presented_token(request: "Request") -> str:
             or request.query_params.get("token") or "").strip()
 
 
+# Harmless, read-only public endpoints — exempt from the token gate so the UI's
+# legal-target list and health probe work before a token is entered.
+_OPEN_PATHS = {"/api/testsites", "/api/health"}
+
+
 @app.middleware("http")
 async def _require_token(request: "Request", call_next):
-    if _TOKEN and request.url.path.startswith("/api/"):
+    path = request.url.path
+    if _TOKEN and path.startswith("/api/") and path not in _OPEN_PATHS:
         if not hmac.compare_digest(_presented_token(request), _TOKEN):
             return JSONResponse(
                 {"detail": "Missing or invalid access token (X-Celsius-Token)."},
