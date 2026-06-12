@@ -89,6 +89,7 @@ def scan(
     ports: Optional[str] = None,
     timeout: int = 300,
     os_detect: bool = False,
+    udp: bool = False,
     extra_args: Optional[list[str]] = None,
     resolved_ip: Optional[str] = None,
 ) -> tuple[list[Service], dict, list[str]]:
@@ -107,9 +108,14 @@ def scan(
     if not path:
         raise NmapNotInstalled("nmap is not installed or not on PATH")
 
+    # UDP scanning needs raw sockets (root). Skip gracefully otherwise.
+    if udp and not _is_root():
+        return [], {}, ["UDP scan (-sU) requires root — run with sudo; skipped UDP scan"]
+
     # IP-level cache: reuse a recent scan of the same address.
     ip = resolved_ip or _resolve(host)
-    cache_key = f"{ip}|{ports or 'top' + str(top_ports)}|os={int(bool(os_detect))}" if ip else None
+    proto = "udp" if udp else "tcp"
+    cache_key = f"{ip}|{proto}|{ports or 'top' + str(top_ports)}|os={int(bool(os_detect))}" if ip else None
     if cache_key:
         hit = _cache_get(cache_key)
         if hit is not None:
@@ -119,6 +125,8 @@ def scan(
             return services, hit.get("os_info") or {}, [note]
 
     cmd = [path, "-sV", "-Pn", "-T4", "-oX", "-"]
+    if udp:
+        cmd.insert(1, "-sU")          # UDP service scan (root-gated above)
     if os_detect:
         if _is_root():
             # -O = OS detection; --osscan-guess pushes nmap to report close

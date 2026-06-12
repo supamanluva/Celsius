@@ -46,6 +46,7 @@ class ScanConfig:
     # port scan
     top_ports: int = 100
     port_range: Optional[str] = None
+    udp: bool = False                 # also run a UDP service scan (needs root; slow)
     os_detect: bool = False           # nmap -O OS/device fingerprint (needs root)
 
     # nuclei

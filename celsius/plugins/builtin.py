@@ -299,20 +299,34 @@ class PortScan(Plugin):
             # Seed the active scan with ports Shodan/RDAP (topology) already saw —
             # they're often non-standard high ports the top-N sweep misses entirely.
             self._scan_seed_ports(ctx, already={s.port for s in svcs if s.port})
+
+            # Optional UDP service scan (VPN/DNS/SNMP live on UDP, invisible to TCP).
+            if ctx.config.udp:
+                self._scan_udp(ctx)
         except portscan.NmapNotInstalled as e:
             ctx.result.errors.append(str(e))
 
-    def _scan_seed_ports(self, ctx: ScanContext, *, already: set) -> None:
+    # Common UDP services worth a quick look when a UDP scan is requested.
+    _COMMON_UDP = "53,67,69,123,137,138,161,500,514,520,1194,1701,1900,4500,5060,5353"
+
+    def _seed_ports(self, ctx: ScanContext, already: set) -> list:
         topo = ctx.result.recon.get("topology") or {}
         seen: set = set()
+        tags: set = set()
         for h in topo.get("hosts", []) or []:
+            tags |= {str(t).lower() for t in (h.get("tags") or [])}
             for p in h.get("ports", []) or []:
                 if isinstance(p, int) and p not in already:
                     seen.add(p)
-        if not seen:
+        ctx.data["_topo_tags"] = tags
+        return sorted(seen)
+
+    def _scan_seed_ports(self, ctx: ScanContext, *, already: set) -> None:
+        seed = self._seed_ports(ctx, already)
+        if not seed:
             return
-        ports_csv = ",".join(str(p) for p in sorted(seen))
-        ctx.log(f"port-scan: probing {len(seen)} port(s) discovered via Shodan/topology: {ports_csv}")
+        ports_csv = ",".join(map(str, seed))
+        ctx.log(f"port-scan: probing {len(seed)} port(s) discovered via Shodan/topology: {ports_csv}")
         ctx.audit.active_probe(self.id, ctx.target.host, self.mode.value,
                                detail=f"shodan-seeded ports {ports_csv}")
         try:
@@ -322,14 +336,41 @@ class PortScan(Plugin):
             return
         ctx.result.services.extend(seed_svcs)
         ctx.result.errors.extend(e for e in seed_errs if "reused" not in e)
-        confirmed = sorted({s.port for s in seed_svcs if s.port})
+        confirmed = {s.port for s in seed_svcs if s.port}
         if confirmed:
             ctx.log(f"port-scan: Shodan-seeded probe confirmed open: "
-                    f"{', '.join(map(str, confirmed))}")
-        else:
+                    f"{', '.join(map(str, sorted(confirmed)))}")
+        # For vpn/dns-tagged hosts, the seeded ports are likely UDP — probe them
+        # over UDP too (catches OpenVPN/1194, DNS/53, …) even without --udp.
+        unconfirmed = [p for p in seed if p not in confirmed]
+        tags = ctx.data.get("_topo_tags") or set()
+        if unconfirmed and (ctx.config.udp or tags & {"vpn", "dns", "snmp"}):
+            self._scan_udp(ctx, ports_csv=",".join(map(str, unconfirmed)), label="seeded")
+        elif unconfirmed:
             ctx.result.errors.append(
-                f"note: Shodan reported port(s) {ports_csv} but the active TCP scan "
-                "couldn't confirm them (filtered, closed now, or UDP — e.g. OpenVPN/1194 is UDP).")
+                f"note: Shodan reported port(s) {','.join(map(str, unconfirmed))} but the active "
+                "TCP scan couldn't confirm them (filtered/closed now, or UDP — e.g. OpenVPN/1194 "
+                "is UDP; enable the UDP scan to check).")
+
+    def _scan_udp(self, ctx: ScanContext, *, ports_csv: str = "", label: str = "") -> None:
+        spec = ports_csv or ctx.config.port_range or self._COMMON_UDP
+        ctx.log(f"port-scan: UDP scan{' (' + label + ')' if label else ''} of {spec} …")
+        ctx.audit.active_probe(self.id, ctx.target.host, self.mode.value,
+                               detail=f"udp ports {spec}")
+        try:
+            udp_svcs, _os, udp_errs = portscan.scan(
+                ctx.target.host, ports=spec, udp=True,
+                resolved_ip=ctx.result.ip, timeout=400)
+        except portscan.NmapNotInstalled:
+            return
+        # avoid duplicating a (port,proto) already present
+        have = {(s.port, s.protocol) for s in ctx.result.services}
+        new = [s for s in udp_svcs if (s.port, s.protocol) not in have]
+        ctx.result.services.extend(new)
+        ctx.result.errors.extend(e for e in udp_errs if "reused" not in e)
+        if new:
+            ctx.log("port-scan: UDP confirmed open: "
+                    + ", ".join(f"{s.port}/udp" for s in new if s.port))
 
 
 @register

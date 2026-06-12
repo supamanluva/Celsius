@@ -74,7 +74,8 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--nuclei", action="store_true", help="run nuclei templates")
     s.add_argument("--nuclei-full", action="store_true", help="run the ENTIRE nuclei set (slow)")
     s.add_argument("--top-ports", type=int, default=100)
-    s.add_argument("--port-range")
+    s.add_argument("--port-range", help="explicit nmap ports, e.g. '1-65535' (full) or '22,80,443'")
+    s.add_argument("--udp", action="store_true", help="also run a UDP service scan (needs root; slow)")
     s.add_argument("--os-detect", action="store_true",
                    help="nmap OS/device fingerprint (-O); identifies router/firewall/vendor (needs sudo/root)")
     s.add_argument("--nvd-api-key", default=os.environ.get("NVD_API_KEY"))
@@ -263,7 +264,7 @@ def _cmd_scan(args) -> int:
         web_secrets=not args.no_secrets, ports=args.ports, default_creds=args.default_creds,
         nuclei=args.nuclei,
         nuclei_full=args.nuclei_full, top_ports=args.top_ports, port_range=args.port_range,
-        os_detect=args.os_detect,
+        udp=args.udp, os_detect=args.os_detect,
         nvd_api_key=args.nvd_api_key, insecure=args.insecure,
         exploitability=not args.no_exploitability, cve_verify=args.cve_verify,
         dns=not args.no_dns, tls=not args.no_tls, robots=not args.no_robots,

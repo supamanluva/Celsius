@@ -117,6 +117,7 @@ class ScanRequest(BaseModel):
     nuclei: bool = False
     top_ports: int = 100
     port_range: Optional[str] = None
+    udp: bool = False
     insecure: bool = False
     dns: bool = True
     tls: bool = True
@@ -236,7 +237,7 @@ def start_scan(req: ScanRequest) -> dict:
         target=req.target.strip(), web=req.web, cve=req.cve, web_secrets=req.web_secrets,
         ports=req.ports, default_creds=req.default_creds, nuclei=req.nuclei, nuclei_full=req.nuclei_full,
         nuclei_tags=req.nuclei_tags, top_ports=req.top_ports,
-        port_range=req.port_range, insecure=req.insecure, os_detect=req.os_detect,
+        port_range=req.port_range, udp=req.udp, insecure=req.insecure, os_detect=req.os_detect,
         nvd_api_key=os.environ.get("NVD_API_KEY"),   # faster NVD CVE lookups (6s -> 0.8s/req)
         dns=req.dns, tls=req.tls, mailsec=req.mailsec,
         fingerprint=req.fingerprint, subdomains=req.subdomains, topology=req.topology,
