@@ -81,16 +81,19 @@ def test_apply_verdicts_confirm_refute_keep():
         Finding(title="[AI] IDOR in API", severity=Severity.HIGH, category="ai-hypothesis"),
     ]
     verdicts = [
-        {"index": 0, "status": "confirmed", "severity": "HIGH", "tool": "http_get", "evidence": "ZNC login reachable"},
+        # confirmed WITH a deterministic signal (corroborated) -> promoted
+        {"index": 0, "status": "confirmed", "severity": "HIGH", "tool": "http_get",
+         "evidence": "ZNC login reachable", "corroborated": True},
         {"index": 1, "status": "refuted", "tool": "takeover_check", "evidence": "no dangling CNAME"},
         {"index": 2, "status": "needs-manual", "tool": "none"},
     ]
     out, stats = agent.apply_verdicts(finds, verdicts)
     titles = [f.title for f in out]
-    # confirmed -> retagged so it counts toward severity, downgraded to HIGH
+    # confirmed + corroborated -> retagged so it counts toward severity, downgraded to HIGH
     conf = next(f for f in out if "ZNC" in f.title)
     assert conf.title.startswith("[AI-verified]") and conf.category == "ai-active-verify"
     assert conf.severity == Severity.HIGH
+    assert conf.exploitability["priority"] == 90
     # refuted -> dropped
     assert not any("takeover" in t.lower() for t in titles)
     # needs-manual -> kept as a hypothesis, annotated
@@ -99,6 +102,20 @@ def test_apply_verdicts_confirm_refute_keep():
     # non-AI finding untouched
     assert any(t == "Missing CSP" for t in titles)
     assert stats == {"confirmed": 1, "refuted": 1, "needs_manual": 1, "untested": 0}
+
+
+def test_apply_verdicts_confirmed_without_corroboration_not_promoted():
+    # A model 'confirmed' with no deterministic signal must NOT reach the priority-90
+    # verified tier — it stays a strong lead (parity with the injection path).
+    finds = [Finding(title="[AI] IDOR in API", severity=Severity.HIGH, category="ai-hypothesis")]
+    verdicts = [{"index": 0, "status": "confirmed", "tool": "http_get",
+                 "evidence": "looked exploitable", "corroborated": False}]
+    out, stats = agent.apply_verdicts(finds, verdicts)
+    f = out[0]
+    assert f.category == "ai-hypothesis"                    # not promoted to ai-active-verify
+    assert not f.exploitability                             # no priority-90 record
+    assert "verify manually" in f.description.lower()
+    assert stats["needs_manual"] == 1 and stats["confirmed"] == 0
 
 
 def test_prove_hypotheses_end_to_end():

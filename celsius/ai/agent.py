@@ -67,6 +67,29 @@ def _corroborated(probe: dict, resp) -> bool:
     return False
 
 
+def _evidence_corroborated(evidence) -> bool:
+    """Deterministic backstop for the tool-prove / CVE-verify loops — the parity of
+    _corroborated() for verify_tools output.
+
+    The judge for those loops reads target-controlled tool evidence (response
+    bodies, headers), so a model 'confirmed' must be independently grounded before
+    it earns the top tier (`verified` / priority-90+). We accept an unambiguous
+    signal the tool itself computed — a matched subdomain-takeover fingerprint or
+    an open socket — or a SQL-error / file-leak signature in the captured response.
+    Absent any of these, a model 'confirmed' stays a strong lead, never a proven
+    finding — the same discipline the injection path already enforces.
+    """
+    if not isinstance(evidence, dict):
+        return False
+    if evidence.get("fingerprint_matched") is True:   # takeover_check: dangling + fingerprint
+        return True
+    if evidence.get("open") is True:                  # tcp_connect: socket confirmed open
+        return True
+    text = " ".join(str(evidence.get(k, "")) for k in
+                    ("snippet", "title", "location", "body", "response_headers"))
+    return bool(_SQL_ERR.search(text) or _FILE_LEAK.search(text))
+
+
 def _plan(result_dict: dict, points, provider, budget, audit, *, redact_secrets=True) -> list[dict]:
     context = {
         "url": result_dict.get("url") or result_dict.get("target"),
@@ -248,7 +271,8 @@ def prove_hypotheses(result_dict: dict, hypotheses: list[dict], provider: LLMPro
             status = "inconclusive"
         verdicts.append({"index": idx, "status": status, "severity": v.get("severity"),
                          "reasoning": v.get("reasoning", ""), "evidence": v.get("evidence", ""),
-                         "tool": tool, "poc": (evidence or {}).get("curl")})
+                         "tool": tool, "poc": (evidence or {}).get("curl"),
+                         "corroborated": _evidence_corroborated(evidence)})
         log(f"ai-prove: {status.upper()} — {hyp.get('title', '')[:60]} (via {tool})")
     return verdicts
 
@@ -279,7 +303,7 @@ def apply_verdicts(findings: list, verdicts: list[dict]) -> tuple[list, dict]:
         if st == "refuted":
             stats["refuted"] += 1
             continue  # drop the disproven lead
-        if st == "confirmed":
+        if st == "confirmed" and v.get("corroborated"):
             stats["confirmed"] += 1
             f.category = "ai-active-verify"
             f.confidence = "high"
@@ -294,7 +318,17 @@ def apply_verdicts(findings: list, verdicts: list[dict]) -> tuple[list, dict]:
                                     "confirm, then remediate.").strip()
             f.exploitability = {"verdict": "confirmed-exploitable", "priority": 90,
                                 "signals": {"actively_verified": True, "ai_planned": True,
-                                            "has_poc": bool(v.get("poc"))}}
+                                            "corroborated": True, "has_poc": bool(v.get("poc"))}}
+        elif st == "confirmed":
+            # Model judged it confirmed off target-controlled tool output, but no
+            # deterministic signal grounded it — keep it as a strong lead, never the
+            # priority-90 verified tier (parity with the injection path).
+            stats["needs_manual"] += 1
+            f.confidence = "medium"
+            f.description = (f.description + f" — model judged CONFIRMED via {v.get('tool')} "
+                             f"but no deterministic proof was captured; verify manually.").strip()
+            if v.get("poc"):
+                f.evidence = (f.evidence + " | " if f.evidence else "") + f"PoC: {v['poc']}"
         else:
             stats["needs_manual"] += 1
             f.description = f.description + f" — [unconfirmed: {v.get('tool', 'tool')} {st}]"
@@ -379,6 +413,7 @@ def verify_cves(result_dict: dict, cves: list, provider: LLMProvider, lab, *,
         verdicts.append({"cve": c.get("id"), "status": status, "severity": v.get("severity"),
                          "reasoning": v.get("reasoning", ""), "evidence": v.get("evidence", ""),
                          "tool": tool, "curl": (evidence or {}).get("curl", ""),
-                         "grounded_in_poc": grounded})
+                         "grounded_in_poc": grounded,
+                         "corroborated": _evidence_corroborated(evidence)})
         log(f"ai-cve-verify: {c.get('id')} -> {status}" + ("  [PoC-grounded]" if grounded else ""))
     return verdicts

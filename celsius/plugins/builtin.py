@@ -1355,33 +1355,41 @@ def _cve_verify_finding(c, v: dict, target_url: str):
     code path active — the oracle tier), or a manual-verification to-do for a firm
     HIGH+/PoC-backed CVE an automated benign probe couldn't settle. None otherwise."""
     status = v.get("status")
+    corroborated = bool(v.get("corroborated"))
     cve = v.get("cve")
     sev = c.severity if c is not None else Severity.HIGH
     grounded = (" The probe was grounded in the public PoC technique (trickest/cve write-up)."
                 if v.get("grounded_in_poc") else "")
     pocs = _cve_pocs(c)
-    if status == "confirmed":
+    if status == "confirmed" and corroborated:
         return Finding(
             title=f"CVE CONFIRMED by AI probe: {cve}",
             severity=sev, category="ai-cve-verify",
             description=(v.get("reasoning", "") + " Confirmed by an AI-planned, non-destructive "
-                         "probe on an authorized lab target." + grounded).strip(),
+                         "probe on an authorized lab target, with an independent deterministic "
+                         "signal in the response." + grounded).strip(),
             recommendation="Verified present & reachable — patch urgently. "
                            "Reproduce with the captured request.",
             evidence=(f"{v.get('evidence', '')}  {v.get('curl', '')}").strip()[:300],
             confidence="high",
             exploitability={"verdict": "confirmed-exploitable", "priority": 92,
                             "signals": {"reachable": True, "actively_verified": True,
-                                        "ai_planned": True,
+                                        "ai_planned": True, "corroborated": True,
                                         "poc_grounded": bool(v.get("grounded_in_poc"))}})
-    if status == "reachable":
+    # 'reachable', or a model 'confirmed' the evidence didn't deterministically
+    # ground: both are strong corroboration of a live vulnerable path, not proof of
+    # exploitation — the same tier, never the confirmed-exploitable headline.
+    if status == "reachable" or (status == "confirmed" and not corroborated):
+        soft = (" The model judged this confirmed, but the probe carried no deterministic "
+                "proof, so it is treated as reachable — verify by hand before acting."
+                if status == "confirmed" else
+                " A non-destructive probe shows the vulnerable code path is present and "
+                "reachable on this host — strong corroboration, not full exploitation.")
         return Finding(
             title=f"CVE reachable — vulnerable code path active: {cve}",
             severity=(sev if sev.rank <= Severity.HIGH.rank else Severity.HIGH),
             category="ai-cve-verify",
-            description=(v.get("reasoning", "") + " A non-destructive probe shows the vulnerable "
-                         "code path is present and reachable on this host — strong corroboration, "
-                         "not full exploitation." + grounded).strip(),
+            description=(v.get("reasoning", "") + soft + grounded).strip(),
             recommendation=("Treat the host as affected and patch. To fully prove exploitability, "
                             "reproduce the public PoC in an isolated copy"
                             + (": " + ", ".join(pocs) if pocs else ".")),
@@ -1389,7 +1397,7 @@ def _cve_verify_finding(c, v: dict, target_url: str):
             confidence="medium",
             exploitability={"verdict": "likely-exploitable", "priority": 75,
                             "signals": {"reachable": True, "actively_verified": True,
-                                        "ai_planned": True,
+                                        "ai_planned": True, "corroborated": corroborated,
                                         "poc_grounded": bool(v.get("grounded_in_poc"))}})
     # B: a firm, high-impact / PoC-backed CVE a benign probe couldn't settle -> to-do.
     if status in ("needs-manual", "inconclusive") and c is not None and (
@@ -1480,7 +1488,11 @@ class AiCveVerify(Plugin):
                 # B: every CVE carries its verification outcome + manual-repro package
                 c.exploitability = {**(c.exploitability or {}),
                                     "verification": _verification_record(c, v, target_url)}
-                if v.get("status") == "confirmed":
+                # `verified` means PROVEN (equal weight to a nuclei template firing).
+                # A model 'confirmed' only earns it with an independent deterministic
+                # signal in the probe evidence; otherwise it stays a strong lead, not
+                # a proven exploit (parity with the injection loop's corroboration).
+                if v.get("status") == "confirmed" and v.get("corroborated"):
                     c.verified = True
             f = _cve_verify_finding(c, v, target_url)
             if f is not None:
