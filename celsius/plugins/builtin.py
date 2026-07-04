@@ -7,6 +7,7 @@ plugins handle orchestration, phase ordering, and mode classification.
 from __future__ import annotations
 
 import os
+from typing import Optional
 
 from .. import defaultcreds
 from .. import remediation

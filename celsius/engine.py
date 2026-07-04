@@ -112,8 +112,7 @@ def run_scan(
 
     if store is not None and config.persist:
         try:
-            scan_id = store.save_scan(result.to_dict())
-            setattr(result, "scan_id", scan_id)
+            result.scan_id = store.save_scan(result.to_dict())
         except Exception as e:
             result.errors.append(f"persist failed: {e}")
 

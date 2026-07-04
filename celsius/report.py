@@ -530,7 +530,6 @@ def html_report(data: dict) -> str:
 
     from . import grade as _grade
     asmt = _grade.assess(data)
-    gcolor = _GRADE_COLOR.get(str(asmt["grade"])[0], "#888")
     counts = asmt.get("counts", {})
     total_issues = sum(counts.values())
     _SEVS = ("CRITICAL", "HIGH", "MEDIUM", "LOW")

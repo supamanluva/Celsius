@@ -68,7 +68,6 @@ def analyze_csp(headers: dict) -> list[Finding]:
     csp = _parse_csp(policy)
     findings: list[Finding] = []
     script = csp.get("script-src", csp.get("default-src", []))
-    fetch_dirs = {**csp}
 
     def add(title, sev, desc, rec):
         findings.append(Finding(title=title, severity=sev, category="csp",

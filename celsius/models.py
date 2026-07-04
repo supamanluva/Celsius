@@ -127,6 +127,9 @@ class ScanResult:
     coverage: dict[str, Any] = field(default_factory=dict)       # M6: completeness critic
     started_at: str = ""
     finished_at: str = ""
+    # Populated by the engine after the result is persisted (the store's row id);
+    # runtime-only, so it is intentionally not part of to_dict().
+    scan_id: Optional[str] = None
 
     def add_finding(self, f: Finding) -> None:
         self.findings.append(f)
