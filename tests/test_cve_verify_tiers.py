@@ -29,10 +29,24 @@ def _v(status, **kw):
 
 
 def test_confirmed_finding():
-    f = _cve_verify_finding(_cve(), _v("confirmed"), _URL)
+    # 'confirmed' earns the proven tier only with an independent deterministic
+    # signal in the probe evidence (corroborated=True).
+    f = _cve_verify_finding(_cve(), _v("confirmed", corroborated=True), _URL)
     assert f.category == "ai-cve-verify" and "CONFIRMED" in f.title
     assert f.exploitability["verdict"] == "confirmed-exploitable"
+    assert f.exploitability["signals"]["corroborated"] is True
     assert f.severity is Severity.CRITICAL
+
+
+def test_confirmed_without_corroboration_downgraded_to_reachable():
+    # A model 'confirmed' with no deterministic proof must NOT mint a proven,
+    # confirmed-exploitable CRITICAL — it collapses into the reachable tier.
+    f = _cve_verify_finding(_cve(Severity.CRITICAL), _v("confirmed"), _URL)
+    assert f.category == "ai-cve-verify" and "reachable" in f.title.lower()
+    assert f.exploitability["verdict"] == "likely-exploitable"
+    assert f.exploitability["priority"] == 75
+    assert f.severity is Severity.HIGH            # not a proven CRITICAL
+    assert "verify by hand" in f.description.lower()
 
 
 def test_reachable_finding_capped_at_high():
