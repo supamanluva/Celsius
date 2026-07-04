@@ -1117,7 +1117,8 @@ class AiActiveVerify(Plugin):
             points = discover_points(base, lab)
             if points:
                 inj = agent.agentic_verify(ctx.result.to_dict(), points, provider, lab,
-                                           budget=budget, audit=ctx.audit, log=ctx.log)
+                                           budget=budget, audit=ctx.audit, log=ctx.log,
+                                           redact_secrets=cfg.ai_redact)
                 ctx.result.findings.extend(inj)
             else:
                 inj = []
@@ -1128,7 +1129,8 @@ class AiActiveVerify(Plugin):
             if hyps:
                 verdicts = agent.prove_hypotheses(
                     ctx.result.to_dict(), [f.to_dict() for f in hyps], provider, lab,
-                    budget=budget, audit=ctx.audit, log=ctx.log, max_calls=30)
+                    budget=budget, audit=ctx.audit, log=ctx.log, max_calls=30,
+                    redact_secrets=cfg.ai_redact)
                 ctx.result.findings, vstats = agent.apply_verdicts(ctx.result.findings, verdicts)
                 ctx.log(f"ai-prove: {vstats.get('confirmed', 0)} confirmed, "
                         f"{vstats.get('refuted', 0)} refuted, "
@@ -1465,7 +1467,7 @@ class AiCveVerify(Plugin):
             verdicts = agent.verify_cves(
                 ctx.result.to_dict(), [c.to_dict() for c in ctx.result.cves],
                 provider, lab, budget=Budget(max_tokens=2_000_000), audit=ctx.audit,
-                log=ctx.log, max_cves=20)
+                log=ctx.log, max_cves=20, redact_secrets=cfg.ai_redact)
         except AIError as e:
             ctx.result.errors.append(f"ai-cve-verify failed: {e}")
             return
