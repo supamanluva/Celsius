@@ -490,7 +490,7 @@ def _build_cve(
         published=c.get("published"),
         affects=svc.label(),
         product=svc.product or svc.name,
-        version=svc.version,
+        version=svc.version or "",
         port=svc.port,
         references=_extract_references(c),
         confidence=confidence,
@@ -545,7 +545,7 @@ def lookup_for_service(
 
         def check(vuln):
             cid = vuln.get("cve", {}).get("id", "")
-            return vuln if cid and _matches_cna(cid, svc.version, mapping) else None
+            return vuln if cid and _matches_cna(cid, svc.version or "", mapping) else None
 
         # CNA matches use real semver ranges, so they're firm unless the service
         # is a distro package (backport caveat still applies).

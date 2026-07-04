@@ -18,7 +18,11 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import TYPE_CHECKING, Callable, Optional
+
+if TYPE_CHECKING:
+    from ..audit import AuditLog
+    from ..auth import AuthSession
 
 USER_AGENT = "celsius/0.7 (+authorized lab testing)"
 TIMEOUT = 10
@@ -51,13 +55,13 @@ class LabContext:
     host: str
     enabled: bool
     attested: bool
-    audit: object
+    audit: "AuditLog"
     dry_run: bool = False
     rate_limit_rps: float = 5.0
     max_requests: int = 200
     insecure: bool = False
-    log: object = None
-    auth: object = None        # auth.AuthSession for authenticated active checks
+    log: Optional[Callable[[str], None]] = None
+    auth: Optional["AuthSession"] = None   # authenticated active checks
     _count: int = 0
     _last_ts: float = 0.0
     preview: list = field(default_factory=list)
@@ -135,9 +139,9 @@ class LabContext:
         class _NoRedirect(urllib.request.HTTPRedirectHandler):
             def redirect_request(self, *a, **k):
                 return None
-        handlers = [urllib.request.HTTPSHandler(context=ctx)]
+        handlers: list[urllib.request.BaseHandler] = [urllib.request.HTTPSHandler(context=ctx)]
         if not follow:
-            handlers.append(_NoRedirect)
+            handlers.append(_NoRedirect())
         opener = urllib.request.build_opener(*handlers)
         req = urllib.request.Request(url, data=body_bytes, headers=headers, method=method)
         try:

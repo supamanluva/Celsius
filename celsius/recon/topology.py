@@ -66,7 +66,7 @@ def _resolve(name: str) -> set[str]:
     try:
         for fam, _, _, _, sa in socket.getaddrinfo(name, None):
             if fam in (socket.AF_INET, socket.AF_INET6):
-                out.add(sa[0].split("%")[0])  # strip IPv6 scope id
+                out.add(str(sa[0]).split("%")[0])  # strip IPv6 scope id
     except (socket.gaierror, OSError):
         pass
     return out

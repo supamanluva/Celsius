@@ -777,13 +777,13 @@ class CoHostDiscovery(Plugin):
         # it behind a shared CDN, where the resolved IP is an edge serving thousands
         # of unrelated tenants (e.g. Cloudflare) — the "siblings" would be noise.
         cdn = _fronting_cdn(ctx.result.recon)
-        do_rip = ctx.config.subdomains and not cdn
+        do_rip = ctx.config.subdomains and not cdn and bool(ctx.result.ip)
         if ctx.config.subdomains and cdn:
             ctx.result.errors.append(
                 f"cohost: target is behind {cdn} (shared CDN) — reverse-IP cohosting "
                 "skipped; co-tenants on a CDN edge are unrelated to this host. Cert-SAN "
                 "siblings still reported.")
-        info = cohost_mod.discover(ctx.target.host, ctx.result.ip, sans,
+        info = cohost_mod.discover(ctx.target.host, ctx.result.ip or "", sans,
                                    do_reverse_ip=do_rip)
         if info.get("error"):
             ctx.result.errors.append(f"cohost: {info['error']}")
@@ -1483,7 +1483,8 @@ class AiCveVerify(Plugin):
         by_id = {c.id: c for c in ctx.result.cves}
         target_url = ctx.result.url or ctx.result.target
         for v in verdicts:
-            c = by_id.get(v.get("cve"))
+            cve_id = v.get("cve")
+            c = by_id.get(cve_id) if cve_id else None
             if c is not None:
                 # B: every CVE carries its verification outcome + manual-repro package
                 c.exploitability = {**(c.exploitability or {}),

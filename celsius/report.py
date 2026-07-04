@@ -912,7 +912,7 @@ def mailsec_html_report(info: dict) -> str:
 
     rows = ""
     for c in info.get("checks", []):
-        st = c.get("status", "info")
+        st = c.get("status") or "info"
         color = _MS_COLOR.get(st, "#888")
         fix = (f"<br><em style='color:#1a7d33'>↳ {e(c['fix'])}</em>" if c.get("fix") else "")
         val = (f"<br><code>{e(c['value'])}</code>" if c.get("value") else "")

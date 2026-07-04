@@ -18,6 +18,7 @@ import urllib.parse
 import urllib.request
 from collections import deque
 from dataclasses import dataclass, field
+from typing import Optional
 
 USER_AGENT = "celsius/0.5 (+authorized security testing)"
 TIMEOUT = 10
@@ -42,7 +43,7 @@ class CrawlResult:
     errors: list = field(default_factory=list)
 
 
-def _retry_after_seconds(value: str, fallback: float) -> float:
+def _retry_after_seconds(value: Optional[str], fallback: float) -> float:
     """Parse a Retry-After header (delta-seconds form); fall back otherwise."""
     try:
         return min(max(float((value or "").strip()), 0.0), _MAX_BACKOFF)

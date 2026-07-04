@@ -18,10 +18,13 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import dataclass, field
-from typing import Callable, Optional
+from typing import TYPE_CHECKING, Callable, Optional
 
 from . import notify as notify_mod
 from . import reeval
+
+if TYPE_CHECKING:
+    from .config import ScanConfig
 
 _TYPO_STATE_DIR = os.path.expanduser("~/.cache/celsius/typosquat")
 
@@ -101,7 +104,7 @@ def resolve_watchlist(store, *, targets: Optional[list] = None,
 
 def run_monitor(store, *, targets: Optional[list] = None,
                 watchlist_file: Optional[str] = None, rescan: bool = False,
-                scan_config_factory: Optional[Callable[[str], object]] = None,
+                scan_config_factory: Optional[Callable[[str], "ScanConfig"]] = None,
                 api_key: Optional[str] = None, firm_only: bool = False,
                 typosquat: bool = False,
                 limit: int = 200, log: Callable[[str], None] = lambda _m: None) -> MonitorReport:
