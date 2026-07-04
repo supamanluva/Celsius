@@ -7,15 +7,21 @@ on:
     branches: [main]
 
 jobs:
-  build:
+  # Stdlib-only proof: the core + CLI + tests run on a bare Python with zero
+  # third-party packages, one process per test file (matches how a user runs it).
+  # Runs on the 3.10 floor and current 3.12 so the supported range is exercised.
+  stdlib:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.12"]
     steps:
       - uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python-version }}
 
       - name: Byte-compile all modules (syntax check)
         run: python -m py_compile $(git ls-files '*.py')
@@ -23,14 +29,29 @@ jobs:
       - name: CLI smoke test (stdlib-only core, no deps needed)
         run: python -m celsius --version
 
-      - name: Unit tests (stdlib-only)
+      - name: Unit tests (stdlib-only, one process per file)
         run: |
           for t in tests/test_*.py; do python "$t"; done
 
-      - name: Lint (ruff, non-blocking)
-        run: |
-          pip install ruff
-          ruff check celsius/ || true
+  # Quality gates (blocking). Uses the dev dependency group via uv.
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+
+      - name: Lint (ruff — blocking)
+        run: uv run --group dev ruff check celsius/
+
+      - name: Type check (pyright — blocking on errors)
+        run: uv run --group dev pyright celsius/
+
+      - name: Tests under a shared pytest session (catches cross-test state leaks)
+        run: uv run --group dev pytest -q
 
   # Verify the uv packaging path (build backend + lockfile) without undermining
   # the stdlib-only proof above, which deliberately runs with plain Python.

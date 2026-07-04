@@ -77,6 +77,9 @@ def _fetch(url: str, insecure: bool, auth=None, *, retries: int = 2) -> tuple[in
                 time.sleep(wait)
                 continue
             raise
+    # Unreachable in practice (retries >= 0 → the loop always returns or raises);
+    # present so the function is total for callers unpacking the 3-tuple.
+    raise RuntimeError(f"crawler: no fetch attempt made for {url}")
 
 
 def crawl(base_url: str, *, max_pages: int = 40, max_depth: int = 3,

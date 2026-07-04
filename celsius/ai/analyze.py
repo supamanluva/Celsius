@@ -42,7 +42,7 @@ def _demote_weak_cve_hypotheses(findings: list[Finding], cves: list[dict]) -> No
         if f.severity.rank < Severity.HIGH.rank:
             continue
         hay = f"{f.title} {f.description}"
-        hit = next((cid for cid in weak_ids if cid in hay), None)
+        hit = next((cid for cid in weak_ids if cid and cid in hay), None)
         if not hit:
             continue
         f.severity = Severity.MEDIUM

@@ -35,7 +35,8 @@ def analyze(host: str, port: int = 443) -> tuple[dict, list[Finding], list[str]]
         with _connect(host, port, verify_ctx) as s:
             cert = s.getpeercert()
             info["protocol"] = s.version()
-            info["cipher"] = s.cipher()[0] if s.cipher() else None
+            cph = s.cipher()
+            info["cipher"] = cph[0] if cph else None
             info["verified"] = True
     except ssl.SSLCertVerificationError as e:
         info["verified"] = False
@@ -66,8 +67,9 @@ def analyze(host: str, port: int = 443) -> tuple[dict, list[Finding], list[str]]
     try:
         with _connect(host, port, noverify) as s:
             info.setdefault("protocol", s.version())
-            if s.cipher():
-                info.setdefault("cipher", s.cipher()[0])
+            cph = s.cipher()
+            if cph:
+                info.setdefault("cipher", cph[0])
             if cert is None:
                 cert = s.getpeercert()  # empty under CERT_NONE, but harmless
     except (ssl.SSLError, OSError):

@@ -15,6 +15,7 @@ don't OSV-query every "app-1.2.3.js" bundle name.
 from __future__ import annotations
 
 import re
+from typing import Optional
 
 from ..sca import Dep
 
@@ -38,7 +39,7 @@ _NPM = {
     # cdnjs / alternate names -> npm
     "lodash.js": "lodash", "underscore.js": "underscore", "moment.js": "moment",
     "angular.js": "angular", "vue.js": "vue", "react.js": "react",
-    "twitter-bootstrap": "bootstrap", "axios.js": "axios",
+    "axios.js": "axios",
 }
 
 _VER = r"(?P<ver>\d+\.\d+(?:\.\d+)?)"
@@ -66,7 +67,7 @@ _BANNERS = [
 ]
 
 
-def _norm(name: str) -> str:
+def _norm(name: str) -> Optional[str]:
     return _NPM.get((name or "").strip().lower().lstrip("@"))
 
 

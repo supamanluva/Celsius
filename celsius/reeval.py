@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from typing import Callable, Optional
 
 from . import cve as cve_mod
-from .models import CVE, Service
+from .models import Service
 from .targets import parse_target
 
 _SVC_FIELDS = {"name", "version", "port", "protocol", "product", "source", "extra"}

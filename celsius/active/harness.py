@@ -190,7 +190,8 @@ def discover_points(base_url: str, lab: LabContext) -> list[Point]:
         for fm in _FORM.finditer(resp.body):
             tag = fm.group(0)
             action = _ACTION.search(tag)
-            method = (_METHOD.search(tag).group(1).upper() if _METHOD.search(tag) else "GET")
+            mm = _METHOD.search(tag)
+            method = mm.group(1).upper() if mm else "GET"
             url = urllib.parse.urljoin(resp.final_url, action.group(1)) if action else resp.final_url
             names = _INPUT.findall(fm.group(1))
             if urllib.parse.urlparse(url).netloc in ("", host):

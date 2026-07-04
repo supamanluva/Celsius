@@ -54,7 +54,6 @@ def correlate(result: ScanResult) -> list[dict]:
     csp_inline = _has(F, category="csp", title_contains="unsafe-inline")
     dom_sinks = _has(F, category="dom-xss")
     graphql = _has(F, title_contains="graphql introspection")
-    openapi = _has(F, title_contains="openapi")
     endpoints = (result.recon.get("crawl", {}) or {}).get("endpoints", []) or []
     api_info = result.recon.get("api", {}) or {}
     kev_cves = [c for c in result.cves
