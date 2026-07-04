@@ -92,7 +92,11 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--ai-provider", default="deepseek", help="deepseek|openai|anthropic|local|mock")
     s.add_argument("--ai-model", help="override the provider's default model (e.g. a local Ollama model)")
     s.add_argument("--ai-base-url", help="AI API base URL (local Ollama: http://localhost:11434/v1)")
-    s.add_argument("--ai-redact", action="store_true", help="mask secrets before sending to the AI (default off)")
+    grp = s.add_mutually_exclusive_group()
+    grp.add_argument("--ai-redact", action="store_true", default=True, dest="ai_redact",
+                     help="mask secrets before sending to the AI (default ON)")
+    grp.add_argument("--ai-no-redact", action="store_false", dest="ai_redact",
+                     help="send unmasked content to the AI (only on a target you own)")
     s.add_argument("--json", metavar="FILE")
     s.add_argument("--html", metavar="FILE")
     s.add_argument("--sarif", metavar="FILE", help="write a SARIF 2.1.0 report (CI/IDE)")
@@ -173,7 +177,11 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--ai", action="store_true", help="add an AI secure-code review pass")
     c.add_argument("--ai-provider", default="deepseek", help="deepseek|openai|anthropic|local|mock")
     c.add_argument("--ai-model", help="override the provider's default model")
-    c.add_argument("--ai-redact", action="store_true", help="mask secrets before sending to the AI")
+    cgrp = c.add_mutually_exclusive_group()
+    cgrp.add_argument("--ai-redact", action="store_true", default=True, dest="ai_redact",
+                      help="mask secrets before sending to the AI (default ON)")
+    cgrp.add_argument("--ai-no-redact", action="store_false", dest="ai_redact",
+                      help="send unmasked source to the AI (only for code you own)")
 
     # serve
     sv = sub.add_parser("serve", help="launch the web app")

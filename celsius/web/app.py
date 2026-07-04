@@ -145,7 +145,7 @@ class ScanRequest(BaseModel):
     ai_model: Optional[str] = None
     ai_base_url: Optional[str] = None
     ai_api_key: Optional[str] = None
-    ai_redact: bool = False
+    ai_redact: bool = True  # mask secrets before sending to the AI (default ON)
     # authenticated scan (optional) — attach a session and/or log in via a form
     auth_cookie: Optional[str] = None
     auth_bearer: Optional[str] = None

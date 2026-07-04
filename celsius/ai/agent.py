@@ -18,6 +18,7 @@ from . import cache as cache_mod
 from . import prompts
 from .analyze import _call, _to_sev, parse_json
 from .provider import LLMProvider, Message
+from .redact import redact_obj
 
 # Reject anything that could change state or be a heavy/blind payload — the loop
 # is detection-only. (The harness also caps/rate-limits, this is defence in depth.)
@@ -66,7 +67,7 @@ def _corroborated(probe: dict, resp) -> bool:
     return False
 
 
-def _plan(result_dict: dict, points, provider, budget, audit) -> list[dict]:
+def _plan(result_dict: dict, points, provider, budget, audit, *, redact_secrets=True) -> list[dict]:
     context = {
         "url": result_dict.get("url") or result_dict.get("target"),
         "tech": (result_dict.get("recon") or {}).get("tech", []),
@@ -76,9 +77,11 @@ def _plan(result_dict: dict, points, provider, budget, audit) -> list[dict]:
         "findings": [{"title": f.get("title"), "category": f.get("category")}
                      for f in result_dict.get("findings", [])][:40],
     }
+    context, red = redact_obj(context, enabled=redact_secrets)
     messages = [Message("system", prompts.AGENT_PLAN_SYSTEM),
                 Message("user", prompts.plan_user_prompt(context))]
-    resp = _call(provider, messages, json_mode=True, budget=budget, use_cache=True, audit=audit)
+    resp = _call(provider, messages, json_mode=True, budget=budget, use_cache=True,
+                 audit=audit, redaction=red)
     data = parse_json(resp) or {}
     return data.get("probes", []) or []
 
@@ -103,22 +106,28 @@ def _execute(probe: dict, points, lab):
                     purpose=f"ai:{probe.get('technique', 'probe')}")
 
 
-def _judge(probe: dict, resp, provider, budget, audit) -> dict:
+def _judge(probe: dict, resp, provider, budget, audit, *, redact_secrets=True) -> dict:
+    # The raw resp is kept for the deterministic _corroborated() check; only the
+    # copy that leaves for the model is masked, so a secret in the reflected body
+    # never egresses while the model can still judge the reflection/error.
     response = {"status": resp.status, "location": resp.location,
                 "body_snippet": (resp.body or "")[:4000]}
+    response, red = redact_obj(response, enabled=redact_secrets)
     messages = [Message("system", prompts.AGENT_JUDGE_SYSTEM),
                 Message("user", prompts.judge_user_prompt(probe, response))]
-    out = _call(provider, messages, json_mode=True, budget=budget, use_cache=True, audit=audit)
+    out = _call(provider, messages, json_mode=True, budget=budget, use_cache=True,
+                audit=audit, redaction=red)
     return parse_json(out) or {}
 
 
 def agentic_verify(result_dict: dict, points, provider: LLMProvider, lab, *,
                    budget: Optional[cache_mod.Budget] = None, audit=None,
-                   log=lambda _m: None, max_probes: int = 8) -> list[Finding]:
+                   log=lambda _m: None, max_probes: int = 8,
+                   redact_secrets: bool = True) -> list[Finding]:
     """Plan -> execute (guardrailed) -> judge. Returns confirmed `verified` findings."""
     if not points:
         return []
-    probes = _plan(result_dict, points, provider, budget, audit)
+    probes = _plan(result_dict, points, provider, budget, audit, redact_secrets=redact_secrets)
     log(f"ai-verify: model proposed {len(probes)} probe(s)")
     findings: list[Finding] = []
     for probe in probes[:max_probes]:
@@ -130,7 +139,7 @@ def agentic_verify(result_dict: dict, points, provider: LLMProvider, lab, *,
         resp = _execute(probe, points, lab)
         if resp is None:
             continue
-        verdict = _judge(probe, resp, provider, budget, audit)
+        verdict = _judge(probe, resp, provider, budget, audit, redact_secrets=redact_secrets)
         if str(verdict.get("confirmed")).lower() not in ("true", "1", "yes"):
             continue
         tech = probe.get("technique", "other")
@@ -173,7 +182,8 @@ def agentic_verify(result_dict: dict, points, provider: LLMProvider, lab, *,
 
 def prove_hypotheses(result_dict: dict, hypotheses: list[dict], provider: LLMProvider,
                      lab, *, budget: Optional[cache_mod.Budget] = None, audit=None,
-                     log=lambda _m: None, max_calls: int = 10) -> list[dict]:
+                     log=lambda _m: None, max_calls: int = 10,
+                     redact_secrets: bool = True) -> list[dict]:
     """Tool-using loop: prove/refute each AI hypothesis with safe read-only tools.
 
     `hypotheses` is a list of finding dicts (category 'ai-hypothesis'). The model
@@ -193,10 +203,11 @@ def prove_hypotheses(result_dict: dict, hypotheses: list[dict], provider: LLMPro
         "services": [{"name": s.get("name"), "port": s.get("port"), "version": s.get("version")}
                      for s in result_dict.get("services", [])][:20],
     }
+    context, red_ctx = redact_obj(context, enabled=redact_secrets)
     messages = [Message("system", prompts.AGENT_TOOL_SYSTEM),
                 Message("user", prompts.tool_plan_prompt(hyp_view, verify_tools.TOOL_SPECS, context))]
     plan = parse_json(_call(provider, messages, json_mode=True, budget=budget,
-                            use_cache=True, audit=audit)) or {}
+                            use_cache=True, audit=audit, redaction=red_ctx)) or {}
     plans = plan.get("plans", []) or []
     log(f"ai-prove: planned {len(plans)} tool call(s) for {len(hypotheses)} hypothesis(es)")
 
@@ -224,11 +235,14 @@ def prove_hypotheses(result_dict: dict, hypotheses: list[dict], provider: LLMPro
             verdicts.append({"index": idx, "status": "inconclusive", "tool": tool,
                              "reasoning": "invalid tool call"})
             continue
+        # Mask secrets in the evidence copy sent to the model; the unredacted
+        # `evidence` stays local for the operator-facing PoC/curl below.
+        red_evidence, red_ev = redact_obj(evidence, enabled=redact_secrets)
         jmsg = [Message("system", prompts.AGENT_PROVE_JUDGE_SYSTEM),
                 Message("user", prompts.prove_judge_prompt(
-                    {"title": hyp.get("title"), "detail": hyp.get("description")}, evidence))]
+                    {"title": hyp.get("title"), "detail": hyp.get("description")}, red_evidence))]
         v = parse_json(_call(provider, jmsg, json_mode=True, budget=budget,
-                             use_cache=True, audit=audit)) or {}
+                             use_cache=True, audit=audit, redaction=red_ev)) or {}
         status = str(v.get("status", "inconclusive")).lower()
         if status not in ("confirmed", "refuted", "inconclusive"):
             status = "inconclusive"
@@ -310,7 +324,8 @@ def cve_candidates(cves: list, max_cves: int = 6) -> list:
 
 def verify_cves(result_dict: dict, cves: list, provider: LLMProvider, lab, *,
                 budget: Optional[cache_mod.Budget] = None, audit=None,
-                log=lambda _m: None, max_cves: int = 6, use_poc_content: bool = True) -> list[dict]:
+                log=lambda _m: None, max_cves: int = 6, use_poc_content: bool = True,
+                redact_secrets: bool = True) -> list[dict]:
     """For each firm, reachable CVE, have the model plan ONE benign detection probe
     and judge whether the CVE is present. When `use_poc_content`, the model is first
     grounded in EXCERPTS OF THE PUBLIC PoC WRITE-UPS (trickest/cve repo READMEs) so
@@ -351,10 +366,13 @@ def verify_cves(result_dict: dict, cves: list, provider: LLMProvider, lab, *,
             verdicts.append({"cve": c.get("id"), "status": "inconclusive", "tool": tool,
                              "grounded_in_poc": grounded, "reasoning": "invalid tool call"})
             continue
+        # Mask secrets in the evidence copy sent to the model; unredacted `evidence`
+        # stays local for the operator-facing curl below.
+        red_evidence, red_ev = redact_obj(evidence, enabled=redact_secrets)
         v = parse_json(_call(provider, [
             Message("system", prompts.CVE_JUDGE_SYSTEM),
-            Message("user", prompts.cve_judge_prompt(c, evidence))],
-            json_mode=True, budget=budget, use_cache=True, audit=audit)) or {}
+            Message("user", prompts.cve_judge_prompt(c, red_evidence))],
+            json_mode=True, budget=budget, use_cache=True, audit=audit, redaction=red_ev)) or {}
         status = str(v.get("status", "inconclusive")).lower()
         if status not in ("confirmed", "reachable", "refuted", "inconclusive"):
             status = "inconclusive"

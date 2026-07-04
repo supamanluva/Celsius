@@ -252,10 +252,15 @@ All AI output is labeled **`ai-hypothesis`** with a confidence and a
 non-destructive verification step — proposals to confirm, never auto-verified
 facts. Responses are cached and bounded by a token budget.
 
-**Privacy:** secret redaction before sending to the model is **optional and
-default OFF** (`--ai-redact` to enable) — full context gives the best detection,
-and the report carries full secret values for the owner to rotate. Every external
-send is recorded in the audit log with `masked` (was masking applied) and
+**Privacy:** secret redaction before sending to the model is **default ON** —
+secrets are replaced with typed placeholders (`<AWS_KEY>`) so the model can still
+reason about "a secret is here" without the value leaving the host. This covers
+the active loop's **live response bodies and tool evidence**, not just the scan
+summary — the copy sent to the model is masked while the raw response is kept
+locally for the deterministic corroboration check and the operator-facing PoC.
+Pass `--ai-no-redact` for maximum model visibility on a target you own; the local
+report still carries full secret values for you to rotate. Every external send is
+recorded in the audit log with `masked` (was masking applied) and
 `sensitive_count`. Use `--ai-provider local` to keep everything on-machine.
 
 #### Local / on-prem AI (Ollama) — nothing leaves the machine

@@ -82,6 +82,6 @@ class ScanConfig:
     ai_model: Optional[str] = None          # None -> provider default
     ai_base_url: Optional[str] = None
     ai_api_key: Optional[str] = None        # None -> provider env var
-    ai_redact: bool = False                 # mask secrets before send (default OFF)
+    ai_redact: bool = True                  # mask secrets before send (default ON; --ai-no-redact opts out)
 
     extra: dict = field(default_factory=dict)
