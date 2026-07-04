@@ -103,7 +103,7 @@ def check_live(domain: str, *, mail: bool = True) -> Optional[dict]:
     addrs = dns_mod._query(domain, "A") or dns_mod._query(domain, "AAAA")
     if not addrs:
         return None
-    res = {"domain": domain, "ip": addrs[0]}
+    res: dict = {"domain": domain, "ip": addrs[0]}
     if mail:
         res["mail"] = bool(dns_mod._query(domain, "MX"))
     return res

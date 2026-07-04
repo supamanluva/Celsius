@@ -79,10 +79,8 @@ typeCheckingMode = "basic"
 # Optional extras (web=fastapi, dynamic=playwright) are not installed in the
 # type-check environment and their imports are guarded at runtime.
 reportMissingImports = false
-# Gradual-typing debt in the dynamically-typed AI/harness paths: values crossing
-# the LLM-JSON boundary (untyped dict.get) and a few fields still typed `object`.
-# Kept visible as warnings and ratcheted back to error over time; the rest of
-# basic mode (undefined names, bad returns, optional access, etc.) stays blocking.
-reportArgumentType = "warning"
-reportAttributeAccessIssue = "warning"
-reportCallIssue = "warning"
+# The rest of basic mode is blocking (0 errors, 0 warnings). The AI/harness paths
+# that were previously gradual-typing debt are now typed at the LLM-JSON boundary
+# (TYPE_CHECKING imports for the harness/config, host/port coercion in the tool
+# dispatcher), so reportArgumentType / reportAttributeAccessIssue / reportCallIssue
+# run at error level with everything else.

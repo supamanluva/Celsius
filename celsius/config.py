@@ -5,7 +5,10 @@ can both import it without a circular dependency.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
+
+if TYPE_CHECKING:
+    from .auth import AuthSession
 
 
 @dataclass
@@ -62,7 +65,7 @@ class ScanConfig:
 
     # transport
     insecure: bool = False
-    auth: object = None                     # auth.AuthSession for authenticated scans (or None)
+    auth: "Optional[AuthSession]" = None    # authenticated scans (or None)
 
     # M0: governance
     scope_file: Optional[str] = None        # path to scope.yml (None -> permissive)

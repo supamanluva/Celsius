@@ -111,8 +111,11 @@ def _plan(result_dict: dict, points, provider, budget, audit, *, redact_secrets=
 
 def _execute(probe: dict, points, lab):
     """Build the request from the model's plan and send it through the harness."""
+    idx = probe.get("point")
+    if not isinstance(idx, (int, str)):
+        return None
     try:
-        pt = points[int(probe.get("point"))]
+        pt = points[int(idx)]
     except (ValueError, TypeError, IndexError):
         return None
     param = probe.get("param")

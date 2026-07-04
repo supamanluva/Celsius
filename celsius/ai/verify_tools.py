@@ -13,10 +13,13 @@ from __future__ import annotations
 import re
 import shlex
 import socket
-from typing import Callable, Optional
+from typing import TYPE_CHECKING, Callable, Optional
 from urllib.parse import urlencode, urlparse
 
 from .. import webchecks
+
+if TYPE_CHECKING:
+    from ..active.harness import LabContext
 
 _TITLE = re.compile(r"<title[^>]*>(.*?)</title>", re.I | re.S)
 
@@ -60,13 +63,13 @@ TOOL_SPECS = [
 ]
 
 
-def _same_host(candidate: str, host: str) -> bool:
+def _same_host(candidate: Optional[str], host: Optional[str]) -> bool:
     c = (candidate or "").lower().strip().rstrip(".")
     h = (host or "").lower().strip().rstrip(".")
     return bool(h) and (c == h)
 
 
-def _http_get(args: dict, lab) -> Optional[dict]:
+def _http_get(args: dict, lab: "LabContext") -> Optional[dict]:
     url = (args or {}).get("url")
     if not isinstance(url, str) or not url.startswith(("http://", "https://")):
         return None
@@ -95,11 +98,11 @@ def _http_get(args: dict, lab) -> Optional[dict]:
     }
 
 
-def _tls_probe(args: dict, lab) -> Optional[dict]:
-    host = (args or {}).get("host")
-    port = (args or {}).get("port", 443)
+def _tls_probe(args: dict, lab: "LabContext") -> Optional[dict]:
+    host = str((args or {}).get("host") or "")
+    port_raw = (args or {}).get("port", 443)
     try:
-        port = int(port)
+        port = int(port_raw) if isinstance(port_raw, (int, str)) else 443
     except (TypeError, ValueError):
         port = 443
     if not _same_host(host, lab.host):
@@ -113,8 +116,8 @@ def _tls_probe(args: dict, lab) -> Optional[dict]:
     return {"tool": "tls_probe", "host": host, "port": port, **keep, "errors": errs[:2]}
 
 
-def _dns_lookup(args: dict, lab) -> Optional[dict]:
-    host = (args or {}).get("host")
+def _dns_lookup(args: dict, lab: "LabContext") -> Optional[dict]:
+    host = str((args or {}).get("host") or "")
     if not _same_host(host, lab.host):
         return {"tool": "dns_lookup", "host": host, "error": "off-scope host refused"}
     from ..recon import dns as dns_mod
@@ -123,11 +126,13 @@ def _dns_lookup(args: dict, lab) -> Optional[dict]:
             "records": data.get("records", {}), "reverse": data.get("reverse", {})}
 
 
-def _tcp_connect(args: dict, lab) -> Optional[dict]:
-    host = (args or {}).get("host")
-    port = (args or {}).get("port")
+def _tcp_connect(args: dict, lab: "LabContext") -> Optional[dict]:
+    host = str((args or {}).get("host") or "")
+    port_raw = (args or {}).get("port")
+    if not isinstance(port_raw, (int, str)):
+        return None
     try:
-        port = int(port)
+        port = int(port_raw)
     except (TypeError, ValueError):
         return None
     if not _same_host(host, lab.host) or not (0 < port < 65536):
@@ -141,8 +146,8 @@ def _tcp_connect(args: dict, lab) -> Optional[dict]:
     return {"tool": "tcp_connect", "host": host, "port": port, "open": is_open}
 
 
-def _takeover_check(args: dict, lab) -> Optional[dict]:
-    host = (args or {}).get("host")
+def _takeover_check(args: dict, lab: "LabContext") -> Optional[dict]:
+    host = str((args or {}).get("host") or "")
     if not _same_host(host, lab.host):
         return {"tool": "takeover_check", "host": host, "error": "off-scope host refused"}
     cname = webchecks._cname(host)
@@ -176,7 +181,7 @@ def _curl(method: str, url: str, headers: Optional[dict], body: Optional[dict]) 
 _POC_METHODS = {"GET", "HEAD", "OPTIONS", "POST"}
 
 
-def _poc_request(args: dict, lab) -> Optional[dict]:
+def _poc_request(args: dict, lab: "LabContext") -> Optional[dict]:
     """Send ONE crafted PoC request through the harness and capture the proof.
 
     Guarded: read-only/benign only (a destructive filter blocks SQL-write/OS-cmd
@@ -213,7 +218,7 @@ def _poc_request(args: dict, lab) -> Optional[dict]:
     }
 
 
-_TOOLS: dict[str, Callable[[dict, object], Optional[dict]]] = {
+_TOOLS: dict[str, Callable[[dict, "LabContext"], Optional[dict]]] = {
     "http_get": _http_get,
     "tcp_connect": _tcp_connect,
     "takeover_check": _takeover_check,
@@ -223,7 +228,7 @@ _TOOLS: dict[str, Callable[[dict, object], Optional[dict]]] = {
 }
 
 
-def run_tool(name: str, args: dict, lab) -> Optional[dict]:
+def run_tool(name: str, args: dict, lab: "LabContext") -> Optional[dict]:
     """Dispatch a validated tool call; never raises."""
     fn = _TOOLS.get(name)
     if fn is None:
