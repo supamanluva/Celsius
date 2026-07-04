@@ -304,6 +304,9 @@ h2.section {
 .v-unk, .v-info { background: var(--surface-3); color: var(--muted); }
 
 /* ---- service table --------------------------------------------------------- */
+/* Horizontal scroll wrapper so wide tables never force the page to scroll sideways. */
+.tablewrap { width: 100%; overflow-x: auto; margin-top: .4rem; -webkit-overflow-scrolling: touch; }
+.tablewrap table.svc { margin-top: 0; }
 table.svc { width: 100%; border-collapse: collapse; font-size: .86rem; margin-top: .4rem; }
 table.svc th, table.svc td { text-align: left; padding: .5rem .7rem; border-bottom: 1px solid var(--border-soft); }
 table.svc th { color: var(--muted); font-family: var(--font-mono); font-weight: 600; font-size: .68rem; text-transform: uppercase; letter-spacing: .06em; }
@@ -494,7 +497,6 @@ footer strong { color: var(--muted); }
 /* ---- responsive ------------------------------------------------------------ */
 @media (max-width: 720px) {
   .appbar { padding: .65rem 1rem; }
-  .brand-logo { height: 28px; }
   .wordmark { font-size: .95rem; }
   .pill-soft { display: none; }
   .container { padding: 1.1rem; }
@@ -505,4 +507,14 @@ footer strong { color: var(--muted); }
   .mail-score .mx { margin-left: 0; text-align: left; width: 100%; }
   .healthcard { flex-direction: column; gap: .6rem; }
   .healthcard .hc-grade { align-self: flex-start; }
+}
+
+/* Respect users who ask for less motion: kill the animated progress shimmer and
+   transitions rather than looping them. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important;
+  }
 }

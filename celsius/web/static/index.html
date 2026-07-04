@@ -152,8 +152,8 @@
         <div id="testsitesList"></div>
       </details>
 
-      <div id="scanStatus" class="status hidden"></div>
-      <pre id="scanLog" class="log hidden"></pre>
+      <div id="scanStatus" class="status hidden" role="status" aria-live="polite"></div>
+      <pre id="scanLog" class="log hidden" aria-live="polite" aria-atomic="false"></pre>
 
       <div id="summary" class="summary hidden"></div>
       <div id="results"></div>
@@ -167,7 +167,7 @@
         <button type="submit" id="mailBtn">Check</button>
       </form>
       <p class="or">Passive check — SPF · DKIM · DMARC · MTA-STS · TLS-RPT · DNSSEC · BIMI. No packets are sent to the mail server.</p>
-      <div id="mailStatus" class="status hidden"></div>
+      <div id="mailStatus" class="status hidden" role="status" aria-live="polite"></div>
       <div id="mailResults"></div>
     </section>
 
@@ -181,7 +181,7 @@
       <p class="or">— or paste a snippet —</p>
       <textarea id="codeText" placeholder="paste code/config to scan for secrets &amp; risky patterns"></textarea>
       <button id="codeTextBtn" class="secondary">Scan pasted text</button>
-      <div id="codeStatus" class="status hidden"></div>
+      <div id="codeStatus" class="status hidden" role="status" aria-live="polite"></div>
       <div id="codeResults"></div>
     </section>
 
@@ -198,9 +198,9 @@
   </main>
 
   <!-- PoC modal -->
-  <div id="pocModal" class="modal hidden">
+  <div id="pocModal" class="modal hidden" role="dialog" aria-modal="true" aria-label="Proof of concept" aria-hidden="true">
     <div class="modal-box">
-      <button class="modal-close" id="pocClose">×</button>
+      <button class="modal-close" id="pocClose" aria-label="Close">×</button>
       <div id="pocContent"></div>
     </div>
   </div>

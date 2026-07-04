@@ -44,7 +44,7 @@ def test_rollup_aggregates_and_excludes_weak():
     assert "CRITICAL 1" in html
     # the weak one surfaces as UNCONFIRMED
     assert "UNCONFIRMED 1" in html
-    assert "203.0.113.1" in html and "unique IP" in html
+    assert "203.0.113.1" in html and "Unique IPs" in html
     # AI hypothesis excluded from headline (still 1 CRITICAL from the firm CVE, not 2)
     assert "CRITICAL 1" in html and "AI LEADS 1" in html
 
