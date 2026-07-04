@@ -55,8 +55,6 @@ function withToken(url) {
     root.setAttribute("data-theme", theme);
     const btn = $("themeToggle");
     if (btn) btn.textContent = theme === "light" ? "☾" : "☀"; // ☾ / ☀
-    const logo = $("brandLogo");
-    if (logo) logo.src = theme === "light" ? "/static/logo.png" : "/static/logo-dark.png";
   }
   let saved = null;
   try { saved = localStorage.getItem(KEY); } catch (e) { /* private mode */ }
@@ -498,11 +496,11 @@ function renderResult(res, scanId) {
   // services
   html += `<h2 class="section">Detected services (${(res.services || []).length})</h2>`;
   if ((res.services || []).length) {
-    html += `<table class="svc"><tr><th>Product</th><th>Version</th><th>Port</th><th>Source</th></tr>`;
+    html += `<div class="tablewrap"><table class="svc"><tr><th>Product</th><th>Version</th><th>Port</th><th>Source</th></tr>`;
     res.services.forEach((s) => {
       html += `<tr><td>${esc(s.name)}</td><td>${esc(s.version || "?")}</td><td>${s.port || ""}</td><td>${esc(s.source)}</td></tr>`;
     });
-    html += `</table>`;
+    html += `</table></div>`;
   } else html += `<p class="empty">none</p>`;
 
   // Recon (attack surface)
@@ -714,14 +712,43 @@ async function showPoc(kind, data, exploit) {
       html += `</div>`;
     }
     $("pocContent").innerHTML = html;
-    $("pocModal").classList.remove("hidden");
+    openModal();
   } catch (err) {
     alert("Could not load PoC: " + err.message);
   }
 }
-$("pocClose").addEventListener("click", () => $("pocModal").classList.add("hidden"));
+
+// Modal open/close with focus management: trap Tab inside the dialog, close on
+// Escape or backdrop click, and restore focus to whatever opened it.
+let _pocReturnFocus = null;
+function openModal() {
+  const modal = $("pocModal");
+  _pocReturnFocus = document.activeElement;
+  modal.classList.remove("hidden");
+  modal.setAttribute("aria-hidden", "false");
+  $("pocClose").focus();
+}
+function closeModal() {
+  const modal = $("pocModal");
+  if (modal.classList.contains("hidden")) return;
+  modal.classList.add("hidden");
+  modal.setAttribute("aria-hidden", "true");
+  if (_pocReturnFocus && _pocReturnFocus.focus) _pocReturnFocus.focus();
+  _pocReturnFocus = null;
+}
+$("pocClose").addEventListener("click", closeModal);
 $("pocModal").addEventListener("click", (e) => {
-  if (e.target.id === "pocModal") $("pocModal").classList.add("hidden");
+  if (e.target.id === "pocModal") closeModal();
+});
+$("pocModal").addEventListener("keydown", (e) => {
+  if (e.key === "Escape") { closeModal(); return; }
+  if (e.key !== "Tab") return;
+  const focusable = $("pocModal").querySelectorAll(
+    'button, a[href], input, textarea, select, [tabindex]:not([tabindex="-1"])');
+  if (!focusable.length) return;
+  const first = focusable[0], last = focusable[focusable.length - 1];
+  if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+  else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
 });
 
 // ---- history -----------------------------------------------------------------
@@ -737,7 +764,7 @@ async function loadHistory() {
       $("historyList").innerHTML = `<p class="empty">No scans recorded yet.</p>`;
       return;
     }
-    let html = `<table class="svc"><tr><th>When</th><th>Target</th><th>Worst</th><th>CVE</th><th>Findings</th><th></th></tr>`;
+    let html = `<div class="tablewrap"><table class="svc"><tr><th>When</th><th>Target</th><th>Worst</th><th>CVE</th><th>Findings</th><th></th></tr>`;
     scans.forEach((s) => {
       const sev = s.worst && s.worst !== "NONE" ? s.worst : "INFO";
       html += `<tr>
@@ -748,7 +775,7 @@ async function loadHistory() {
         <td><button class="pocBtn" data-scan="${esc(s.id)}">open</button></td>
       </tr>`;
     });
-    html += `</table>`;
+    html += `</table></div>`;
     $("historyList").innerHTML = html;
     $("historyList").querySelectorAll("button[data-scan]").forEach((b) => {
       b.addEventListener("click", () => openScan(b.dataset.scan));
