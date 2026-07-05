@@ -85,6 +85,8 @@ class ScanConfig:
     oob_callback_host: Optional[str] = None  # address the target calls back to (None -> auto-detect)
     idor: bool = False                      # lab-mode: IDOR/BOLA authorization probe (needs an auth session)
     auth2: "Optional[AuthSession]" = None   # a second identity, for cross-user BOLA testing
+    time_sqli: bool = False                 # lab-mode: time-based blind SQLi (DELIBERATELY delays the DB — opt-in)
+    time_sqli_delay: float = 3.0            # seconds the injected SQL sleep should pause for
 
     # M2: AI layer
     ai: bool = False                        # run AI triage/analysis

