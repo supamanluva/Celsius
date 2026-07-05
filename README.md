@@ -345,6 +345,13 @@ It is gated by a layered safety harness — **all** must hold:
 2. a `--scope` file listing the target with `exploit` mode, **and**
 3. a per-run attestation (`--lab-attest "..."` or the interactive prompt).
 
+**`--time-sqli`** adds **time-based blind SQLi** — the one probe that isn't
+non-destructive: it injects a SQL sleep and confirms from the response delay,
+deliberately pausing the database. It's a separate opt-in for exactly that reason,
+and it's robust — it only confirms when the delay *scales* (a doubled sleep delays
+~2×), so a merely slow endpoint won't trigger it. Slow by nature; tune with
+`--time-sqli-delay`.
+
 Plus: `--dry-run` previews every payload without sending it; a kill-switch file
 `~/.celsius-stop` halts immediately; `--exploit-max-requests`/`--exploit-rate-limit`
 bound the activity; and **every** active request is written to the audit log.

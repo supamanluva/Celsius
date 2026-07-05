@@ -1148,6 +1148,56 @@ class OobProbes(Plugin):
 
 
 @register
+class TimeSqliProbe(Plugin):
+    id = "time-sqli"
+    title = "lab-mode time-based blind SQLi (deliberately delays the DB — opt-in)"
+    phase = Phase.DETECT
+    mode = Mode.EXPLOIT
+    category = "active-verify"
+
+    def enabled(self, ctx: ScanContext) -> bool:
+        return ctx.config.allow_exploit and ctx.config.time_sqli
+
+    def run(self, ctx: ScanContext) -> None:
+        from ..active.harness import LabContext, discover_points
+        from ..active.verifiers import time_based_sqli
+
+        cfg = ctx.config
+        lab = LabContext(
+            host=ctx.target.host, enabled=cfg.allow_exploit,
+            attested=bool(cfg.lab_attestation), audit=ctx.audit, dry_run=cfg.dry_run,
+            rate_limit_rps=cfg.exploit_rate_limit, max_requests=cfg.exploit_max_requests,
+            insecure=cfg.insecure, log=ctx.log, auth=cfg.auth,
+        )
+        ready, why = lab.ready()
+        if not ready:
+            ctx.result.errors.append(f"time-sqli: skipped ({why})")
+            ctx.audit.skipped(self.id, ctx.target.host, why)
+            return
+        if cfg.dry_run:
+            ctx.result.errors.append("time-sqli: skipped — timing-based confirmation needs live "
+                                     "requests and can't be dry-run; re-run without --dry-run")
+            return
+
+        ctx.audit.event("lab_attestation", host=ctx.target.host,
+                        statement=str(cfg.lab_attestation)[:300], dry_run=cfg.dry_run)
+        base = ctx.result.url or ctx.target.web_url()
+        points = discover_points(base, lab)
+        if not points:
+            ctx.result.errors.append("time-sqli: no parameterized requests found")
+            return
+
+        ctx.log(f"time-sqli: timing probes ({cfg.time_sqli_delay:g}s sleep — slow, DB pauses) ...")
+        findings = time_based_sqli(points, lab, delay=cfg.time_sqli_delay)
+        ctx.result.findings.extend(findings)
+        ctx.result.recon["time_sqli"] = {
+            "points": len(points), "delay": cfg.time_sqli_delay,
+            "confirmed": len(findings), "requests_sent": lab._count,
+            "halted": lab.stopped_reason or None,
+        }
+
+
+@register
 class IdorProbe(Plugin):
     id = "idor"
     title = "lab-mode IDOR/BOLA probe (object-level authorization)"

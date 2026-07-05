@@ -96,6 +96,11 @@ def build_parser() -> argparse.ArgumentParser:
                    help="lab mode: blind-XXE probe via an out-of-band callback (needs --lab)")
     s.add_argument("--oob-host", metavar="ADDR",
                    help="address the target should call back to for OOB probes (default: auto-detect LAN IP)")
+    s.add_argument("--time-sqli", action="store_true",
+                   help="lab mode: time-based blind SQLi — DELIBERATELY delays the DB (load-adjacent; "
+                        "opt-in exception to the non-destructive default; needs --lab)")
+    s.add_argument("--time-sqli-delay", type=float, default=3.0, metavar="SECS",
+                   help="seconds the injected SQL sleep should pause for (default 3)")
     s.add_argument("--idor", action="store_true",
                    help="lab mode: IDOR/BOLA authorization probe (needs --lab and an auth session; "
                         "add --auth2-* for cross-user testing)")
@@ -314,6 +319,7 @@ def _cmd_scan(args) -> int:
         ssrf_oob=args.ssrf, rce_oob=args.rce, blind_xss_oob=args.blind_xss,
         xxe_oob=args.xxe, oob_callback_host=args.oob_host,
         idor=args.idor, auth2=auth2_session,
+        time_sqli=args.time_sqli, time_sqli_delay=args.time_sqli_delay,
         exploit_max_requests=args.exploit_max_requests, exploit_rate_limit=args.exploit_rate_limit,
         ai=args.ai, ai_provider=args.ai_provider, ai_model=args.ai_model,
         ai_base_url=args.ai_base_url, ai_redact=args.ai_redact,
