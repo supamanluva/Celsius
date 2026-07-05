@@ -233,6 +233,45 @@ def ssti(points: list[Point], lab: LabContext) -> list[Finding]:
     return out
 
 
+# A uniquely-named header we try to inject via CRLF; it can only appear in a
+# response if the parameter split the header stream, so confirmation is FP-free.
+_CRLF_HDR = "x-celsius-split"
+_CRLF_TOKEN = "clf7k2 q"
+
+
+def crlf_injection(points: list[Point], lab: LabContext) -> list[Finding]:
+    """HTTP response-header injection (CRLF / response splitting): inject a newline
+    plus a uniquely-named header and confirm ONLY if that header comes back in the
+    response — proof the parameter is written into the response header stream
+    unsanitized (usable for cache poisoning, cookie setting, header-based XSS)."""
+    inj = f"{_CRLF_HDR}: {_CRLF_TOKEN}"
+    # raw CR/LF (build_url percent-encodes on the wire → single-decode apps) and a
+    # pre-encoded form (→ apps that decode the value a second time).
+    payloads = [f"\r\n{inj}", f"\n{inj}", f"\r{inj}", f"%0d%0a{inj}"]
+    out: list[Finding] = []
+    for pt in points:
+        for param in pt.param_names():
+            base = str(pt.params.get(param) or "")
+            for pay in payloads:
+                ok, _why = lab.can_send()
+                if not ok:
+                    return out
+                r = _send_with(pt, param, base + pay, lab, "crlf")
+                if r is None:
+                    continue
+                if (r.headers or {}).get(_CRLF_HDR) == _CRLF_TOKEN:
+                    out.append(_confirm(
+                        "HTTP response header injection (CRLF) confirmed", Severity.HIGH,
+                        pt, param, base + pay,
+                        "A CRLF sequence injected into this parameter added an "
+                        "attacker-controlled response header, proving HTTP response "
+                        "splitting — usable for cache poisoning, cookie setting, or "
+                        "header-based XSS.",
+                        f"injected header '{_CRLF_HDR}: {_CRLF_TOKEN}' appeared in the response"))
+                    break
+    return out
+
+
 # Parameter names that plausibly carry a URL/host the server fetches — the SSRF
 # surface. A substring match keeps it broad; the probe only *confirms* on a real
 # out-of-band callback, so a loose hint costs a wasted request, not a false report.
@@ -472,6 +511,7 @@ ALL_VERIFIERS = [
     ("sqli-error", sqli_error),
     ("sqli-boolean", blind_sqli_boolean),
     ("ssti", ssti),
+    ("crlf", crlf_injection),
 ]
 
 

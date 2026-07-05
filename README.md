@@ -306,7 +306,9 @@ probe, a **blind boolean-based SQLi** differential — an always-true vs always-
 condition, confirmed only when the true response tracks the baseline and the false
 one diverges — and **server-side template injection**: a math expression in several
 template syntaxes, confirmed only when the server returns the evaluated product but
-not the raw expression). Confirmed issues are marked `confirmed-exploitable`.
+not the raw expression, and **CRLF response-header injection**, confirmed only when a
+uniquely-named injected header comes back in the response). Confirmed issues are
+marked `confirmed-exploitable`.
 
 **Out-of-band (OOB) probes** confirm *blind* bugs — ones that leave no trace in
 the response — by planting a unique callback URL and watching a **self-hosted
