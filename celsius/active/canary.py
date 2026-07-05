@@ -23,9 +23,28 @@ from __future__ import annotations
 
 import http.server
 import secrets
+import socket
 import threading
 import time
 from dataclasses import dataclass
+
+
+def detect_callback_host() -> str:
+    """Best-guess local address the target should call back to.
+
+    Picks the IP of the interface that routes to the internet (a UDP 'connect'
+    sends no packets — it just selects the egress interface). Falls back to
+    loopback, which only works when the target is on this host — callers should
+    warn if the target is remote and this returns 127.0.0.1.
+    """
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(("203.0.113.1", 9))   # TEST-NET-3, unrouteable; just picks the iface
+        return s.getsockname()[0]
+    except OSError:
+        return "127.0.0.1"
+    finally:
+        s.close()
 
 
 @dataclass

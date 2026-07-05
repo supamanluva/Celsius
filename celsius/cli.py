@@ -86,6 +86,10 @@ def build_parser() -> argparse.ArgumentParser:
                    help="LAB MODE: non-destructive active verification (needs scope EXPLOIT + attestation)")
     s.add_argument("--lab-attest", metavar="TEXT", help="attestation statement for lab mode")
     s.add_argument("--dry-run", action="store_true", help="lab mode: preview payloads without sending")
+    s.add_argument("--ssrf", action="store_true",
+                   help="lab mode: blind-SSRF probe via an out-of-band callback canary (needs --lab)")
+    s.add_argument("--oob-host", metavar="ADDR",
+                   help="address the target should call back to for --ssrf (default: auto-detect LAN IP)")
     s.add_argument("--exploit-max-requests", type=int, default=200)
     s.add_argument("--exploit-rate-limit", type=float, default=5.0)
     s.add_argument("--no-db", action="store_true", help="do not persist the scan to the local store")
@@ -289,6 +293,7 @@ def _cmd_scan(args) -> int:
         auth=auth_session,
         scope_file=args.scope, allow_active=not args.no_active, persist=not args.no_db,
         allow_exploit=args.lab, lab_attestation=lab_attest, dry_run=args.dry_run,
+        ssrf_oob=args.ssrf, oob_callback_host=args.oob_host,
         exploit_max_requests=args.exploit_max_requests, exploit_rate_limit=args.exploit_rate_limit,
         ai=args.ai, ai_provider=args.ai_provider, ai_model=args.ai_model,
         ai_base_url=args.ai_base_url, ai_redact=args.ai_redact,
