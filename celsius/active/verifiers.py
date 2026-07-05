@@ -18,7 +18,7 @@ import re
 import time
 
 from ..models import Finding, Severity
-from .canary import OOBCanary
+from .canary import Canary, OOBCanary
 from .harness import _KEEP_AUTH, LabContext, Point, build_url
 
 # A unique, benign marker. Contains metacharacters so we can tell escaped from raw.
@@ -347,7 +347,7 @@ _SSRF_HINT = re.compile(
     re.I)
 
 
-def _oob_probe(points: list[Point], lab: LabContext, canary: OOBCanary, *,
+def _oob_probe(points: list[Point], lab: LabContext, canary: Canary, *,
                purpose: str, payloads_for, title: str, detail: str,
                severity: Severity, label: str, param_hint=None,
                wait_timeout: float = 3.0) -> list[Finding]:
@@ -382,7 +382,7 @@ def _oob_probe(points: list[Point], lab: LabContext, canary: OOBCanary, *,
     return out
 
 
-def ssrf_oob(points: list[Point], lab: LabContext, canary: OOBCanary,
+def ssrf_oob(points: list[Point], lab: LabContext, canary: Canary,
              *, wait_timeout: float = 3.0) -> list[Finding]:
     """Blind-SSRF probe: inject a unique OOB callback URL into URL-ish params and
     confirm ONLY if the target actually fetches it (a recorded canary hit)."""
@@ -405,7 +405,7 @@ def _rce_payloads(url: str, base) -> list[str]:
             f"$({fetch})", f"`{fetch}`", f"{b};{wget}"]
 
 
-def command_injection_oob(points: list[Point], lab: LabContext, canary: OOBCanary,
+def command_injection_oob(points: list[Point], lab: LabContext, canary: Canary,
                           *, wait_timeout: float = 3.0) -> list[Finding]:
     """OS command-injection probe: inject shell payloads that make the host fetch a
     unique canary URL. A callback is deterministic proof the value reached a shell —
@@ -430,7 +430,7 @@ def _xss_payloads(url: str, _base) -> list[str]:
             f"<svg onload=\"fetch('{url}')\">"]
 
 
-def blind_xss_oob(points: list[Point], lab: LabContext, canary: OOBCanary,
+def blind_xss_oob(points: list[Point], lab: LabContext, canary: Canary,
                   *, wait_timeout: float = 3.0) -> list[Finding]:
     """Blind/stored-XSS beacon: inject markup that loads a unique canary resource.
     A callback proves the value was rendered into an HTML/JS context that fetched
@@ -457,7 +457,7 @@ _XXE_BODY = (
 )
 
 
-def xxe_oob(points: list[Point], lab: LabContext, canary: OOBCanary,
+def xxe_oob(points: list[Point], lab: LabContext, canary: Canary,
             *, wait_timeout: float = 3.0) -> list[Finding]:
     """Blind XML external entity: POST an XML document whose external entity points
     at a unique canary URL. If the server's XML parser resolves it (a callback), XXE

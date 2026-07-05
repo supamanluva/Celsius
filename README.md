@@ -324,11 +324,18 @@ canary** for the phone-home. A recorded hit is deterministic proof:
   server's XML parser fetch the canary; each endpoint is probed once with an XML
   body — endpoints that don't parse XML simply never call back).
 
-The canary is self-hosted (no third-party collaborator), so the target must be
+By default the canary is a self-hosted **HTTP** listener, so the target must be
 able to reach it: pass `--oob-host <addr>` with a LAN/public address the target
 can route to (it auto-detects your LAN IP otherwise, and skips with a clear
-message if a loopback callback can't reach a remote target). HTTP-callback based;
-egress-filtered targets would need a DNS canary (not yet built).
+message if a loopback callback can't reach a remote target).
+
+For **egress-filtered** targets — where outbound HTTP is blocked — use a **DNS
+canary** with `--oob-domain <domain>` (and `--oob-dns-port`, default 53). A DNS
+*query* for `<token>.<domain>` is the hit, which escapes filtering because the
+target's resolver forwards the lookup up the chain to you. This needs real
+infrastructure: a registered domain whose NS records delegate to the host running
+Celsius. All the OOB probes (SSRF/RCE/XSS/XXE) then confirm via the DNS channel
+instead of HTTP.
 
 **`--idor`** tests **broken object-level authorization** (IDOR / BOLA). It needs
 a primary authenticated session (`--cookie`/`--bearer`/`--login-*`) — the test is
