@@ -1068,6 +1068,73 @@ class ActiveVerification(Plugin):
             ))
 
 
+def _looks_loopback(host: str) -> bool:
+    h = (host or "").strip().lower()
+    return h in ("localhost", "127.0.0.1", "::1") or h.startswith("127.")
+
+
+@register
+class SsrfOob(Plugin):
+    id = "ssrf-oob"
+    title = "lab-mode blind-SSRF probe (out-of-band callback canary)"
+    phase = Phase.DETECT
+    mode = Mode.EXPLOIT       # sends real probes; engine gates on allow_exploit + scope EXPLOIT
+    category = "active-verify"
+
+    def enabled(self, ctx: ScanContext) -> bool:
+        return ctx.config.allow_exploit and ctx.config.ssrf_oob
+
+    def run(self, ctx: ScanContext) -> None:
+        from ..active.canary import OOBCanary, detect_callback_host
+        from ..active.harness import LabContext, discover_points
+        from ..active.verifiers import ssrf_oob
+
+        cfg = ctx.config
+        lab = LabContext(
+            host=ctx.target.host, enabled=cfg.allow_exploit,
+            attested=bool(cfg.lab_attestation), audit=ctx.audit, dry_run=cfg.dry_run,
+            rate_limit_rps=cfg.exploit_rate_limit, max_requests=cfg.exploit_max_requests,
+            insecure=cfg.insecure, log=ctx.log, auth=cfg.auth,
+        )
+        ready, why = lab.ready()
+        if not ready:
+            ctx.result.errors.append(f"ssrf-oob: skipped ({why})")
+            ctx.audit.skipped(self.id, ctx.target.host, why)
+            return
+        if cfg.dry_run:
+            ctx.result.errors.append("ssrf-oob: skipped — an OOB probe depends on a real "
+                                     "callback and can't be dry-run; re-run without --dry-run")
+            return
+
+        callback_host = cfg.oob_callback_host or detect_callback_host()
+        # A loopback callback only works when the target is on this host; otherwise
+        # the target can't route back to it, so the probe would never confirm.
+        if _looks_loopback(callback_host) and not _looks_loopback(ctx.target.host):
+            ctx.result.errors.append(
+                f"ssrf-oob: callback host {callback_host} is loopback but the target "
+                f"({ctx.target.host}) is remote and can't reach it — pass --oob-host with a "
+                "LAN/public address the target can route to. Skipping.")
+            return
+
+        ctx.audit.event("lab_attestation", host=ctx.target.host,
+                        statement=str(cfg.lab_attestation)[:300], dry_run=cfg.dry_run)
+        base = ctx.result.url or ctx.target.web_url()
+        points = discover_points(base, lab)
+        if not points:
+            ctx.result.errors.append("ssrf-oob: no injectable parameters found")
+            return
+
+        ctx.log(f"ssrf-oob: probing {len(points)} point(s); callback host {callback_host} ...")
+        with OOBCanary(host=callback_host, bind="0.0.0.0") as canary:
+            findings = ssrf_oob(points, lab, canary)
+        ctx.result.findings.extend(findings)
+        ctx.result.recon["ssrf_oob"] = {
+            "points": len(points), "callback_host": callback_host,
+            "confirmed": len(findings), "requests_sent": lab._count,
+            "halted": lab.stopped_reason or None,
+        }
+
+
 @register
 class AiActiveVerify(Plugin):
     id = "ai-active-verify"

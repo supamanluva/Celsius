@@ -304,6 +304,15 @@ suspected vulnerabilities with benign payloads (a unique reflected-XSS marker, a
 open-redirect canary, a read-only traversal canary, a single-quote SQLi probe).
 Confirmed issues are marked `confirmed-exploitable`.
 
+Add **`--ssrf`** for a **blind-SSRF** probe: it injects a unique out-of-band
+callback URL into URL-ish parameters and confirms *only* if the target actually
+fetches it — a recorded callback is deterministic proof of server-side request
+forgery (reachable internal services / cloud metadata). The callback listener is
+self-hosted (no third-party collaborator); the target must be able to reach it, so
+pass `--oob-host <addr>` with a LAN/public address the target can route to (it
+auto-detects your LAN IP otherwise). HTTP-callback based; egress-filtered targets
+would need a DNS canary (not yet built).
+
 It is gated by a layered safety harness — **all** must hold:
 1. `--lab` flag set, **and**
 2. a `--scope` file listing the target with `exploit` mode, **and**
