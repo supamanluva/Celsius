@@ -10,13 +10,10 @@ from __future__ import annotations
 import json
 import os
 import threading
-from datetime import datetime, timezone
+
+from .timeutil import utcnow_iso as _now
 
 DEFAULT_PATH = os.path.expanduser("~/.local/share/celsius/audit.log")
-
-
-def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 class AuditLog:

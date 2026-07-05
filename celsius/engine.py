@@ -7,8 +7,9 @@ records an audit trail, optionally persists the result, and returns a ScanResult
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from typing import Callable, Optional
+
+from .timeutil import utcnow_display as _now
 
 # Re-export ScanConfig so existing imports (`from .engine import ScanConfig`) work.
 from .config import ScanConfig  # noqa: F401
@@ -21,10 +22,6 @@ from .scope import Scope, load_scope
 from .targets import is_private_or_local, parse_target
 
 Logger = Callable[[str], None]
-
-
-def _now() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%SZ")
 
 
 def run_scan(

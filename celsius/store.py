@@ -10,8 +10,10 @@ import json
 import os
 import sqlite3
 import uuid
-from datetime import datetime, timezone
 from typing import Optional
+
+from .models import severity_rank
+from .timeutil import utcnow_iso as _now
 
 DEFAULT_DB = os.path.expanduser("~/.local/share/celsius/celsius.db")
 
@@ -43,11 +45,6 @@ CREATE INDEX IF NOT EXISTS idx_findings_scan ON findings(scan_id);
 CREATE INDEX IF NOT EXISTS idx_scans_target ON scans(target);
 """
 
-_SEV_RANK = {"CRITICAL": 4, "HIGH": 3, "MEDIUM": 2, "LOW": 1, "INFO": 0}
-
-
-def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 class Store:
@@ -153,6 +150,6 @@ def _worst_severity(cves: list[dict], findings: list[dict]) -> str:
     worst, rank = "INFO", -1
     for item in list(firm_cves) + list(real_findings):
         s = item.get("severity", "INFO")
-        if _SEV_RANK.get(s, 0) > rank:
-            worst, rank = s, _SEV_RANK.get(s, 0)
+        if severity_rank(s) > rank:
+            worst, rank = s, severity_rank(s)
     return worst if (firm_cves or real_findings) else "NONE"

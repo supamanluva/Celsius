@@ -16,6 +16,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Optional
 
 from . import secrets as secret_rules
+from .models import severity_rank
 
 # ---- result types -------------------------------------------------------------
 
@@ -293,13 +294,12 @@ def scan_text_blob(text: str, label: str = "input") -> CodeScanResult:
     return result
 
 
-_SEV_RANK = {"CRITICAL": 4, "HIGH": 3, "MEDIUM": 2, "LOW": 1, "INFO": 0}
 
 
 def _dedupe(findings: list[CodeFinding]) -> list[CodeFinding]:
     seen: set[tuple] = set()
     out: list[CodeFinding] = []
-    for f in sorted(findings, key=lambda x: _SEV_RANK.get(x.severity, 0), reverse=True):
+    for f in sorted(findings, key=lambda x: severity_rank(x.severity), reverse=True):
         key = (f.file, f.line, f.rule_id, f.title)
         if key in seen:
             continue

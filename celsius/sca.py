@@ -16,6 +16,8 @@ import os
 import re
 import urllib.error
 import urllib.request
+
+from .models import severity_rank
 from dataclasses import dataclass
 
 OSV_BATCH = "https://api.osv.dev/v1/querybatch"
@@ -283,7 +285,6 @@ def _fixed_versions(vuln: dict, name: str) -> list[str]:
     return sorted(set(fixes))
 
 
-_SEV_RANK = {"CRITICAL": 4, "HIGH": 3, "MEDIUM": 2, "LOW": 1, "INFO": 0}
 
 
 def scan_dependencies(root: str) -> tuple[list[dict], list[str]]:
@@ -338,7 +339,7 @@ def audit_deps(deps: list[Dep]) -> tuple[list[dict], list[str]]:
         if not ids:
             continue
         vulns = [details[i] for i in ids if i in details]
-        sev = max((_severity_of(v) for v in vulns), default="MEDIUM", key=lambda s: _SEV_RANK[s])
+        sev = max((_severity_of(v) for v in vulns), default="MEDIUM", key=lambda s: severity_rank(s))
         # prefer CVE aliases for display
         labels = []
         for i in ids:

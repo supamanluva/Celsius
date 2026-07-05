@@ -18,6 +18,7 @@ from . import __version__
 from . import codescan, poc, report
 from .engine import ScanConfig, run_scan
 from .logsetup import setup_logging
+from .models import severity_rank
 
 BANNER = f"Celsius {__version__} — service/version + CVE + web + code scanner"
 
@@ -349,7 +350,6 @@ def _print_poc(result) -> None:
             print(f"   ⚠ {box['note']}")
 
 
-_SEV_RANK = {"CRITICAL": 4, "HIGH": 3, "MEDIUM": 2, "LOW": 1, "INFO": 0}
 
 
 def _cmd_code(args) -> int:
@@ -362,7 +362,7 @@ def _cmd_code(args) -> int:
     print("─" * 70)
     if not res.findings:
         print(" No secrets or risky patterns found.")
-    for f in sorted(res.findings, key=lambda x: _SEV_RANK.get(x.severity, 0), reverse=True):
+    for f in sorted(res.findings, key=lambda x: severity_rank(x.severity), reverse=True):
         conf = f"  conf={f.confidence}" if getattr(f, "confidence", "") else ""
         print(f" [{f.severity:^8}] {f.title}{conf}")
         print(f"            {f.file}:{f.line}  ({f.category}/{f.rule_id})")
@@ -377,7 +377,7 @@ def _cmd_code(args) -> int:
         with open(args.json, "w") as fh:
             json.dump(res.to_dict(), fh, indent=2)
         print(f"[+] JSON written to {args.json}", file=sys.stderr)
-    worst = max((_SEV_RANK.get(f.severity, 0) for f in res.findings), default=0)
+    worst = max((severity_rank(f.severity) for f in res.findings), default=0)
     return {4: 30, 3: 20, 2: 10}.get(worst, 0)
 
 

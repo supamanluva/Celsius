@@ -143,7 +143,7 @@ class LocalProvider(OpenAICompatProvider):
 
 class AnthropicProvider(LLMProvider):
     name = "anthropic"
-    default_model = "claude-sonnet-4-6"
+    default_model = "claude-sonnet-5"
     base = "https://api.anthropic.com/v1/messages"
 
     def complete(self, messages, *, json_mode=False, temperature=0.2, max_tokens=4096) -> str:
