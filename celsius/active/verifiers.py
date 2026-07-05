@@ -189,6 +189,50 @@ def blind_sqli_boolean(points: list[Point], lab: LabContext, *,
     return out
 
 
+# Template syntaxes across common engines. Two distinctive operands whose product
+# is unlikely to appear on the page by chance; we confirm the evaluated result is
+# present AND the raw expression is not (so pure reflection can't fake it).
+_SSTI_A, _SSTI_B = 8253, 7919
+_SSTI_PRODUCT = str(_SSTI_A * _SSTI_B)          # 65,355,507 -> "65355507"
+_SSTI_TEMPLATES = [
+    ("{{%d*%d}}", "Jinja2/Twig/Nunjucks"),      # {{8253*7919}}
+    ("${%d*%d}", "Freemarker/JSP-EL"),
+    ("#{%d*%d}", "Ruby/JSF-EL"),
+    ("<%%= %d*%d %%>", "ERB"),                   # <%= 8253*7919 %>
+    ("{%d*%d}", "generic"),
+]
+
+
+def ssti(points: list[Point], lab: LabContext) -> list[Finding]:
+    """Server-side template injection: inject a math expression in several template
+    syntaxes and confirm ONLY if the server returns the *evaluated product* while
+    the raw expression is absent — i.e. the template engine executed it, rather than
+    just echoing the input (which would leave the expression text intact)."""
+    out: list[Finding] = []
+    for pt in points:
+        for param in pt.param_names():
+            base = str(pt.params.get(param) or "")
+            for tmpl, engine in _SSTI_TEMPLATES:
+                ok, _why = lab.can_send()
+                if not ok:
+                    return out
+                expr = tmpl % (_SSTI_A, _SSTI_B)
+                r = _send_with(pt, param, base + expr, lab, "ssti")
+                if r is None or not r.body:
+                    continue
+                if _SSTI_PRODUCT in r.body and expr not in r.body:
+                    out.append(_confirm(
+                        "Server-side template injection confirmed", Severity.CRITICAL,
+                        pt, param, base + expr,
+                        f"A template expression ({engine} syntax) was evaluated by the "
+                        f"server — the response contained the product {_SSTI_PRODUCT} but "
+                        "not the raw expression, proving the engine executed attacker input "
+                        "(often a path to remote code execution).",
+                        f"evaluated {_SSTI_A}*{_SSTI_B}={_SSTI_PRODUCT} in response"))
+                    break   # one confirmed engine is enough for this param
+    return out
+
+
 # Parameter names that plausibly carry a URL/host the server fetches — the SSRF
 # surface. A substring match keeps it broad; the probe only *confirms* on a real
 # out-of-band callback, so a loose hint costs a wasted request, not a false report.
@@ -427,6 +471,7 @@ ALL_VERIFIERS = [
     ("path-traversal", path_traversal),
     ("sqli-error", sqli_error),
     ("sqli-boolean", blind_sqli_boolean),
+    ("ssti", ssti),
 ]
 
 

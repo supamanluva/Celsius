@@ -302,9 +302,11 @@ you confirm; `exploit` always requires an explicit scope entry.
 `--lab` enables **non-destructive active verification**: it CONFIRMS or refutes
 suspected vulnerabilities with benign payloads (a unique reflected-XSS marker, an
 open-redirect canary, a read-only traversal canary, a single-quote SQLi error
-probe, and a **blind boolean-based SQLi** differential — an always-true vs
-always-false condition, confirmed only when the true response tracks the baseline
-and the false one diverges). Confirmed issues are marked `confirmed-exploitable`.
+probe, a **blind boolean-based SQLi** differential — an always-true vs always-false
+condition, confirmed only when the true response tracks the baseline and the false
+one diverges — and **server-side template injection**: a math expression in several
+template syntaxes, confirmed only when the server returns the evaluated product but
+not the raw expression). Confirmed issues are marked `confirmed-exploitable`.
 
 **Out-of-band (OOB) probes** confirm *blind* bugs — ones that leave no trace in
 the response — by planting a unique callback URL and watching a **self-hosted
