@@ -40,7 +40,7 @@ jobs:
       - uses: actions/checkout@v5
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@v8
+        uses: astral-sh/setup-uv@v7
         with:
           python-version: "3.12"
 
@@ -61,7 +61,7 @@ jobs:
       - uses: actions/checkout@v5
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@v8
+        uses: astral-sh/setup-uv@v7
 
       - name: Build wheel + sdist (uv_build backend)
         run: uv build
