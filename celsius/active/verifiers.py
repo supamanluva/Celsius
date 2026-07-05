@@ -129,6 +129,66 @@ def sqli_error(points: list[Point], lab: LabContext) -> list[Finding]:
     return out
 
 
+# (payload_suffix, label) TRUE/FALSE pairs for the two common injection contexts.
+# Benign: they only append a boolean condition to an existing SELECT — no writes,
+# no time delays (blind/boolean, not time-based).
+_BOOL_CONTEXTS = [
+    ("' AND '1'='1", "' AND '1'='2", "string-quote"),   # value' AND '1'='1
+    (" AND 1=1", " AND 1=2", "numeric"),                 # value AND 1=1
+    ("' AND '1'='1' -- ", "' AND '1'='2' -- ", "string-comment"),
+]
+
+
+def _strip(body: str, frag: str) -> str:
+    # remove reflected payload so we compare the SQL-driven content, not the echo
+    return (body or "").replace(frag, "")[:4000]
+
+
+def blind_sqli_boolean(points: list[Point], lab: LabContext, *,
+                       true_sim: float = 0.95, false_sim: float = 0.90) -> list[Finding]:
+    """Blind boolean-based SQLi: no error message, no out-of-band channel — infer
+    injection from a *differential*.
+
+    For a param, send a baseline, then an always-TRUE and an always-FALSE condition
+    in a given context. If the TRUE response tracks the baseline while the FALSE one
+    diverges, the condition is being evaluated by the database — i.e. the parameter
+    is injected into the query. Both responses have the reflected payload stripped
+    first (so a param that merely echoes its value can't fake the signal), and the
+    two-sided check (TRUE~baseline AND FALSE≠baseline) is what separates real
+    injection from ordinary page variation."""
+    out: list[Finding] = []
+    for pt in points:
+        for param in pt.param_names():
+            base = str(pt.params.get(param) or "1")
+            rb = _send_with(pt, param, base, lab, "sqli-boolean")
+            if rb is None or not rb.body or rb.status >= 500:
+                continue
+            body_base = _strip(rb.body, base)
+            for t_frag, f_frag, ctx in _BOOL_CONTEXTS:
+                ok, _why = lab.can_send()
+                if not ok:
+                    return out
+                rt = _send_with(pt, param, base + t_frag, lab, "sqli-boolean")
+                rf = _send_with(pt, param, base + f_frag, lab, "sqli-boolean")
+                if rt is None or rf is None or not rt.body or not rf.body:
+                    continue
+                if rt.status >= 500 or rf.status >= 500:
+                    continue
+                sim_true = _similar(body_base, _strip(rt.body, base + t_frag))
+                sim_false = _similar(body_base, _strip(rf.body, base + f_frag))
+                if sim_true >= true_sim and sim_false < false_sim:
+                    out.append(_confirm(
+                        "Blind SQL injection confirmed (boolean-based)", Severity.HIGH,
+                        pt, param, base + t_frag,
+                        "The parameter is injected into a SQL query: an always-true "
+                        f"condition ({ctx} context) returned the baseline result while an "
+                        "always-false condition changed it — the database is evaluating "
+                        "attacker-supplied logic. No error message or time delay needed.",
+                        f"true~baseline sim={sim_true:.2f}, false sim={sim_false:.2f}"))
+                    break   # one confirmed context is enough for this param
+    return out
+
+
 # Parameter names that plausibly carry a URL/host the server fetches — the SSRF
 # surface. A substring match keeps it broad; the probe only *confirms* on a real
 # out-of-band callback, so a loose hint costs a wasted request, not a false report.
@@ -366,6 +426,7 @@ ALL_VERIFIERS = [
     ("open-redirect", open_redirect),
     ("path-traversal", path_traversal),
     ("sqli-error", sqli_error),
+    ("sqli-boolean", blind_sqli_boolean),
 ]
 
 
