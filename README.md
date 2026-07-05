@@ -321,6 +321,16 @@ can route to (it auto-detects your LAN IP otherwise, and skips with a clear
 message if a loopback callback can't reach a remote target). HTTP-callback based;
 egress-filtered targets would need a DNS canary (not yet built).
 
+**`--idor`** tests **broken object-level authorization** (IDOR / BOLA). It needs
+a primary authenticated session (`--cookie`/`--bearer`/`--login-*`) — the test is
+relative to what the logged-in user may access — and replays each object-
+referencing request (a param named or valued like an id) as the primary user,
+unauthenticated, and, with a second identity (`--auth2-cookie`/`--auth2-bearer`),
+as that other user. It confirms deterministically when the unauthenticated replay
+returns the protected object (**missing auth**), or a *second* user receives the
+first user's object unchanged while the anonymous request is denied (**BOLA**).
+Object-referencing requests only, so shared/public pages stay out.
+
 It is gated by a layered safety harness — **all** must hold:
 1. `--lab` flag set, **and**
 2. a `--scope` file listing the target with `exploit` mode, **and**

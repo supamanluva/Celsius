@@ -20,13 +20,19 @@ import urllib.request
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Callable, Optional
 
+from ..auth import AuthSession   # lightweight, cycle-free (auth imports no celsius)
+
 if TYPE_CHECKING:
     from ..audit import AuditLog
-    from ..auth import AuthSession
 
 USER_AGENT = "celsius/0.7 (+authorized lab testing)"
 TIMEOUT = 10
 KILLSWITCH = os.path.expanduser("~/.celsius-stop")
+
+# Sentinel: "use the context's default auth". Distinct from None, which means
+# "send this request with NO auth" (needed by the IDOR/BOLA probe to replay the
+# same request as a different identity or anonymously).
+_KEEP_AUTH = object()
 
 
 @dataclass
@@ -101,7 +107,7 @@ class LabContext:
     # ---- the only way to make an active request ----
     def send(self, url: str, *, method: str = "GET", data: Optional[dict] = None,
              purpose: str = "", follow: bool = False, payload: bool = True,
-             headers: Optional[dict] = None) -> Optional[Response]:
+             headers: Optional[dict] = None, auth_override=_KEEP_AUTH) -> Optional[Response]:
         """Make a gated request. `payload=False` marks a benign discovery fetch
         (a plain page GET) that is still performed under --dry-run, since dry-run
         only suppresses the actual probe payloads. `headers` adds extra request
@@ -119,15 +125,19 @@ class LabContext:
             return None
         self._throttle()
         self._count += 1
-        return self._raw(url, method, data, follow, headers)
+        return self._raw(url, method, data, follow, headers, auth_override)
 
-    def _raw(self, url, method, data, follow, extra_headers=None) -> Optional[Response]:
+    def _raw(self, url, method, data, follow, extra_headers=None,
+             auth_override=_KEEP_AUTH) -> Optional[Response]:
         ctx = ssl.create_default_context()
         if self.insecure:
             ctx.check_hostname = False
             ctx.verify_mode = ssl.CERT_NONE
         body_bytes = None
-        headers = self.auth.merge({"User-Agent": USER_AGENT}) if self.auth else {"User-Agent": USER_AGENT}
+        session = self.auth if auth_override is _KEEP_AUTH else auth_override
+        headers = (session.merge({"User-Agent": USER_AGENT})
+                   if isinstance(session, AuthSession) and session
+                   else {"User-Agent": USER_AGENT})
         if extra_headers:
             for k, v in extra_headers.items():
                 if isinstance(k, str) and isinstance(v, str):
