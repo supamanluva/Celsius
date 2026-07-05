@@ -110,6 +110,22 @@ def test_skips_when_callback_unreachable_from_remote_target():
     assert any("loopback" in e for e in ctx.result.errors)
 
 
+def test_dns_canary_mode_selected():
+    # With --oob-domain the DNS canary is used (no loopback guard); the injected
+    # canary-domain URLs won't resolve here, so nothing confirms — we're asserting
+    # the DNS branch is wired and runs cleanly, not a real DNS hit (unit-tested).
+    srv, port = _sink_server(vulnerable=True)
+    try:
+        ctx = _ctx(_cfg(oob_domain="canary.test", oob_dns_port=0),
+                   url=f"http://127.0.0.1:{port}/fetch?url=x")
+        OobProbes().run(ctx)
+        rec = ctx.result.recon.get("oob_probes")
+        assert rec and rec["channel"].startswith("DNS canary canary.test")
+        assert rec["confirmed"] == 0
+    finally:
+        srv.shutdown()
+
+
 def test_dry_run_is_skipped():
     ctx = _ctx(_cfg(dry_run=True), url="http://127.0.0.1:1/fetch?url=x")
     OobProbes().run(ctx)

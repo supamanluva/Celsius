@@ -96,6 +96,11 @@ def build_parser() -> argparse.ArgumentParser:
                    help="lab mode: blind-XXE probe via an out-of-band callback (needs --lab)")
     s.add_argument("--oob-host", metavar="ADDR",
                    help="address the target should call back to for OOB probes (default: auto-detect LAN IP)")
+    s.add_argument("--oob-domain", metavar="DOMAIN",
+                   help="use a DNS canary on this delegated domain (catches OOB via DNS, so it reaches "
+                        "egress-filtered targets; the domain's NS must point at this host)")
+    s.add_argument("--oob-dns-port", type=int, default=53, metavar="PORT",
+                   help="UDP port for the --oob-domain DNS canary (default 53; needs root)")
     s.add_argument("--time-sqli", action="store_true",
                    help="lab mode: time-based blind SQLi — DELIBERATELY delays the DB (load-adjacent; "
                         "opt-in exception to the non-destructive default; needs --lab)")
@@ -318,6 +323,7 @@ def _cmd_scan(args) -> int:
         allow_exploit=args.lab, lab_attestation=lab_attest, dry_run=args.dry_run,
         ssrf_oob=args.ssrf, rce_oob=args.rce, blind_xss_oob=args.blind_xss,
         xxe_oob=args.xxe, oob_callback_host=args.oob_host,
+        oob_domain=args.oob_domain, oob_dns_port=args.oob_dns_port,
         idor=args.idor, auth2=auth2_session,
         time_sqli=args.time_sqli, time_sqli_delay=args.time_sqli_delay,
         exploit_max_requests=args.exploit_max_requests, exploit_rate_limit=args.exploit_rate_limit,

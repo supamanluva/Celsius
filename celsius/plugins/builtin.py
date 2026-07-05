@@ -1090,7 +1090,7 @@ class OobProbes(Plugin):
         return ctx.config.allow_exploit and bool(self._enabled_probes(ctx.config))
 
     def run(self, ctx: ScanContext) -> None:
-        from ..active.canary import OOBCanary, detect_callback_host
+        from ..active.canary import DNSCanary, OOBCanary, detect_callback_host
         from ..active.harness import LabContext, discover_points
         from ..active.verifiers import OOB_PROBES
 
@@ -1112,36 +1112,51 @@ class OobProbes(Plugin):
                                      "callback and can't be dry-run; re-run without --dry-run")
             return
 
-        callback_host = cfg.oob_callback_host or detect_callback_host()
-        # A loopback callback only works when the target is on this host; otherwise
-        # the target can't route back to it, so the probe would never confirm.
-        if _looks_loopback(callback_host) and not _looks_loopback(ctx.target.host):
-            ctx.result.errors.append(
-                f"oob-probes: callback host {callback_host} is loopback but the target "
-                f"({ctx.target.host}) is remote and can't reach it — pass --oob-host with a "
-                "LAN/public address the target can route to. Skipping.")
-            return
+        # DNS canary (a delegated domain) reaches egress-filtered targets via their
+        # resolver; the HTTP canary needs the target to route back to us directly.
+        if cfg.oob_domain:
+            try:
+                canary_cm = DNSCanary(domain=cfg.oob_domain, bind="0.0.0.0",
+                                      dns_port=cfg.oob_dns_port)
+                canary_cm.start()
+            except OSError as e:
+                ctx.result.errors.append(
+                    f"oob-probes: could not bind the DNS canary on udp/{cfg.oob_dns_port} "
+                    f"({e}); port 53 needs root/CAP_NET_BIND. Skipping.")
+                return
+            channel = f"DNS canary {cfg.oob_domain}"
+        else:
+            callback_host = cfg.oob_callback_host or detect_callback_host()
+            if _looks_loopback(callback_host) and not _looks_loopback(ctx.target.host):
+                ctx.result.errors.append(
+                    f"oob-probes: callback host {callback_host} is loopback but the target "
+                    f"({ctx.target.host}) is remote and can't reach it — pass --oob-host with a "
+                    "LAN/public address the target can route to (or --oob-domain for a DNS "
+                    "canary). Skipping.")
+                return
+            canary_cm = OOBCanary(host=callback_host, bind="0.0.0.0").start()
+            channel = f"HTTP canary {callback_host}"
 
         ctx.audit.event("lab_attestation", host=ctx.target.host,
                         statement=str(cfg.lab_attestation)[:300], dry_run=cfg.dry_run)
         base = ctx.result.url or ctx.target.web_url()
         points = discover_points(base, lab)
-        if not points:
-            ctx.result.errors.append("oob-probes: no injectable parameters found")
-            return
-
-        ctx.log(f"oob-probes: {'/'.join(wanted)} on {len(points)} point(s); "
-                f"callback host {callback_host} ...")
         findings: list = []
-        with OOBCanary(host=callback_host, bind="0.0.0.0") as canary:
+        try:
+            if not points:
+                ctx.result.errors.append("oob-probes: no injectable parameters found")
+                return
+            ctx.log(f"oob-probes: {'/'.join(wanted)} on {len(points)} point(s); via {channel} ...")
             for name in wanted:
                 ok, _why = lab.can_send()
                 if not ok:
                     break
-                findings.extend(OOB_PROBES[name](points, lab, canary))
+                findings.extend(OOB_PROBES[name](points, lab, canary_cm))
+        finally:
+            canary_cm.stop()
         ctx.result.findings.extend(findings)
         ctx.result.recon["oob_probes"] = {
-            "probes": wanted, "points": len(points), "callback_host": callback_host,
+            "probes": wanted, "points": len(points), "channel": channel,
             "confirmed": len(findings), "requests_sent": lab._count,
             "halted": lab.stopped_reason or None,
         }

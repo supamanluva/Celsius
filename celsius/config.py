@@ -83,6 +83,8 @@ class ScanConfig:
     blind_xss_oob: bool = False             # lab-mode: blind/stored-XSS beacon via an OOB canary
     xxe_oob: bool = False                   # lab-mode: blind-XXE probe via an OOB canary
     oob_callback_host: Optional[str] = None  # address the target calls back to (None -> auto-detect)
+    oob_domain: Optional[str] = None        # use a DNS canary on this delegated domain (egress-filtered targets)
+    oob_dns_port: int = 53                  # UDP port for the DNS canary (53 needs root)
     idor: bool = False                      # lab-mode: IDOR/BOLA authorization probe (needs an auth session)
     auth2: "Optional[AuthSession]" = None   # a second identity, for cross-user BOLA testing
     time_sqli: bool = False                 # lab-mode: time-based blind SQLi (DELIBERATELY delays the DB — opt-in)
