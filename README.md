@@ -299,6 +299,29 @@ you confirm; `exploit` always requires an explicit scope entry.
 
 ### Lab mode (M5) — active verification
 
+Every vulnerability class Celsius actively confirms — each with **deterministic
+proof**, not a guess, and gated behind lab mode's safety harness:
+
+| Class | Flag | How it's confirmed |
+|---|---|---|
+| Reflected XSS | `--lab` | unique marker reflected unescaped |
+| Error-based SQLi | `--lab` | database error signature |
+| **Boolean blind SQLi** | `--lab` | true-condition tracks baseline, false diverges (payload stripped) |
+| Path traversal | `--lab` | `/etc/passwd` signature |
+| Open redirect | `--lab` | off-host `Location` to a canary |
+| **SSTI** | `--lab` | evaluated math product returned, raw expression absent |
+| **CRLF / response splitting** | `--lab` | uniquely-named injected header returns |
+| **OS command injection** | `--rce` | shell payload makes the host call the OOB canary |
+| **Blind SSRF** | `--ssrf` | server fetches the canary URL |
+| **Blind / stored XSS** | `--blind-xss` | injected markup loads the canary |
+| **Blind XXE** | `--xxe` | XML external entity fetches the canary |
+| **IDOR / BOLA** | `--idor` | a 2nd identity (or anon) reads user A's object |
+| **Time-based blind SQLi** | `--time-sqli` | response delay *scales* with the injected sleep (opt-in; DB-pausing) |
+
+The `--lab` classes run automatically; the rest are individual opt-ins. OOB probes
+share one canary — HTTP (`--oob-host`) or DNS (`--oob-domain`) for egress-filtered
+targets. See below for the full description of each.
+
 `--lab` enables **non-destructive active verification**: it CONFIRMS or refutes
 suspected vulnerabilities with benign payloads (a unique reflected-XSS marker, an
 open-redirect canary, a read-only traversal canary, a single-quote SQLi error
@@ -400,6 +423,12 @@ python3 -m celsius scan https://lab.local/?q=test --lab --ai --scope scope.yml \
 | `--full` / `--thorough` | enable every safe check at once (ports, nuclei, subdomains, crawl, API discovery, mail, CVE-verify, OS detect) |
 | `--cookie` / `--bearer` / `--header` | authenticated scan: attach a session/token to every request |
 | `--login-url` (+ `--login-user`/`--login-pass`) | form login: log in first, then scan as that user |
+| `--lab` (+ `--scope`, `--lab-attest`) | active verification — reflected-XSS/SQLi/SSTI/CRLF/traversal/redirect |
+| `--ssrf` / `--rce` / `--blind-xss` / `--xxe` | out-of-band probes (SSRF / command injection / blind XSS / XXE) via the canary |
+| `--oob-host ADDR` / `--oob-domain DOMAIN` | OOB callback channel: HTTP (LAN/public IP) or DNS (egress-filtered targets) |
+| `--idor` (+ `--auth2-cookie`/`--auth2-bearer`) | IDOR/BOLA authorization test (needs an auth session; add a 2nd identity for cross-user) |
+| `--time-sqli` | time-based blind SQLi (opt-in; deliberately pauses the DB) |
+| `--dry-run` | lab mode: preview payloads without sending |
 | `--mail` | check email security (SPF/DKIM/DMARC/MTA-STS/TLS-RPT/DNSSEC/BIMI), graded A–F |
 | `--ports` | run `nmap -sV` (off by default) |
 | `--top-ports N` / `--port-range "80,443"` | port selection for nmap |
