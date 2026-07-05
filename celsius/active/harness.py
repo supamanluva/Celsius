@@ -107,7 +107,8 @@ class LabContext:
     # ---- the only way to make an active request ----
     def send(self, url: str, *, method: str = "GET", data: Optional[dict] = None,
              purpose: str = "", follow: bool = False, payload: bool = True,
-             headers: Optional[dict] = None, auth_override=_KEEP_AUTH) -> Optional[Response]:
+             headers: Optional[dict] = None, auth_override=_KEEP_AUTH,
+             raw_body: Optional[bytes] = None) -> Optional[Response]:
         """Make a gated request. `payload=False` marks a benign discovery fetch
         (a plain page GET) that is still performed under --dry-run, since dry-run
         only suppresses the actual probe payloads. `headers` adds extra request
@@ -125,10 +126,10 @@ class LabContext:
             return None
         self._throttle()
         self._count += 1
-        return self._raw(url, method, data, follow, headers, auth_override)
+        return self._raw(url, method, data, follow, headers, auth_override, raw_body)
 
     def _raw(self, url, method, data, follow, extra_headers=None,
-             auth_override=_KEEP_AUTH) -> Optional[Response]:
+             auth_override=_KEEP_AUTH, raw_body=None) -> Optional[Response]:
         ctx = ssl.create_default_context()
         if self.insecure:
             ctx.check_hostname = False
@@ -142,7 +143,12 @@ class LabContext:
             for k, v in extra_headers.items():
                 if isinstance(k, str) and isinstance(v, str):
                     headers[k] = v
-        if method == "POST" and data is not None:
+        if raw_body is not None:
+            # arbitrary body (e.g. an XML document for XXE); the caller supplies the
+            # Content-Type via `headers`, else default to octet-stream.
+            body_bytes = raw_body if isinstance(raw_body, bytes) else str(raw_body).encode()
+            headers.setdefault("Content-Type", "application/octet-stream")
+        elif method == "POST" and data is not None:
             body_bytes = urllib.parse.urlencode(data).encode()
             headers["Content-Type"] = "application/x-www-form-urlencoded"
 
