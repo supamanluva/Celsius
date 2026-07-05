@@ -16,6 +16,7 @@ from __future__ import annotations
 import re
 
 from ..models import Finding, Severity
+from .canary import OOBCanary
 from .harness import LabContext, Point, build_url
 
 # A unique, benign marker. Contains metacharacters so we can tell escaped from raw.
@@ -125,6 +126,61 @@ def sqli_error(points: list[Point], lab: LabContext) -> list[Finding]:
                     "the parameter is concatenated into a SQL query.",
                     "SQL error signature in response"))
     return out
+
+
+# Parameter names that plausibly carry a URL/host the server fetches — the SSRF
+# surface. A substring match keeps it broad; the probe only *confirms* on a real
+# out-of-band callback, so a loose hint costs a wasted request, not a false report.
+_SSRF_HINT = re.compile(
+    r"url|uri|link|src|source|dest|target|redirect|redir|feed|rss|webhook|"
+    r"callback|fetch|proxy|forward|host|domain|site|image|img|remote|load|"
+    r"open|reference|ref|continue|return|preview|resource|endpoint|avatar|upload",
+    re.I)
+
+
+def ssrf_oob(points: list[Point], lab: LabContext, canary: OOBCanary,
+             *, wait_timeout: float = 3.0) -> list[Finding]:
+    """Blind-SSRF probe: inject a unique OOB callback URL into URL-ish params and
+    confirm ONLY if the target actually fetches it (a recorded canary hit).
+
+    The proof is deterministic and independent of the response the target returns —
+    a hit means something on the target's side made an outbound request to a URL we
+    minted, which is exactly what SSRF is. Runs through LabContext.send (scope,
+    caps, rate-limit, attestation, kill-switch, audit); the canary URL is benign
+    (a plain GET target that just records the hit). `wait_timeout` bounds how long
+    to wait for a (possibly slightly delayed) server-side fetch per probe."""
+    out: list[Finding] = []
+    for pt in points:
+        for param in pt.param_names():
+            if not _SSRF_HINT.search(param):
+                continue
+            ok, _why = lab.can_send()
+            if not ok:
+                return out
+            token = canary.new_token()
+            payload = canary.url_for(token)
+            _send_with(pt, param, payload, lab, "ssrf-oob")
+            if not canary.wait_for_hit(token, timeout=wait_timeout):
+                continue
+            src = (canary.hits(token)[0].src_ip if canary.hits(token) else "?")
+            out.append(_confirm(
+                "Blind SSRF confirmed (out-of-band callback)", Severity.HIGH,
+                pt, param, payload,
+                "The server made an outbound request to a unique attacker-controlled "
+                "URL injected into this parameter — proving server-side request "
+                "forgery. Reachable internal services / cloud metadata may be exposed.",
+                f"canary callback received from {src}"))
+    return out
+
+
+def run_ssrf_oob(points: list[Point], lab: LabContext, *,
+                 host: str | None = None, bind: str = "127.0.0.1",
+                 port: int = 0) -> list[Finding]:
+    """Convenience wrapper that owns the canary lifecycle. `host` is the address the
+    target should call back to (a LAN/public IP the target can route to); it
+    defaults to the bind address, which only works when the target is local."""
+    with OOBCanary(host=host or bind, bind=bind, port=port) as canary:
+        return ssrf_oob(points, lab, canary)
 
 
 ALL_VERIFIERS = [
