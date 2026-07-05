@@ -1083,7 +1083,8 @@ class OobProbes(Plugin):
 
     def _enabled_probes(self, cfg) -> list[str]:
         return [name for name, on in (("ssrf", cfg.ssrf_oob), ("rce", cfg.rce_oob),
-                                      ("blind-xss", cfg.blind_xss_oob)) if on]
+                                      ("blind-xss", cfg.blind_xss_oob),
+                                      ("xxe", cfg.xxe_oob)) if on]
 
     def enabled(self, ctx: ScanContext) -> bool:
         return ctx.config.allow_exploit and bool(self._enabled_probes(ctx.config))

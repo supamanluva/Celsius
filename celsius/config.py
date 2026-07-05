@@ -81,6 +81,7 @@ class ScanConfig:
     ssrf_oob: bool = False                  # lab-mode: blind-SSRF probe via an OOB canary
     rce_oob: bool = False                   # lab-mode: OS command-injection probe via an OOB canary
     blind_xss_oob: bool = False             # lab-mode: blind/stored-XSS beacon via an OOB canary
+    xxe_oob: bool = False                   # lab-mode: blind-XXE probe via an OOB canary
     oob_callback_host: Optional[str] = None  # address the target calls back to (None -> auto-detect)
     idor: bool = False                      # lab-mode: IDOR/BOLA authorization probe (needs an auth session)
     auth2: "Optional[AuthSession]" = None   # a second identity, for cross-user BOLA testing

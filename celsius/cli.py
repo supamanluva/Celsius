@@ -92,6 +92,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help="lab mode: OS command-injection probe via an out-of-band callback (needs --lab)")
     s.add_argument("--blind-xss", action="store_true",
                    help="lab mode: blind/stored-XSS beacon via an out-of-band callback (needs --lab)")
+    s.add_argument("--xxe", action="store_true",
+                   help="lab mode: blind-XXE probe via an out-of-band callback (needs --lab)")
     s.add_argument("--oob-host", metavar="ADDR",
                    help="address the target should call back to for OOB probes (default: auto-detect LAN IP)")
     s.add_argument("--idor", action="store_true",
@@ -310,7 +312,8 @@ def _cmd_scan(args) -> int:
         scope_file=args.scope, allow_active=not args.no_active, persist=not args.no_db,
         allow_exploit=args.lab, lab_attestation=lab_attest, dry_run=args.dry_run,
         ssrf_oob=args.ssrf, rce_oob=args.rce, blind_xss_oob=args.blind_xss,
-        oob_callback_host=args.oob_host, idor=args.idor, auth2=auth2_session,
+        xxe_oob=args.xxe, oob_callback_host=args.oob_host,
+        idor=args.idor, auth2=auth2_session,
         exploit_max_requests=args.exploit_max_requests, exploit_rate_limit=args.exploit_rate_limit,
         ai=args.ai, ai_provider=args.ai_provider, ai_model=args.ai_model,
         ai_base_url=args.ai_base_url, ai_redact=args.ai_redact,

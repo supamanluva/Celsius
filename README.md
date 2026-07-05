@@ -319,7 +319,10 @@ canary** for the phone-home. A recorded hit is deterministic proof:
   the canary; benign — it only fetches your listener, nothing is destroyed),
 - **`--blind-xss`** — blind/stored **XSS** beacon (injected markup loads the
   canary when rendered; confirms server-side-render/synchronous cases — victim-
-  browser execution is asynchronous and won't fire during the scan).
+  browser execution is asynchronous and won't fire during the scan),
+- **`--xxe`** — blind **XXE** (an XML external entity in a POST body makes the
+  server's XML parser fetch the canary; each endpoint is probed once with an XML
+  body — endpoints that don't parse XML simply never call back).
 
 The canary is self-hosted (no third-party collaborator), so the target must be
 able to reach it: pass `--oob-host <addr>` with a LAN/public address the target

