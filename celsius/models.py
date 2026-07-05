@@ -7,6 +7,12 @@ from enum import Enum
 from typing import Any, Optional
 
 
+# Canonical severity ordering — the single source of truth. Everything that ranks
+# or sorts by severity goes through Severity.rank or severity_rank(), never a
+# private copy of this dict.
+_RANK = {"CRITICAL": 4, "HIGH": 3, "MEDIUM": 2, "LOW": 1, "INFO": 0}
+
+
 class Severity(str, Enum):
     """Ordered severity buckets, aligned with CVSS qualitative ratings."""
 
@@ -18,14 +24,7 @@ class Severity(str, Enum):
 
     @property
     def rank(self) -> int:
-        order = {
-            "CRITICAL": 4,
-            "HIGH": 3,
-            "MEDIUM": 2,
-            "LOW": 1,
-            "INFO": 0,
-        }
-        return order[self.value]
+        return _RANK[self.value]
 
     @classmethod
     def from_cvss(cls, score: Optional[float]) -> "Severity":
@@ -40,6 +39,17 @@ class Severity(str, Enum):
         if score > 0.0:
             return cls.LOW
         return cls.INFO
+
+
+def severity_rank(sev) -> int:
+    """Rank for a Severity or its string value (case-insensitive); unknown -> 0.
+
+    Call sites work with both: Finding.severity is a Severity, but serialized
+    scans carry plain strings. This is the one accessor for both, so the ordering
+    lives in exactly one place (_RANK)."""
+    if isinstance(sev, Severity):
+        return sev.rank
+    return _RANK.get(str(sev).upper(), 0)
 
 
 @dataclass

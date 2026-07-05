@@ -13,7 +13,7 @@ from __future__ import annotations
 import re
 from typing import Optional
 
-from ..models import Finding, Severity
+from ..models import Finding, Severity, severity_rank
 from . import cache as cache_mod
 from . import prompts
 from .analyze import _call, _to_sev, parse_json
@@ -341,7 +341,6 @@ def apply_verdicts(findings: list, verdicts: list[dict]) -> tuple[list, dict]:
 
 # ---- CVE verification: AI plans a benign detection probe per matched CVE -------
 
-_RANK = {"CRITICAL": 4, "HIGH": 3, "MEDIUM": 2, "LOW": 1, "INFO": 0}
 
 
 def _poc_refs(cve: dict) -> list:
@@ -355,7 +354,7 @@ def cve_candidates(cves: list, max_cves: int = 6) -> list:
     capped. Weak matches are skipped — they're likely backport-patched FPs."""
     cand = [c for c in cves
             if c.get("confidence", "firm") != "weak" and not c.get("verified")]
-    cand.sort(key=lambda c: (_RANK.get(c.get("severity"), 0), len(_poc_refs(c))), reverse=True)
+    cand.sort(key=lambda c: (severity_rank(c.get("severity")), len(_poc_refs(c))), reverse=True)
     return cand[:max_cves]
 
 

@@ -6,7 +6,7 @@ import html
 import json
 import sys
 
-from .models import ScanResult, Severity
+from .models import ScanResult, Severity, severity_rank
 
 # ANSI colors per severity (terminal only).
 _COLORS = {
@@ -295,7 +295,6 @@ _SEV_BG = {
     "CRITICAL": "#b30000", "HIGH": "#e64500", "MEDIUM": "#e6a100",
     "LOW": "#2d7dd2", "INFO": "#888",
 }
-_SEV_RANK = {"CRITICAL": 4, "HIGH": 3, "MEDIUM": 2, "LOW": 1, "INFO": 0}
 
 
 def _recon_html(recon: dict, e) -> str:
@@ -577,12 +576,12 @@ def html_report(data: dict) -> str:
         f"<td>{c.get('cvss') if c.get('cvss') is not None else '-'}</td>"
         f"<td>{e(c.get('affects',''))}</td><td>{e(c.get('description',''))}</td></tr>"
         for c in sorted(data.get("cves", []),
-                        key=lambda x: (_SEV_RANK.get(x.get("severity"), 0), x.get("cvss") or 0),
+                        key=lambda x: (severity_rank(x.get("severity")), x.get("cvss") or 0),
                         reverse=True)
     ) or '<tr><td colspan="5">none found</td></tr>'
 
     _all_finds = sorted(data.get("findings", []),
-                        key=lambda x: _SEV_RANK.get(x.get("severity"), 0), reverse=True)
+                        key=lambda x: severity_rank(x.get("severity")), reverse=True)
     _real_finds = [f for f in _all_finds if f.get("category") != "ai-hypothesis"]
     _ai_finds = [f for f in _all_finds if f.get("category") == "ai-hypothesis"]
     def _fix_block(f: dict) -> str:
@@ -749,8 +748,8 @@ def domain_rollup_html(domain: str, scans: list[dict]) -> str:
         w, r = "NONE", -1
         for it in firm(d) + real_finds(d):
             s = it.get("severity", "INFO")
-            if _SEV_RANK.get(s, 0) > r:
-                w, r = s, _SEV_RANK.get(s, 0)
+            if severity_rank(s) > r:
+                w, r = s, severity_rank(s)
         return w
 
     if not scans:
@@ -788,7 +787,7 @@ def domain_rollup_html(domain: str, scans: list[dict]) -> str:
                     weak_total += 1
         ai_total += len(ai_finds(d))
 
-    ordered = sorted(scans, key=lambda d: _SEV_RANK.get(worst(d), 0), reverse=True)
+    ordered = sorted(scans, key=lambda d: severity_rank(worst(d)), reverse=True)
 
     chips = " ".join(badge(f"{s} {totals[s]}") for s in ("CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"))
     if weak_total:
@@ -815,7 +814,7 @@ def domain_rollup_html(domain: str, scans: list[dict]) -> str:
         for ip in shared:
             hosts = ", ".join(sorted(ip_hosts[ip]))
             cves = sorted(ip_cves[ip].values(),
-                          key=lambda x: (_SEV_RANK.get(x.get("severity"), 0), x.get("cvss") or 0), reverse=True)
+                          key=lambda x: (severity_rank(x.get("severity")), x.get("cvss") or 0), reverse=True)
             clist = " ".join(
                 f"{badge(c.get('severity', 'INFO'))} "
                 f"<a href='{e(c.get('url', ''))}' target='_blank'>{e(c.get('id', ''))}</a>" for c in cves)
@@ -844,9 +843,9 @@ def domain_rollup_html(domain: str, scans: list[dict]) -> str:
     sections = ""
     for d in ordered:
         h = _host_of(d.get("url") or d.get("target") or "")
-        cves = sorted(firm(d), key=lambda x: (_SEV_RANK.get(x.get("severity"), 0), x.get("cvss") or 0), reverse=True)
-        finds = sorted(real_finds(d), key=lambda x: _SEV_RANK.get(x.get("severity"), 0), reverse=True)
-        ai = sorted(ai_finds(d), key=lambda x: _SEV_RANK.get(x.get("severity"), 0), reverse=True)
+        cves = sorted(firm(d), key=lambda x: (severity_rank(x.get("severity")), x.get("cvss") or 0), reverse=True)
+        finds = sorted(real_finds(d), key=lambda x: severity_rank(x.get("severity")), reverse=True)
+        ai = sorted(ai_finds(d), key=lambda x: severity_rank(x.get("severity")), reverse=True)
         crows = "".join(
             f"<tr><td>{badge(c.get('severity', 'INFO'))}</td>"
             f"<td><a href='{e(c.get('url', ''))}' target='_blank'>{e(c.get('id', ''))}</a></td>"

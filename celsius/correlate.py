@@ -14,7 +14,6 @@ from __future__ import annotations
 
 from .models import ScanResult
 
-_SEV_RANK = {"CRITICAL": 4, "HIGH": 3, "MEDIUM": 2, "LOW": 1, "INFO": 0}
 
 
 def _chain(cid, title, severity, priority, narrative, nodes, recommendation, source="rule"):

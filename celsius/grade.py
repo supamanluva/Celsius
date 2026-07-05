@@ -11,11 +11,11 @@ means something — it isn't dragged down by maybes.
 from __future__ import annotations
 
 from . import priority
+from .models import severity_rank
 
 # Per-issue penalty subtracted from 100. A confirmed CRITICAL should dominate, an
 # INFO costs nothing. Caps below stop "many small issues" from masking a big one.
 _PENALTY = {"CRITICAL": 55, "HIGH": 25, "MEDIUM": 8, "LOW": 2, "INFO": 0}
-_RANK = {"CRITICAL": 4, "HIGH": 3, "MEDIUM": 2, "LOW": 1, "INFO": 0}
 _GRADE = [(95, "A+"), (85, "A"), (75, "B"), (60, "C"), (40, "D"), (0, "F")]
 _SKIP_CATEGORIES = {"ai-hypothesis", "ai-summary"}
 
@@ -78,7 +78,7 @@ def assess(result_dict: dict) -> dict:
     grade = next(g for thr, g in _GRADE if score >= thr)
 
     # Attacker-first ordering: blended risk score, then severity as a tiebreak.
-    items.sort(key=lambda it: (it["_risk"], _RANK.get(it["severity"], 0)), reverse=True)
+    items.sort(key=lambda it: (it["_risk"], severity_rank(it["severity"])), reverse=True)
     for it in items:
         it.pop("_risk", None)
 
