@@ -20,6 +20,7 @@ class Target:
     host: str               # hostname or IP literal
     port: Optional[int]     # explicit port from the URL, if any
     path: str = "/"
+    query: str = ""         # query string from the URL (kept so its params get tested)
 
     @property
     def is_ip(self) -> bool:
@@ -44,7 +45,8 @@ class Target:
         netloc = self.host
         if self.port and not _is_default_port(scheme, self.port):
             netloc = f"{self.host}:{self.port}"
-        return f"{scheme}://{netloc}{self.path or '/'}"
+        q = f"?{self.query}" if self.query else ""
+        return f"{scheme}://{netloc}{self.path or '/'}{q}"
 
 
 def _is_default_port(scheme: str, port: int) -> bool:
@@ -62,6 +64,7 @@ def parse_target(raw: str) -> Target:
             host=host,
             port=u.port,
             path=u.path or "/",
+            query=u.query,
         )
 
     # No scheme. Could be "host", "host:port", or an IP.
