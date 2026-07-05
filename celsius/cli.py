@@ -94,6 +94,13 @@ def build_parser() -> argparse.ArgumentParser:
                    help="lab mode: blind/stored-XSS beacon via an out-of-band callback (needs --lab)")
     s.add_argument("--oob-host", metavar="ADDR",
                    help="address the target should call back to for OOB probes (default: auto-detect LAN IP)")
+    s.add_argument("--idor", action="store_true",
+                   help="lab mode: IDOR/BOLA authorization probe (needs --lab and an auth session; "
+                        "add --auth2-* for cross-user testing)")
+    s.add_argument("--auth2-cookie", metavar="COOKIE",
+                   help="second identity's Cookie header for --idor cross-user (BOLA) testing")
+    s.add_argument("--auth2-bearer", metavar="TOKEN",
+                   help="second identity's bearer token for --idor cross-user (BOLA) testing")
     s.add_argument("--exploit-max-requests", type=int, default=200)
     s.add_argument("--exploit-rate-limit", type=float, default=5.0)
     s.add_argument("--no-db", action="store_true", help="do not persist the scan to the local store")
@@ -274,6 +281,11 @@ def _cmd_scan(args) -> int:
     if auth_session and not args.no_active:
         print("[!] Authenticated + active scan: requests are sent as the logged-in user and "
               "may change state. Prefer a test account / staging.", file=sys.stderr)
+    auth2_session = None
+    if getattr(args, "auth2_cookie", None) or getattr(args, "auth2_bearer", None):
+        from . import auth as auth_mod
+        auth2_session = auth_mod.from_options(cookie=args.auth2_cookie or "",
+                                              bearer=args.auth2_bearer or "")
     log = lambda m: logger.info("%s", m)  # noqa: E731  (engine progress callback)
     config = ScanConfig(
         target=args.target, web=not args.no_web, cve=not args.no_cve,
@@ -298,7 +310,7 @@ def _cmd_scan(args) -> int:
         scope_file=args.scope, allow_active=not args.no_active, persist=not args.no_db,
         allow_exploit=args.lab, lab_attestation=lab_attest, dry_run=args.dry_run,
         ssrf_oob=args.ssrf, rce_oob=args.rce, blind_xss_oob=args.blind_xss,
-        oob_callback_host=args.oob_host,
+        oob_callback_host=args.oob_host, idor=args.idor, auth2=auth2_session,
         exploit_max_requests=args.exploit_max_requests, exploit_rate_limit=args.exploit_rate_limit,
         ai=args.ai, ai_provider=args.ai_provider, ai_model=args.ai_model,
         ai_base_url=args.ai_base_url, ai_redact=args.ai_redact,

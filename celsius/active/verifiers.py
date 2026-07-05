@@ -13,11 +13,12 @@ All run through LabContext.send (caps, rate-limit, dry-run, kill-switch, audit).
 
 from __future__ import annotations
 
+import difflib
 import re
 
 from ..models import Finding, Severity
 from .canary import OOBCanary
-from .harness import LabContext, Point, build_url
+from .harness import _KEEP_AUTH, LabContext, Point, build_url
 
 # A unique, benign marker. Contains metacharacters so we can tell escaped from raw.
 _XSS_MARKER = "sScAn7Zq'\"<x>"
@@ -256,6 +257,108 @@ def run_ssrf_oob(points: list[Point], lab: LabContext, *,
     """Convenience wrapper that owns the canary lifecycle (used in tests/tools)."""
     with OOBCanary(host=host or bind, bind=bind, port=port) as canary:
         return ssrf_oob(points, lab, canary)
+
+
+# ---- IDOR / BOLA (broken object-level authorization) --------------------------
+# No canary — this is an *authorization* test: replay the same object-referencing
+# request under different identities and see who is wrongly allowed to read it.
+
+# Param names that reference an object (so swapping/replaying tests ownership).
+_IDOR_HINT = re.compile(
+    r"(?:^|_)(id|uid|uuid|guid|pid|oid|no|num|key|ref)$|"
+    r"user|account|acct|order|invoice|doc|document|file|record|profile|customer|"
+    r"member|group|team|project|ticket|message|msg|item|cart",
+    re.I)
+# Values that *look* like an object reference (numeric id or a UUID).
+_IDVAL = re.compile(r"^\d+$|^[0-9a-f]{8}-[0-9a-f]{4}-", re.I)
+
+
+def _has_object_ref(pt: Point) -> bool:
+    return any(_IDOR_HINT.search(n) or _IDVAL.search(str(v or ""))
+               for n, v in pt.params.items())
+
+
+def _ref_label(pt: Point) -> str:
+    for n in pt.param_names():
+        if _IDOR_HINT.search(n):
+            return n
+    for n, v in pt.params.items():
+        if _IDVAL.search(str(v or "")):
+            return n
+    names = pt.param_names()
+    return names[0] if names else "?"
+
+
+def _similar(a, b) -> float:
+    a, b = (a or "")[:4000], (b or "")[:4000]
+    if not a and not b:
+        return 1.0
+    return difflib.SequenceMatcher(None, a, b).ratio()
+
+
+def _replay(pt: Point, lab: LabContext, auth_override=_KEEP_AUTH):
+    """Replay the point's exact request (params unchanged) under a given identity."""
+    if pt.method == "POST":
+        return lab.send(pt.url, method="POST", data=pt.params, purpose="idor",
+                        payload=True, auth_override=auth_override)
+    return lab.send(build_url(pt.url, pt.params), purpose="idor", follow=False,
+                    payload=True, auth_override=auth_override)
+
+
+def idor_bola(points: list[Point], lab: LabContext, second_session=None,
+              *, min_body: int = 40, similarity: float = 0.95) -> list[Finding]:
+    """Broken object-level authorization: replay each object-referencing request as
+    the primary user (A), unauthenticated, and — if given — a second user (B).
+
+    Requires a primary authenticated session (`lab.auth`); the whole test is
+    relative to "what A is allowed to see". Confirms deterministically:
+      - **missing auth** — the unauthenticated replay returns A's object unchanged
+        (endpoint enforces no authentication), or
+      - **BOLA/IDOR** — a *second* authenticated user receives A's object unchanged
+        while the unauthenticated request is denied (the object reference isn't
+        scoped to its owner).
+
+    Only object-referencing requests are tested (an id-like param name or value),
+    which keeps shared/public pages out. Read-only: it replays existing requests,
+    injecting nothing."""
+    if not getattr(lab, "auth", None):
+        return []
+    out: list[Finding] = []
+    for pt in points:
+        if not _has_object_ref(pt):
+            continue
+        ok, _why = lab.can_send()
+        if not ok:
+            return out
+        rA = _replay(pt, lab)                              # primary identity A
+        if rA is None or rA.status != 200 or len(rA.body or "") < min_body:
+            continue
+        body_a = rA.body
+        rU = _replay(pt, lab, auth_override=None)          # no credentials
+        ref = _ref_label(pt)
+        if rU is not None and rU.status == 200 and _similar(rU.body, body_a) >= similarity:
+            out.append(_confirm(
+                "Broken access control — object served without authentication",
+                Severity.HIGH, pt, ref, "(unauthenticated replay)",
+                "Replaying this authenticated request with NO credentials returned the "
+                "same protected object, so the endpoint enforces no authentication.",
+                f"unauth status {rU.status}; body matches the authenticated response"))
+            continue
+        if second_session:                                 # cross-user (B sees A's object)
+            ok, _why = lab.can_send()
+            if not ok:
+                return out
+            rB = _replay(pt, lab, auth_override=second_session)
+            if rB is not None and rB.status == 200 and _similar(rB.body, body_a) >= similarity:
+                out.append(_confirm(
+                    "Broken object-level authorization (IDOR / BOLA)",
+                    Severity.HIGH, pt, ref, "(second-identity replay)",
+                    "A second authenticated user received user A's access-controlled "
+                    "object unchanged, while the unauthenticated request was denied — the "
+                    "object reference is not scoped to its owner.",
+                    f"user-B status {rB.status}; body matches user-A; unauth denied "
+                    f"(status {getattr(rU, 'status', 'n/a')})"))
+    return out
 
 
 ALL_VERIFIERS = [

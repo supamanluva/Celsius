@@ -1147,6 +1147,62 @@ class OobProbes(Plugin):
 
 
 @register
+class IdorProbe(Plugin):
+    id = "idor"
+    title = "lab-mode IDOR/BOLA probe (object-level authorization)"
+    phase = Phase.DETECT
+    mode = Mode.EXPLOIT       # replays requests as other identities; gated on allow_exploit
+    category = "active-verify"
+
+    def enabled(self, ctx: ScanContext) -> bool:
+        return ctx.config.allow_exploit and ctx.config.idor
+
+    def run(self, ctx: ScanContext) -> None:
+        from ..active.harness import LabContext, discover_points
+        from ..active.verifiers import idor_bola
+
+        cfg = ctx.config
+        if not cfg.auth:
+            ctx.result.errors.append(
+                "idor: skipped — needs a primary authenticated session (--cookie/--bearer or "
+                "--login-*); the test is relative to what the logged-in user may access")
+            return
+        lab = LabContext(
+            host=ctx.target.host, enabled=cfg.allow_exploit,
+            attested=bool(cfg.lab_attestation), audit=ctx.audit, dry_run=cfg.dry_run,
+            rate_limit_rps=cfg.exploit_rate_limit, max_requests=cfg.exploit_max_requests,
+            insecure=cfg.insecure, log=ctx.log, auth=cfg.auth,
+        )
+        ready, why = lab.ready()
+        if not ready:
+            ctx.result.errors.append(f"idor: skipped ({why})")
+            ctx.audit.skipped(self.id, ctx.target.host, why)
+            return
+        if cfg.dry_run:
+            ctx.result.errors.append("idor: skipped — the probe compares live responses across "
+                                     "identities and can't be dry-run; re-run without --dry-run")
+            return
+
+        ctx.audit.event("lab_attestation", host=ctx.target.host,
+                        statement=str(cfg.lab_attestation)[:300], dry_run=cfg.dry_run)
+        base = ctx.result.url or ctx.target.web_url()
+        points = discover_points(base, lab)
+        if not points:
+            ctx.result.errors.append("idor: no parameterized requests found to test")
+            return
+
+        mode = "cross-user + unauth" if cfg.auth2 else "unauth-only (add --auth2-* for BOLA)"
+        ctx.log(f"idor: replaying object-referencing requests ({mode}) ...")
+        findings = idor_bola(points, lab, second_session=cfg.auth2)
+        ctx.result.findings.extend(findings)
+        ctx.result.recon["idor"] = {
+            "points": len(points), "second_identity": bool(cfg.auth2),
+            "confirmed": len(findings), "requests_sent": lab._count,
+            "halted": lab.stopped_reason or None,
+        }
+
+
+@register
 class AiActiveVerify(Plugin):
     id = "ai-active-verify"
     title = "agentic AI proof loop (plan -> guardrailed probe -> judge)"
