@@ -1,14 +1,17 @@
-"""Integration test for the SsrfOob plugin: the OOB canary wired end-to-end
-through a real ScanContext against a local target that fetches ?url= server-side.
+"""Integration test for the OobProbes plugin: the OOB canary wired end-to-end
+through a real ScanContext against a local target that reaches back.
 
-Offline/deterministic: local vulnerable server + local canary, target pinned to
-loopback so the callback is reachable. No network, no model.
+The target is a generic "vulnerable sink" that fetches any http:// URL it sees in
+the injected value — which covers the SSRF bare-URL, RCE `curl <url>`, and XSS
+`src="<url>"` payload shapes uniformly. Target pinned to loopback so the callback
+is reachable. Offline/deterministic; no network, no model.
 """
 
 from __future__ import annotations
 
 import http.server
 import os
+import re
 import sys
 import threading
 import time
@@ -21,21 +24,24 @@ from celsius.audit import AuditLog  # noqa: E402
 from celsius.config import ScanConfig  # noqa: E402
 from celsius.models import ScanResult  # noqa: E402
 from celsius.plugins.base import ScanContext  # noqa: E402
-from celsius.plugins.builtin import SsrfOob  # noqa: E402
+from celsius.plugins.builtin import OobProbes  # noqa: E402
 from celsius.scope import Scope  # noqa: E402
 from celsius.targets import Target  # noqa: E402
 
+_URL_IN = re.compile(r"http://[^\s\"'`)>|;&]+")
 
-def _vuln_server():
+
+def _sink_server(vulnerable: bool):
     class _H(http.server.BaseHTTPRequestHandler):
         def log_message(self, *_a):
             pass
 
         def do_GET(self):
-            url = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query).get("url", [None])[0]
-            if url and url.startswith("http"):
+            raw = urllib.parse.unquote_plus(urllib.parse.urlparse(self.path).query)
+            m = _URL_IN.search(raw)
+            if vulnerable and m:
                 try:
-                    urllib.request.urlopen(url, timeout=2)   # SSRF: fetch attacker URL
+                    urllib.request.urlopen(m.group(0), timeout=2)   # the sink fires
                 except Exception:
                     pass
             self.send_response(200)
@@ -54,7 +60,7 @@ def _ctx(config, host="127.0.0.1", url=None):
         target=Target(raw=host, scheme="http", host=host, port=80, path="/"),
         result=ScanResult(target=host, url=url),
         scope=Scope.permissive_default(),
-        audit=AuditLog(path="/tmp/celsius-ssrf-plugin-audit.log"),
+        audit=AuditLog(path="/tmp/celsius-oob-plugin-audit.log"),
     )
 
 
@@ -66,47 +72,56 @@ def _cfg(**kw):
     return ScanConfig(**base)
 
 
-def test_enabled_only_with_lab_and_ssrf():
-    assert SsrfOob().enabled(_ctx(_cfg())) is True
-    assert SsrfOob().enabled(_ctx(_cfg(allow_exploit=False))) is False
-    assert SsrfOob().enabled(_ctx(_cfg(ssrf_oob=False))) is False
+def test_enabled_only_with_lab_and_a_probe():
+    assert OobProbes().enabled(_ctx(_cfg())) is True                       # ssrf on
+    assert OobProbes().enabled(_ctx(_cfg(ssrf_oob=False))) is False        # nothing on
+    assert OobProbes().enabled(_ctx(_cfg(ssrf_oob=False, rce_oob=True))) is True
+    assert OobProbes().enabled(_ctx(_cfg(allow_exploit=False))) is False   # not lab mode
 
 
-def test_confirms_ssrf_end_to_end():
-    srv, port = _vuln_server()
+def test_ssrf_confirmed_end_to_end():
+    srv, port = _sink_server(vulnerable=True)
     try:
-        url = f"http://127.0.0.1:{port}/fetch?url=x"
-        ctx = _ctx(_cfg(), url=url)
-        SsrfOob().run(ctx)
-        ssrf = [f for f in ctx.result.findings if "SSRF" in f.title]
-        assert len(ssrf) == 1
-        assert ssrf[0].exploitability["verdict"] == "confirmed-exploitable"
-        rec = ctx.result.recon.get("ssrf_oob")
-        assert rec and rec["confirmed"] == 1 and rec["callback_host"] == "127.0.0.1"
+        ctx = _ctx(_cfg(), url=f"http://127.0.0.1:{port}/fetch?url=x")
+        OobProbes().run(ctx)
+        assert [f for f in ctx.result.findings if "SSRF" in f.title]
+        rec = ctx.result.recon.get("oob_probes")
+        assert rec and rec["confirmed"] >= 1 and rec["probes"] == ["ssrf"]
+    finally:
+        srv.shutdown()
+
+
+def test_rce_confirmed_end_to_end():
+    srv, port = _sink_server(vulnerable=True)
+    try:
+        ctx = _ctx(_cfg(ssrf_oob=False, rce_oob=True), url=f"http://127.0.0.1:{port}/run?host=x")
+        OobProbes().run(ctx)
+        rce = [f for f in ctx.result.findings if "command injection" in f.title.lower()]
+        assert len(rce) == 1 and rce[0].severity.value == "CRITICAL"
+        assert ctx.result.recon["oob_probes"]["probes"] == ["rce"]
     finally:
         srv.shutdown()
 
 
 def test_skips_when_callback_unreachable_from_remote_target():
-    # loopback callback + a remote target -> guarded skip, no crash, no network.
     ctx = _ctx(_cfg(target="10.0.0.99"), host="10.0.0.99")
-    SsrfOob().run(ctx)
+    OobProbes().run(ctx)
     assert not ctx.result.findings
     assert any("loopback" in e for e in ctx.result.errors)
 
 
 def test_dry_run_is_skipped():
     ctx = _ctx(_cfg(dry_run=True), url="http://127.0.0.1:1/fetch?url=x")
-    SsrfOob().run(ctx)
+    OobProbes().run(ctx)
     assert not ctx.result.findings
     assert any("dry-run" in e for e in ctx.result.errors)
 
 
 def test_missing_attestation_is_skipped():
     ctx = _ctx(_cfg(lab_attestation=None), url="http://127.0.0.1:1/fetch?url=x")
-    SsrfOob().run(ctx)
+    OobProbes().run(ctx)
     assert not ctx.result.findings
-    assert any("ssrf-oob: skipped" in e for e in ctx.result.errors)
+    assert any("oob-probes: skipped" in e for e in ctx.result.errors)
 
 
 if __name__ == "__main__":

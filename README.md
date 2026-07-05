@@ -304,14 +304,22 @@ suspected vulnerabilities with benign payloads (a unique reflected-XSS marker, a
 open-redirect canary, a read-only traversal canary, a single-quote SQLi probe).
 Confirmed issues are marked `confirmed-exploitable`.
 
-Add **`--ssrf`** for a **blind-SSRF** probe: it injects a unique out-of-band
-callback URL into URL-ish parameters and confirms *only* if the target actually
-fetches it — a recorded callback is deterministic proof of server-side request
-forgery (reachable internal services / cloud metadata). The callback listener is
-self-hosted (no third-party collaborator); the target must be able to reach it, so
-pass `--oob-host <addr>` with a LAN/public address the target can route to (it
-auto-detects your LAN IP otherwise). HTTP-callback based; egress-filtered targets
-would need a DNS canary (not yet built).
+**Out-of-band (OOB) probes** confirm *blind* bugs — ones that leave no trace in
+the response — by planting a unique callback URL and watching a **self-hosted
+canary** for the phone-home. A recorded hit is deterministic proof:
+- **`--ssrf`** — blind **SSRF** (server fetches an injected URL → reachable
+  internal services / cloud metadata),
+- **`--rce`** — OS **command injection** (a shell payload makes the host `curl`
+  the canary; benign — it only fetches your listener, nothing is destroyed),
+- **`--blind-xss`** — blind/stored **XSS** beacon (injected markup loads the
+  canary when rendered; confirms server-side-render/synchronous cases — victim-
+  browser execution is asynchronous and won't fire during the scan).
+
+The canary is self-hosted (no third-party collaborator), so the target must be
+able to reach it: pass `--oob-host <addr>` with a LAN/public address the target
+can route to (it auto-detects your LAN IP otherwise, and skips with a clear
+message if a loopback callback can't reach a remote target). HTTP-callback based;
+egress-filtered targets would need a DNS canary (not yet built).
 
 It is gated by a layered safety harness — **all** must hold:
 1. `--lab` flag set, **and**

