@@ -740,8 +740,13 @@ $("pocClose").addEventListener("click", closeModal);
 $("pocModal").addEventListener("click", (e) => {
   if (e.target.id === "pocModal") closeModal();
 });
+// Escape closes from anywhere while the modal is open — clicking non-interactive
+// PoC text moves focus to <body>, so a modal-scoped listener would miss it.
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !$("pocModal").classList.contains("hidden")) closeModal();
+});
+// Tab focus-trap stays scoped to the modal.
 $("pocModal").addEventListener("keydown", (e) => {
-  if (e.key === "Escape") { closeModal(); return; }
   if (e.key !== "Tab") return;
   const focusable = $("pocModal").querySelectorAll(
     'button, a[href], input, textarea, select, [tabindex]:not([tabindex="-1"])');

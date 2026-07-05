@@ -76,10 +76,10 @@ testpaths = ["tests"]
 include = ["celsius"]
 pythonVersion = "3.10"
 typeCheckingMode = "basic"
-# Optional extras (web=fastapi, dynamic=playwright) are not installed in the
-# type-check environment and their imports are guarded at runtime.
-reportMissingImports = false
-# The rest of basic mode is blocking (0 errors, 0 warnings). The AI/harness paths
+# reportMissingImports stays at its default (error): run pyright with the web +
+# dynamic extras installed (see CI) so fastapi/playwright resolve, rather than
+# muting the rule globally — a global mute would also hide a typo'd *first-party*
+# import. The rest of basic mode is blocking (0 errors, 0 warnings). The AI/harness paths
 # that were previously gradual-typing debt are now typed at the LLM-JSON boundary
 # (TYPE_CHECKING imports for the harness/config, host/port coercion in the tool
 # dispatcher), so reportArgumentType / reportAttributeAccessIssue / reportCallIssue

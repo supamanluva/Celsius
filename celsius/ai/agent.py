@@ -68,22 +68,27 @@ def _corroborated(probe: dict, resp) -> bool:
 
 
 def _evidence_corroborated(evidence) -> bool:
-    """Deterministic backstop for the tool-prove / CVE-verify loops — the parity of
-    _corroborated() for verify_tools output.
+    """Deterministic backstop for the tool-prove / CVE-verify loops, in the spirit
+    of _corroborated() but over verify_tools output.
 
-    The judge for those loops reads target-controlled tool evidence (response
-    bodies, headers), so a model 'confirmed' must be independently grounded before
-    it earns the top tier (`verified` / priority-90+). We accept an unambiguous
-    signal the tool itself computed — a matched subdomain-takeover fingerprint or
-    an open socket — or a SQL-error / file-leak signature in the captured response.
-    Absent any of these, a model 'confirmed' stays a strong lead, never a proven
-    finding — the same discipline the injection path already enforces.
+    The judge for those loops reads target-controlled tool evidence, so a model
+    'confirmed' must be independently grounded before it earns the top tier
+    (`verified` / priority-90+). We accept only signals that positively evidence
+    the *vulnerability*, not mere reachability:
+      - a matched subdomain-takeover fingerprint (takeover_check computes this
+        deterministically against the dangling provider's body), or
+      - a SQL-error / file-leak signature in the captured response.
+    Absent those, a model 'confirmed' stays a strong lead, never a proven finding.
+
+    Deliberately NOT a proof: `tcp_connect`'s `open` (a port answering is true for
+    almost any scanned host — it corroborates reachability, not a bug). And unlike
+    the injection loop's _corroborated(), payload-reflection / redirect-canary
+    proofs aren't checked here — the tool loop doesn't carry the injected payload
+    to match against, so those stay the injection path's job.
     """
     if not isinstance(evidence, dict):
         return False
     if evidence.get("fingerprint_matched") is True:   # takeover_check: dangling + fingerprint
-        return True
-    if evidence.get("open") is True:                  # tcp_connect: socket confirmed open
         return True
     text = " ".join(str(evidence.get(k, "")) for k in
                     ("snippet", "title", "location", "body", "response_headers"))
