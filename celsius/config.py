@@ -79,6 +79,8 @@ class ScanConfig:
     exploit_rate_limit: float = 5.0         # requests/sec cap for active checks
     exploit_max_requests: int = 200         # hard cap on active requests
     ssrf_oob: bool = False                  # lab-mode: blind-SSRF probe via an OOB canary
+    rce_oob: bool = False                   # lab-mode: OS command-injection probe via an OOB canary
+    blind_xss_oob: bool = False             # lab-mode: blind/stored-XSS beacon via an OOB canary
     oob_callback_host: Optional[str] = None  # address the target calls back to (None -> auto-detect)
 
     # M2: AI layer
