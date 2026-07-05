@@ -48,7 +48,9 @@ jobs:
         run: uv run --group dev ruff check celsius/
 
       - name: Type check (pyright — blocking on errors)
-        run: uv run --group dev pyright celsius/
+        # Install the web + dynamic extras so fastapi/playwright imports resolve;
+        # that lets reportMissingImports stay on to catch typo'd first-party imports.
+        run: uv run --extra web --extra dynamic --group dev pyright celsius/
 
       - name: Tests under a shared pytest session (catches cross-test state leaks)
         run: uv run --group dev pytest -q
