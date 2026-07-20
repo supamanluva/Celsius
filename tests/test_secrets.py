@@ -8,6 +8,8 @@ or under pytest.
 
 from __future__ import annotations
 
+import base64
+import json
 import os
 import sys
 
@@ -72,6 +74,68 @@ def test_named_secret_rules_still_fire():
     for s, rule in REAL_NAMED:
         rules = _any_secret(s)
         assert rule in rules, f"missed {rule} in {s!r} (got {rules})"
+
+
+# ---- entropy-fallback suppressions (false-positive phase 1) -------------------
+
+def test_uuid_tokens_not_flagged():
+    # UUIDs are identifiers, not credentials — suppress the 8-4-4-4-12 hex shape.
+    s = 'session = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";'
+    assert not _high_entropy_hits(s), f"UUID flagged: {s!r}"
+
+
+def test_minified_long_line_suppressed():
+    # A >500-char line is a minified-bundle signal; entropy hits there are build
+    # artifacts even when the token itself would otherwise look like a secret.
+    token = "aZ9kQ2mWpX7vL4nR8sT1uY6bC3dE0fG"
+    long_line = "x" * 600 + f'var t = "{token}";'
+    assert not _high_entropy_hits(long_line), "entropy hit in minified long line"
+    # ...while the SAME token on a normal-length line is still reported.
+    assert _high_entropy_hits(f'var t = "{token}";'), "short-line token missed"
+
+
+def test_bundle_markers_suppressed():
+    token = "aZ9kQ2mWpX7vL4nR8sT1uY6bC3dE0fG"
+    for marker in ("__webpack_require__", "webpackJsonp", "sourceMappingURL"):
+        s = f'{marker}("{token}")'
+        assert not _high_entropy_hits(s), f"entropy hit despite marker {marker!r}"
+
+
+# ---- JWT rule: front-end downgrade vs never-expiring tokens -------------------
+
+def _jwt(payload: dict) -> str:
+    def b64(o: dict) -> str:
+        return base64.urlsafe_b64encode(json.dumps(o).encode()).rstrip(b"=").decode()
+    return f"{b64({'alg': 'HS256', 'typ': 'JWT'})}.{b64(payload)}.A1b2C3d4E5f6G7h8I9j0"
+
+
+def _jwt_match(text: str, context: str):
+    return [m for m in secrets.scan_text(text, context=context) if m.rule_id == "jwt"]
+
+
+def test_frontend_jwt_with_exp_downgraded():
+    tok = _jwt({"sub": "1234567890", "exp": 1893456000})
+    (m,) = _jwt_match(f'var t = "{tok}";', "frontend")
+    assert m.severity == "LOW", m.severity
+    assert m.title == "Exposed token (JWT)", m.title
+    assert "exp" in m.note and "session" in m.note, m.note
+
+
+def test_frontend_jwt_without_exp_stays_medium():
+    tok = _jwt({"sub": "1234567890"})
+    (m,) = _jwt_match(f'var t = "{tok}";', "frontend")
+    assert m.severity == "MEDIUM", m.severity
+    assert m.title == "JSON Web Token", m.title
+    assert "exp" in m.note, m.note
+
+
+def test_code_context_jwt_unchanged():
+    # Default ("code") context keeps the historical MEDIUM regardless of exp.
+    tok = _jwt({"sub": "1234567890", "exp": 1893456000})
+    (m,) = _jwt_match(f'var t = "{tok}";', "code")
+    assert m.severity == "MEDIUM", m.severity
+    assert m.title == "JSON Web Token", m.title
+    assert m.note == "", m.note
 
 
 if __name__ == "__main__":

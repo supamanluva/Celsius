@@ -31,7 +31,7 @@ CORS/JWT/takeover checks · email security · an **agentic AI proof loop** —
 </p>
 <table>
 <tr>
-  <td width="50%"><img src="docs/screenshot-scan.png" alt="Scan results"><br><em>Host/web scan — services, attack surface, findings, one-click HTML report</em></td>
+  <td width="50%"><img src="docs/screenshot-scan.png" alt="Scan results"><br><em>Scan results — grade, fix-first plan, AI advisor, findings, JSON/MD/SARIF/HTML export</em></td>
   <td width="50%"><img src="docs/screenshot-mail.png" alt="Email security scorecard"><br><em>Email security — SPF/DKIM/DMARC/MTA-STS graded A–F with exact fixes</em></td>
 </tr>
 </table>
@@ -89,20 +89,35 @@ fingerprints + optional `nmap -sV`; **passive OS/runtime inference**
 software that no longer gets security patches (PHP, IIS, Apache, Tomcat, OpenSSL…).
 
 **🛡️ CVE &amp; dependency intelligence** — CVE lookup against **NVD + MITRE CNA** with
-client-side version-range matching (catches freshly-published CVEs); **public
+client-side version-range matching (catches freshly-published CVEs) against a
+built-in product map covering servers, CMSs, self-hosted apps and frameworks
+(nginx…WordPress, Drupal, Grafana, GitLab, Nextcloud, Keycloak, MinIO…), with
+paginated NVD keyword search so high-volume products aren't cut off at the
+2000-result page cap; **public
 exploit-PoC enrichment** linking confirmed CVEs to working PoC repos
 ([trickest/cve](https://github.com/trickest/cve)); **dependency audit (SCA)** of
 lockfiles/manifests (npm, PyPI, Packagist, RubyGems, Go, crates.io) via OSV.dev;
 and **exploitability** scoring (EPSS + CISA **KEV** + reachability → verdict,
-priority, and a "how to check" decision tree).
+priority, and a "how to check" decision tree) — the top "likely-exploitable"
+tier requires corroboration (KEV, EPSS ≥ 0.5, a public PoC ref, or a verified
+nuclei template), so an unconfirmed scanner hit is honestly rated
+"conditions-needed".
 
-**🌐 Web security** — security-header audit (CSP, HSTS, X-Frame-Options, cookie
-flags, version disclosure); deep **CSP content** analysis (unsafe-inline/eval,
-wildcards, missing base-uri/frame-ancestors); **JWT** analysis (alg=none, weak
-HMAC, no expiry); **CORS** misconfiguration; `security.txt`; dangling-CNAME
-**subdomain takeover**; and an **email-security scorecard** (`--mail`) —
-SPF/DKIM/DMARC/MTA-STS/TLS-RPT/DNSSEC/BIMI graded **A–F** with the exact DNS
-record to add.
+**🌐 Web security** — security-header audit (CSP, HSTS, X-Frame-Options, version
+disclosure); **per-cookie** flag audit (Secure/HttpOnly/SameSite, graded by
+whether the cookie looks like a session token); deep **CSP content** analysis
+(unsafe-inline/eval, wildcards, missing base-uri/frame-ancestors — relaxed to
+INFO on JSON/XML API responses, which don't serve HTML); **JWT** analysis
+(alg=none, weak HMAC, no expiry); **CORS** misconfiguration (reflected-origin
+probes against the landing page *and* discovered API paths); `security.txt`;
+curated **content discovery** (64 signed paths: `.git`/`.env`, backup archives,
+`.svn`/`.hg`/`.bzr`, CI configs, Spring actuator, debug consoles, admin panels —
+exposed `.git` is graded HIGH only when `HEAD` + refs confirm the repo is
+reconstructable); dangling-CNAME **subdomain takeover** across ~50 providers;
+**WordPress-specific checks** (readme/generator version disclosure → feeds the
+CVE lookup, REST author enumeration, `xmlrpc.php`, uploads listing); and an
+**email-security scorecard** (`--mail`) — SPF/DKIM/DMARC/MTA-STS/TLS-RPT/
+DNSSEC/BIMI graded **A–F** with the exact DNS record to add.
 
 **🧭 Client-side &amp; crawl** — crawl + JS intel (API endpoints/routes, DOM-XSS
 sinks), **source-map recovery** (reconstruct hidden original source → scan it for
@@ -112,13 +127,18 @@ single-page app actually calls.
 
 **🔑 Source code &amp; secrets** — front-end secret scan (HTML + linked JS) and a
 static code scan (regex + Shannon entropy + SAST-lite), integrating
-`gitleaks`/`semgrep`/`trufflehog` when present.
+`gitleaks`/`semgrep`/`trufflehog` when present. False-positive hardening: the
+entropy fallback ignores UUIDs and minified bundles, and a JWT found in
+front-end code downgrades to a LOW "exposed token" when it carries an `exp`
+claim (it expires on its own); a JWT with no expiry stays MEDIUM.
 
 **🤖 AI layer** (`--ai`) — triage + attack-surface hypotheses, and an **agentic
 proof loop** (plan → guard-railed send → judge) so only proven issues are
 reported. Pluggable providers incl. **local Ollama** — nothing need leave the box.
 
-**📤 Reporting &amp; integration** — exploit-chain **correlation** (findings → scored
+**📤 Reporting &amp; integration** — a **grade scorecard** (letter grade, 0–100
+score, verdict, "fix these first" top 5) headlines every report; exploit-chain
+**correlation** (findings → scored
 attack paths), non-destructive **PoC/repro** steps per finding, optional
 **nuclei** templates, and **terminal / JSON / HTML / SARIF / Markdown** output.
 The exit code encodes the worst severity for CI gates.
@@ -176,13 +196,34 @@ uv run --extra web --extra dynamic celsius serve   # http://127.0.0.1:8000
 # convenience wrapper (detached, PID + logs): ./run.sh   (prefers uv, falls back to venv)
 ```
 
-The UI has two tabs — **Host/Web scan** (target + options, live log, colour-coded
-services/CVEs/findings, a *PoC steps* button on every item) and **Code & secret
-scan** (server-side path or pasted snippet). An authorization checkbox gates all
+The UI has four tabs — **Website & host**, **E-mail security**, **Code &
+secrets**, and **History** — in a clean light theme (dark toggle in the
+header). On the scan
+tab you pick a **preset** — *Quick*, *Standard*, *Deep* or *Custom* (mapping to
+the same `ScanConfig` flags as `--profile`, with plain-English toggles) — and
+watch a real **progress bar** (phase, current plugin, elapsed) with a **Cancel**
+button; the raw log sits behind a disclosure. Results open with a **hero grade
+card** (letter grade, 0–100 score, verdict) and severity donut, a **"Fix these
+first"** list, and per-finding *What / Why / How to fix* sections with AI
+hypotheses visually separated from verified findings. Every result can be
+**exported** as JSON / Markdown / SARIF / HTML (per-scan or a whole domain as a
+ZIP). The History tab offers substring search, a grade column, delete, re-scan
+and pagination; the Code tab takes a path, pasted snippet, or a **drag-and-drop
+file upload** (2 MB max). Toasts replace blocking alerts. AI controls
+auto-enable only when a provider is configured (`GET /api/ai/status` reports
+which env keys are set; `mock` shows as "Demo mode").
+
+An authorization checkbox gates all
 host scanning; the API returns `403` without it. Advanced panels expose
 **authenticated scanning** (attach a cookie/bearer/header or log in via a form) and
 **lab mode** (active verification, behind an attestation) — so the web UI now
 covers the same scanning surface as the CLI.
+
+The API also exposes `GET /api/health`, scan-history listing with
+`limit`/`offset`/target filter (`GET /api/scans`), single-scan fetch and delete
+(`GET`/`DELETE /api/scans/{id}`), per-format export
+(`GET /api/scans/{id}/export.{json,md,sarif,html}`), and job cancellation
+(`DELETE /api/scan/{job_id}`) for scripting against a running server.
 
 ## ⚠️ Authorized use only
 
@@ -238,6 +279,9 @@ python3 -m celsius code /path/to/repo --ai --ai-provider deepseek
 ```
 
 Subcommands: `scan <target>` (default), `code <path>`, `serve`, `history`.
+Scan flags are organized into `--help` groups (profiles, core checks, recon,
+discovery, active scanning, lab mode, AI, authentication, output, general) with
+an examples epilog at the bottom.
 
 ### AI layer (M2)
 
@@ -417,10 +461,11 @@ python3 -m celsius scan https://lab.local/?q=test --lab --ai --scope scope.yml \
 
 | Flag | Meaning |
 |------|---------|
+| `--profile quick\|standard\|deep` | curated flag bundle: quick = minimal (headers/TLS/CVEs), standard = defaults + subdomains/crawl/content discovery, deep = `--full` minus the root-requiring checks; explicit flags always win over the profile |
 | `--no-web` | skip HTTP header/CSP analysis |
 | `--no-cve` | skip the NVD CVE lookup |
 | `--no-cve-pocs` | skip public exploit-PoC enrichment (trickest/cve) |
-| `--full` / `--thorough` | enable every safe check at once (ports, nuclei, subdomains, crawl, API discovery, mail, CVE-verify, OS detect) |
+| `--full` / `--thorough` | enable every safe check at once (ports, nuclei, subdomains, crawl, API discovery, mail, CVE-verify, OS detect); when not root, OS detect warns and is skipped instead of erroring |
 | `--cookie` / `--bearer` / `--header` | authenticated scan: attach a session/token to every request |
 | `--login-url` (+ `--login-user`/`--login-pass`) | form login: log in first, then scan as that user |
 | `--lab` (+ `--scope`, `--lab-attest`) | active verification — reflected-XSS/SQLi/SSTI/CRLF/traversal/redirect |
@@ -484,7 +529,10 @@ Freshly published CVEs sit in NVD as *"Awaiting Analysis"* for days/weeks with
 version. A naive `cpeName=`/keyword query therefore **misses the recent,
 high-impact CVEs you care about most**. So celsius:
 
-1. **Discovers** candidate CVEs for a product via one cached NVD keyword search.
+1. **Discovers** candidate CVEs for a product via one cached NVD keyword search —
+   paginated past NVD's 2000-result page cap (up to 6000, with a truncation note
+   when even that isn't enough), so high-volume keywords like `php` or
+   `wordpress` aren't silently cut off.
 2. **Version-matches each candidate client-side**:
    - against NVD's CPE version ranges when the CVE is *enriched*; otherwise
    - against the **MITRE CNA record's** structured `affected[].versions` semver
@@ -494,7 +542,12 @@ high-impact CVEs you care about most**. So celsius:
    plugins) can't cause false positives.
 
 Only authoritative sources (NVD + MITRE) are used — never search-engine results,
-which are increasingly polluted with AI-invented "CVEs".
+which are increasingly polluted with AI-invented "CVEs". Product detection maps
+through a built-in `_PRODUCT_MAP` (67 entries: web/mail/db servers, CMSs like
+WordPress/Drupal/Joomla/Ghost, self-hosted apps like Grafana/Nextcloud/GitLab/
+Immich/Keycloak/MinIO/Prometheus, and versioned JS frameworks) with accept/reject
+regexes per product — unknown products are reported as "verify manually" rather
+than guessed.
 
 **Public-PoC enrichment.** Confirmed (firm-confidence) CVEs are then linked to
 real, working proof-of-concept repositories from the community
@@ -552,7 +605,8 @@ celsius/
   recon/            attack surface + client-side: dns.py (DoH), subdomains.py
                     (crt.sh), tls.py (cert/protocol), fingerprint.py (tech/WAF/CDN),
                     crawler.py, jsintel.py (endpoints/sinks), sourcemaps.py
-                    (recover hidden source), apidisco.py (OpenAPI/GraphQL), dynamic.py
+                    (recover hidden source), apidisco.py (OpenAPI/GraphQL),
+                    wpcheck.py (WordPress checks), dynamic.py
   targets.py        URL/host/IP parsing & resolution
   http_analysis.py  header fetch, service detection, security-header audit
   portscan.py       nmap -sV / -O wrapper (XML parsing, per-IP result cache)

@@ -64,16 +64,22 @@ def scan_page(url: str, *, insecure: bool = False, auth=None) -> tuple[list[Find
 
     seen: set[tuple[str, str]] = set()
     for loc, body in sources.items():
-        for sm in secret_rules.scan_text(body):
+        # Front-end context: rules that are noisy in browser code (JWTs) are
+        # softened by the scanner and carry an explanatory note.
+        for sm in secret_rules.scan_text(body, context="frontend"):
             key = (sm.rule_id, sm.match)
             if key in seen:
                 continue
             seen.add(key)
+            description = (f"A credential-shaped string was found in front-end "
+                           f"content served at {loc}.")
+            if sm.note:
+                description += f" {sm.note}"
             findings.append(Finding(
                 title=f"Exposed secret in client code: {sm.title}",
                 severity=_SEV.get(sm.severity, Severity.MEDIUM),
                 category="exposed-secret",
-                description=f"A credential-shaped string was found in front-end content served at {loc}.",
+                description=description,
                 recommendation="Never ship secrets to the browser. Move calls server-side, "
                                "rotate the exposed value, and scope/limit keys.",
                 evidence=f"{sm.redacted}  @ {loc}",

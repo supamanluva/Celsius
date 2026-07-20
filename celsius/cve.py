@@ -6,8 +6,9 @@ descriptions rarely contain the exact affected version. A naive
 `cpeName=`/keyword query therefore MISSES recent, high-impact CVEs (exactly the
 ones you care about). So we:
 
-  1. Discover candidate CVEs for a product via NVD keyword search (one cached
-     request returns the product's whole history).
+  1. Discover candidate CVEs for a product via NVD keyword search (paginated —
+     NVD caps resultsPerPage at 2000 — cached, and capped at NVD_MAX_RESULTS so
+     the client-side matching pass stays bounded).
   2. Version-match each candidate CLIENT-SIDE:
        a. against NVD's CPE version ranges, when the CVE is enriched; else
        b. against the MITRE CNA record's structured `affected[].versions`
@@ -86,6 +87,61 @@ _PRODUCT_MAP: dict[str, _Map] = {
     "bind": _Map("isc", "bind", "isc bind", r"\bbind\b"),
     "dovecot": _Map("dovecot", "dovecot", "dovecot", r"dovecot"),
     "pure-ftpd": _Map("pureftpd", "pure-ftpd", "pure-ftpd", r"pure.?ftpd"),
+    # --- CMS ---
+    "wordpress": _Map("wordpress", "wordpress", "wordpress", r"\bwordpress\b"),
+    "drupal": _Map("drupal", "drupal", "drupal", r"\bdrupal\b"),
+    # NVD's CPE 2.3 formatted string escapes the "!": cpe:2.3:a:joomla:joomla\!
+    "joomla": _Map("joomla", "joomla\\!", "joomla", r"\bjoomla\b"),
+    "ghost": _Map("tryghost", "ghost", "ghost", r"\bghost\b"),
+    # --- self-hosted apps (recon/fingerprint.py + recon/appversion.py probes) ---
+    "grafana": _Map("grafana", "grafana", "grafana", r"\bgrafana\b"),
+    "nextcloud": _Map("nextcloud", "nextcloud_server", "nextcloud", r"\bnextcloud\b"),
+    "owncloud": _Map("owncloud", "owncloud", "owncloud", r"\bowncloud\b"),
+    "gitea": _Map("go-gitea", "gitea", "gitea", r"\bgitea\b", reject=r"forgejo"),
+    "forgejo": _Map("codeberg", "forgejo", "forgejo", r"\bforgejo\b"),
+    "gitlab": _Map("gitlab", "gitlab", "gitlab", r"\bgitlab\b"),
+    "jellyfin": _Map("jellyfin", "jellyfin", "jellyfin", r"\bjellyfin\b"),
+    # Emby's CPE is emby:emby_server; the keyword covers CNA-only records too.
+    "emby": _Map("emby", "emby_server", "emby media server", r"\bemby\b"),
+    # Vaultwarden has no NVD CPE (its CVEs ship via GitHub advisories) — keyword
+    # discovery + CNA semver matching still applies; enriched CPE matches won't.
+    "vaultwarden": _Map("vaultwarden", "vaultwarden", "vaultwarden",
+                        r"vaultwarden|bitwarden_rs"),
+    "immich": _Map("immich", "immich", "immich", r"\bimmich\b"),
+    "plex": _Map("plex", "plex_media_server", "plex media server", r"\bplex\b"),
+    "keycloak": _Map("keycloak", "keycloak", "keycloak", r"\bkeycloak\b"),
+    "minio": _Map("minio", "minio", "minio", r"\bminio\b"),
+    "prometheus": _Map("prometheus", "prometheus", "prometheus", r"\bprometheus\b"),
+    "portainer": _Map("portainer", "portainer", "portainer", r"\bportainer\b"),
+    "home assistant": _Map("home-assistant", "home-assistant", "home assistant",
+                           r"home.?assistant"),
+    "mastodon": _Map("joinmastodon", "mastodon", "mastodon", r"\bmastodon\b"),
+    "synapse": _Map("matrix", "synapse", "matrix synapse", r"\bsynapse\b"),
+    "phpmyadmin": _Map("phpmyadmin", "phpmyadmin", "phpmyadmin", r"phpmyadmin"),
+    "roundcube": _Map("roundcube", "webmail", "roundcube", r"\broundcube\b"),
+    # No confirmed NVD CPE for these — keyword discovery only (CNA fallback still
+    # matches via accept; an enriched CPE config simply won't match the product).
+    "uptime kuma": _Map("uptime_kuma_project", "uptime_kuma", "uptime kuma",
+                        r"uptime.?kuma"),
+    "gotify": _Map("gotify", "gotify", "gotify", r"\bgotify\b"),
+    "miniflux": _Map("miniflux", "miniflux", "miniflux", r"\bminiflux\b"),
+    "overseerr": _Map("overseerr", "overseerr", "overseerr", r"\boverseerr\b"),
+    "jellyseerr": _Map("jellyseerr", "jellyseerr", "jellyseerr", r"\bjellyseerr\b"),
+    "mealie": _Map("mealie", "mealie", "mealie", r"\bmealie\b"),
+    "audiobookshelf": _Map("audiobookshelf", "audiobookshelf", "audiobookshelf",
+                           r"\baudiobookshelf\b"),
+    "readeck": _Map("readeck", "readeck", "readeck", r"\breadeck\b"),
+    "vikunja": _Map("vikunja", "vikunja", "vikunja", r"\bvikunja\b"),
+    "linkding": _Map("linkding", "linkding", "linkding", r"\blinkding\b"),
+    # --- frameworks / libraries with detectable versions (fingerprint.py) ---
+    "gunicorn": _Map("gunicorn", "gunicorn", "gunicorn", r"\bgunicorn\b"),
+    "werkzeug": _Map("palletsprojects", "werkzeug", "werkzeug", r"\bwerkzeug\b"),
+    "jquery": _Map("jquery", "jquery", "jquery", r"\bjquery\b"),
+    "bootstrap": _Map("getbootstrap", "bootstrap", "bootstrap", r"\bbootstrap\b"),
+    "angular": _Map("angular", "angular", "angular", r"\bangular\b"),
+    "vue.js": _Map("vuejs", "vue.js", "vue.js", r"\bvue\b"),
+    "znc": _Map("znc", "znc", "znc", r"\bznc\b"),
+    "phusion passenger": _Map("phusion", "passenger", "phusion passenger", r"passenger"),
 }
 
 
@@ -158,6 +214,42 @@ def _get_json(url: str, *, api_key: Optional[str] = None, retries: int = 3,
                 continue
             return None
     return None
+
+
+# NVD caps resultsPerPage at 2000; high-volume keywords (php, mysql, wordpress)
+# exceed that, so discovery paginates with startIndex. NVD_MAX_RESULTS bounds the
+# client-side matching pass (and the polite inter-page delay keeps us inside the
+# 5-requests-per-30s unauthenticated rate limit).
+NVD_PAGE_SIZE = 2000
+NVD_MAX_RESULTS = 6000
+
+
+def _nvd_search(keyword: str, *, api_key: Optional[str] = None,
+                force_refresh: bool = False) -> tuple[Optional[list[dict]], bool]:
+    """Fetch candidate CVEs for an NVD keyword search, paginating with startIndex.
+
+    Returns (vulns, truncated): `truncated` is True when NVD reported more results
+    than we fetched (page cap hit, or a later page failed mid-pagination). Returns
+    (None, False) when the FIRST page request fails — the caller reports that as a
+    lookup failure rather than a partial result.
+    """
+    vulns: list[dict] = []
+    while True:
+        qs = urllib.parse.urlencode({
+            "keywordSearch": keyword,
+            "resultsPerPage": str(NVD_PAGE_SIZE),
+            "startIndex": str(len(vulns)),
+        })
+        data = _get_json(f"{NVD_BASE}?{qs}", api_key=api_key, force_refresh=force_refresh)
+        if data is None:
+            return (None, False) if not vulns else (vulns, True)
+        page = data.get("vulnerabilities", [])
+        vulns.extend(page)
+        total = data.get("totalResults", len(vulns))
+        if not page or len(vulns) >= total or len(vulns) >= NVD_MAX_RESULTS:
+            return vulns, total > len(vulns)
+        # Respect NVD rate limits between page requests.
+        time.sleep(6.0 if not api_key else 0.8)
 
 
 # ---- Public exploit / PoC enrichment (trickest/cve) ---------------------------
@@ -515,12 +607,11 @@ def lookup_for_service(
                     "verify manually at nvd.nist.gov")
 
     product = mapping.product
-    url = f"{NVD_BASE}?{urllib.parse.urlencode({'keywordSearch': mapping.keyword, 'resultsPerPage': '2000'})}"
-    data = _get_json(url, api_key=api_key, force_refresh=force_refresh)
-    if data is None:
+    vulns, truncated = _nvd_search(mapping.keyword, api_key=api_key,
+                                   force_refresh=force_refresh)
+    if vulns is None:
         return [], "NVD request failed (rate limit or network)"
 
-    vulns = data.get("vulnerabilities", [])
     matched: list[CVE] = []
     cna_candidates: list[dict] = []
     distro = _distro_build(svc.version)
@@ -536,11 +627,14 @@ def lookup_for_service(
             cna_candidates.append(vuln)  # un-enriched -> check CNA
 
     # Resolve un-enriched candidates via CNA records (parallel, capped).
-    note: Optional[str] = None
+    notes: list[str] = []
+    if truncated:
+        notes.append(f"keyword search returned more than {len(vulns)} CVEs; "
+                     f"only the first {len(vulns)} were evaluated")
     if cna_candidates:
         if len(cna_candidates) > max_cna_fetch:
-            note = (f"{len(cna_candidates)} un-enriched CVEs; checked first "
-                    f"{max_cna_fetch} via CNA records")
+            notes.append(f"{len(cna_candidates)} un-enriched CVEs; checked first "
+                         f"{max_cna_fetch} via CNA records")
             cna_candidates = cna_candidates[:max_cna_fetch]
 
         def check(vuln):
@@ -557,7 +651,7 @@ def lookup_for_service(
                     if cve:
                         matched.append(cve)
 
-    return _dedupe(matched), note
+    return _dedupe(matched), "; ".join(notes) if notes else None
 
 
 def _dedupe(cves: list[CVE]) -> list[CVE]:

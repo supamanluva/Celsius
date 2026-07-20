@@ -201,20 +201,33 @@ def audit_security_headers(result: HttpResult) -> list[Finding]:
     h = result.headers
     findings: list[Finding] = []
 
-    # Content-Security-Policy
+    # Content-Security-Policy — presence only. Directive *quality* (unsafe-inline,
+    # wildcards, missing directives, ...) is evaluated exactly once, by
+    # webchecks.analyze_csp, which is the single authoritative CSP evaluator.
     csp = h.get("content-security-policy")
     if not csp:
-        findings.append(Finding(
-            title="Missing Content-Security-Policy",
-            severity=Severity.MEDIUM,
-            category="csp",
-            description="No CSP header. The page has no policy restricting where "
-                        "scripts, styles, frames, etc. may load from, increasing XSS impact.",
-            recommendation="Add a Content-Security-Policy header, starting with a "
-                           "restrictive default-src 'self' and tightening from there.",
-        ))
-    else:
-        findings.extend(_audit_csp(csp))
+        ctype = h.get("content-type", "")
+        if _is_api_response(ctype):
+            findings.append(Finding(
+                title="Missing Content-Security-Policy (API response)",
+                severity=Severity.INFO,
+                category="csp",
+                description=f"The response is an API payload (Content-Type: {ctype or 'unknown'}), "
+                            "not HTML — CSP only governs document browsing contexts, so it does "
+                            "not apply here.",
+                recommendation="No action needed for pure API responses; ensure any HTML-serving "
+                               "endpoints on the same origin do send a CSP.",
+            ))
+        else:
+            findings.append(Finding(
+                title="Missing Content-Security-Policy",
+                severity=Severity.MEDIUM,
+                category="csp",
+                description="No CSP header. The page has no policy restricting where "
+                            "scripts, styles, frames, etc. may load from, increasing XSS impact.",
+                recommendation="Add a Content-Security-Policy header, starting with a "
+                               "restrictive default-src 'self' and tightening from there.",
+            ))
 
     # HSTS — only meaningful over https
     over_https = result.final_url.startswith("https://")
@@ -295,72 +308,74 @@ def audit_security_headers(result: HttpResult) -> list[Finding]:
             evidence=f"X-Powered-By: {h['x-powered-by']}",
         ))
 
-    # Cookies without flags
+    # Cookies without flags — each Set-Cookie header is audited individually so
+    # one well-flagged cookie can't mask a bad one, and non-session cookies
+    # don't trigger session-cookie severities.
     set_cookie = h.get("set-cookie", "")
     if set_cookie:
-        low = set_cookie.lower()
-        if over_https and "secure" not in low:
-            findings.append(Finding(
-                title="Cookie without Secure flag",
-                severity=Severity.LOW,
-                category="cookies",
-                description="A cookie is set over HTTPS without the Secure attribute.",
-                recommendation="Add the Secure attribute to cookies.",
-                evidence=set_cookie[:200],
-            ))
-        if "httponly" not in low:
-            findings.append(Finding(
-                title="Cookie without HttpOnly flag",
-                severity=Severity.LOW,
-                category="cookies",
-                description="A cookie is set without HttpOnly, exposing it to JS/XSS theft.",
-                recommendation="Add the HttpOnly attribute to session cookies.",
-                evidence=set_cookie[:200],
-            ))
+        findings.extend(_audit_cookies(set_cookie, over_https=over_https))
 
     return findings
 
 
-def _audit_csp(csp: str) -> list[Finding]:
-    findings: list[Finding] = []
-    low = csp.lower()
+# Content types for API payloads: CSP only governs document browsing contexts,
+# so a missing CSP on these is informational, not a MEDIUM.
+_API_CONTENT_TYPES = ("application/json", "application/xml", "text/xml")
 
-    if "unsafe-inline" in low:
-        findings.append(Finding(
-            title="CSP allows 'unsafe-inline'",
-            severity=Severity.MEDIUM,
-            category="csp",
-            description="'unsafe-inline' permits inline scripts/styles, largely defeating "
-                        "CSP's XSS protection.",
-            recommendation="Remove 'unsafe-inline'; use nonces or hashes instead.",
-            evidence=csp[:300],
-        ))
-    if "unsafe-eval" in low:
-        findings.append(Finding(
-            title="CSP allows 'unsafe-eval'",
-            severity=Severity.LOW,
-            category="csp",
-            description="'unsafe-eval' permits eval()-style execution, expanding XSS surface.",
-            recommendation="Remove 'unsafe-eval' and refactor code that relies on it.",
-            evidence=csp[:300],
-        ))
-    # wildcard sources in script/default-src
-    if re.search(r"(default-src|script-src)[^;]*\*", low):
-        findings.append(Finding(
-            title="CSP uses wildcard source",
-            severity=Severity.MEDIUM,
-            category="csp",
-            description="A wildcard (*) in default-src/script-src lets scripts load from any origin.",
-            recommendation="Replace * with an explicit allow-list of trusted origins.",
-            evidence=csp[:300],
-        ))
-    if "default-src" not in low:
-        findings.append(Finding(
-            title="CSP has no default-src",
-            severity=Severity.LOW,
-            category="csp",
-            description="Without default-src, unlisted directives fall back to allowing everything.",
-            recommendation="Define a restrictive default-src 'self' (or 'none').",
-            evidence=csp[:300],
-        ))
+
+def _is_api_response(content_type: str) -> bool:
+    """True for JSON/XML-style API payloads (incl. +json/+xml structured suffixes)."""
+    c = content_type.lower().split(";", 1)[0].strip()
+    return c in _API_CONTENT_TYPES or c.endswith("+json") or c.endswith("+xml")
+
+
+# Cookie names that look session/identity-ish; missing flags on these are worse.
+_SESSIONISH_COOKIE = re.compile(r"session|sess|auth|token|sid|jwt", re.I)
+
+
+def _audit_cookies(set_cookie: str, *, over_https: bool) -> list[Finding]:
+    """Audit each Set-Cookie header on its own (they are stored joined by
+    newlines — see _headers_dict). Missing Secure/HttpOnly is MEDIUM for
+    session-ish cookies and LOW otherwise; a session-ish cookie without an
+    explicit SameSite attribute is LOW."""
+    findings: list[Finding] = []
+    for raw in set_cookie.split("\n"):
+        raw = raw.strip()
+        if not raw or "=" not in raw:
+            continue
+        name = raw.split("=", 1)[0].strip()
+        attrs = {p.split("=", 1)[0].strip().lower() for p in raw.split(";")[1:]}
+        sessionish = bool(_SESSIONISH_COOKIE.search(name))
+        sev = Severity.MEDIUM if sessionish else Severity.LOW
+        ev = raw[:200]
+        if over_https and "secure" not in attrs:
+            findings.append(Finding(
+                title=f"Cookie '{name}' without Secure flag",
+                severity=sev,
+                category="cookies",
+                description=f"The cookie '{name}' is set over HTTPS without the Secure "
+                            "attribute, so a browser may send it over plaintext HTTP.",
+                recommendation="Add the Secure attribute to cookies.",
+                evidence=ev,
+            ))
+        if "httponly" not in attrs:
+            findings.append(Finding(
+                title=f"Cookie '{name}' without HttpOnly flag",
+                severity=sev,
+                category="cookies",
+                description=f"The cookie '{name}' is set without HttpOnly, exposing it "
+                            "to JS/XSS theft.",
+                recommendation="Add the HttpOnly attribute to session cookies.",
+                evidence=ev,
+            ))
+        if sessionish and "samesite" not in attrs:
+            findings.append(Finding(
+                title=f"Cookie '{name}' without SameSite attribute",
+                severity=Severity.LOW,
+                category="cookies",
+                description=f"The session-ish cookie '{name}' sets no explicit SameSite "
+                            "attribute, leaving CSRF hardening to the browser default.",
+                recommendation="Set SameSite=Lax or SameSite=Strict on session cookies.",
+                evidence=ev,
+            ))
     return findings

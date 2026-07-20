@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import json
 import subprocess
-from typing import Optional
 
 from . import nuclei_scan
 
@@ -64,10 +63,3 @@ def verify_cves(url: str, cve_ids: list[str], *, timeout: int = 300
             hits.append({"cve": tid, "matched_at": obj.get("matched-at", ""),
                          "name": (obj.get("info") or {}).get("name", "")})
     return confirmed, hits, errors
-
-
-def available_template_count() -> Optional[int]:
-    """Best-effort: whether nuclei + templates are present (for messaging)."""
-    if not nuclei_scan.nuclei_path():
-        return None
-    return 1 if nuclei_scan.templates_installed() else 0

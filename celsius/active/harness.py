@@ -5,7 +5,10 @@ It enforces: lab-mode enabled, per-run attestation, request cap, rate limit, a
 kill-switch file, dry-run preview, and an audit record for every request.
 
 `discover_points` finds injectable parameters (base-URL query, page forms, and
-links with query strings) so verifiers have somewhere to test.
+links with query strings) so verifiers have somewhere to test. When handed the
+scan's recon dict it also folds in the attack surface the passive phase already
+collected (crawl endpoints/routes, wayback URLs + parameter names, sitemap
+URLs) — capped so the extra points can't blow the request budget.
 """
 
 from __future__ import annotations
@@ -184,18 +187,29 @@ _METHOD = re.compile(r"""method\s*=\s*['"]([^'"]+)['"]""", re.I)
 _INPUT = re.compile(r"""<(?:input|textarea|select)\b[^>]*\bname\s*=\s*['"]([^'"]+)['"]""", re.I)
 _HREF = re.compile(r"""href\s*=\s*['"]([^'"#]+\?[^'"#]+)['"]""", re.I)
 
+# Cap on points derived from passive recon (crawl/wayback/sitemap) so lab
+# verifiers can't be steered into burning the whole request budget on surface
+# that was already seen passively.
+_MAX_RECON_POINTS = 50
+# Cap on archived parameter names folded into a single point.
+_MAX_RECON_PARAMS = 20
+_PARAM_NAME = re.compile(r"^[A-Za-z0-9_.\-]{1,40}$")
 
-def discover_points(base_url: str, lab: LabContext) -> list[Point]:
+
+def discover_points(base_url: str, lab: LabContext,
+                    recon: Optional[dict] = None) -> list[Point]:
     points: list[Point] = []
     seen: set[str] = set()
 
-    def add(url: str, method: str, params: dict, origin: str):
+    def add(url: str, method: str, params: dict, origin: str) -> bool:
         if not params:
-            return
+            return False
         key = f"{method}:{url}:{','.join(sorted(params))}"
         if key not in seen:
             seen.add(key)
             points.append(Point(url=url, method=method, params=params, origin=origin))
+            return True
+        return False
 
     # base URL's own query params
     p = urllib.parse.urlparse(base_url)
@@ -224,7 +238,55 @@ def discover_points(base_url: str, lab: LabContext) -> list[Point]:
             params = {k: (v[0] if v else "") for k, v in urllib.parse.parse_qs(lp.query).items()}
             add(link.split("?")[0], "GET", params, "link")
 
+    # fold in the attack surface the passive phase already collected (no extra
+    # requests needed — this data is already in ctx.result.recon)
+    if recon:
+        _add_recon_points(base_url, recon, add)
+
     return points
+
+
+def _add_recon_points(base_url: str, recon: dict, add: Callable[..., bool]) -> None:
+    """Turn passive-recon URLs/params into GET points (capped, same-host only).
+
+    Crawled endpoints/routes and archived/sitemap URLs with query strings are
+    tested with their own parameters; the parameter names the wayback harvest
+    flagged as interesting are replayed against the base URL and against
+    crawled endpoints that carried no query of their own.
+    """
+    host = urllib.parse.urlparse(base_url).netloc
+    crawl = recon.get("crawl") or {}
+    urls = (list(crawl.get("endpoints") or []) + list(crawl.get("routes") or [])
+            + list(recon.get("wayback_urls") or [])
+            + list(recon.get("sitemap_urls") or []))
+    wb_params = [p for p in (recon.get("wayback_params") or [])
+                 if _PARAM_NAME.match(str(p))][:_MAX_RECON_PARAMS]
+
+    added = 0
+    bare: list[str] = []          # same-host recon URLs with no query of their own
+    for u in urls:
+        if added >= _MAX_RECON_POINTS:
+            break
+        link = urllib.parse.urljoin(base_url, str(u))
+        lp = urllib.parse.urlparse(link)
+        if lp.netloc != host:
+            continue
+        if lp.query:
+            params = {k: (v[0] if v else "") for k, v in urllib.parse.parse_qs(lp.query).items()}
+            if add(link.split("?")[0], "GET", params, "recon"):
+                added += 1
+        else:
+            bare.append(link.split("#")[0])
+
+    if not wb_params:
+        return
+    # archived params -> base URL plus a sample of the query-less endpoints
+    candidates = [base_url.split("?")[0]] + sorted(set(bare))
+    for url in candidates:
+        if added >= _MAX_RECON_POINTS:
+            break
+        if add(url, "GET", {p: "celsius" for p in wb_params}, "wayback-params"):
+            added += 1
 
 
 def build_url(base: str, params: dict) -> str:

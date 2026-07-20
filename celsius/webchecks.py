@@ -60,8 +60,10 @@ def _parse_csp(policy: str) -> dict[str, list[str]]:
 
 
 def analyze_csp(headers: dict) -> list[Finding]:
-    """Evaluate the *content* of a Content-Security-Policy (presence is checked
-    elsewhere); flag policies that don't actually stop XSS."""
+    """Evaluate the *content* of a Content-Security-Policy; flag policies that
+    don't actually stop XSS. This is the single authoritative CSP evaluator —
+    http_analysis only reports a missing header, and this returns [] when the
+    header is absent so nothing is double-reported."""
     policy = headers.get("content-security-policy")
     if not policy:
         return []
@@ -201,12 +203,38 @@ def check_security_txt(base_url: str, *, insecure: bool = False, auth=None) -> l
 
 # ---- CORS misconfiguration (safe-active) --------------------------------------
 
-def check_cors(base_url: str, *, insecure: bool = False, auth=None) -> list[Finding]:
+# Paths that look like API surface — worth a CORS probe beyond the site root.
+_APIISH = re.compile(r"/(api|graphql|gql|rest|rpc)(/|$)|/v\d+(/|$)", re.I)
+
+
+def cors_candidate_paths(recon: dict) -> list[str]:
+    """Derive up to 3 API-ish paths for the CORS probe beyond the site root,
+    from recon data: crawler-surfaced endpoints/routes and apidisco results
+    (OpenAPI paths, the GraphQL endpoint URL)."""
+    crawl = recon.get("crawl") or {}
+    api = recon.get("api") or {}
+    cands = (list(crawl.get("endpoints") or []) + list(crawl.get("routes") or [])
+             + list(api.get("endpoints") or []))
+    gql = api.get("graphql") or {}
+    if isinstance(gql, dict) and gql.get("url"):
+        cands.insert(0, gql["url"])  # an introspectable endpoint is the juiciest target
+    out: list[str] = []
+    for cand in cands:
+        path = urllib.parse.urlparse(str(cand)).path
+        if path and path != "/" and _APIISH.search(path) and path not in out:
+            out.append(path)
+            if len(out) >= 3:
+                break
+    return out
+
+
+def _cors_probe(url: str, insecure: bool, auth) -> "tuple[bool, list[Finding]]":
+    """Probe one URL with crafted Origin headers. Returns (reachable, findings)."""
     findings: list[Finding] = []
     # 1) reflected arbitrary origin
-    status, h, _b = _get(base_url, insecure, auth, origin=_EVIL_ORIGIN)
+    status, h, _b = _get(url, insecure, auth, origin=_EVIL_ORIGIN)
     if status is None:
-        return findings
+        return False, findings
     acao = h.get("access-control-allow-origin", "")
     acac = (h.get("access-control-allow-credentials", "") or "").lower() == "true"
     if acao == _EVIL_ORIGIN:
@@ -219,9 +247,9 @@ def check_cors(base_url: str, *, insecure: bool = False, auth=None) -> list[Find
                         "site can read authenticated responses." if acac else "."),
             recommendation="Validate Origin against an allowlist; never reflect it. Don't pair "
                            "credentials with a permissive ACAO.",
-            evidence=f"ACAO={acao}; ACAC={acac}"))
+            evidence=f"GET {url}: ACAO={acao}; ACAC={acac}"))
     # 2) null origin trust
-    status, h, _b = _get(base_url, insecure, auth, origin="null")
+    status, h, _b = _get(url, insecure, auth, origin="null")
     acao = h.get("access-control-allow-origin", "")
     acac = (h.get("access-control-allow-credentials", "") or "").lower() == "true"
     if acao == "null":
@@ -231,13 +259,40 @@ def check_cors(base_url: str, *, insecure: bool = False, auth=None) -> list[Find
                         "some attacker contexts present Origin: null and would be trusted"
                         + (" with credentials." if acac else "."),
             recommendation="Never allow the literal 'null' origin.",
-            evidence=f"ACAO=null; ACAC={acac}"))
+            evidence=f"GET {url}: ACAO=null; ACAC={acac}"))
+    return True, findings
+
+
+def check_cors(base_url: str, *, insecure: bool = False, auth=None,
+               paths: "list[str] | None" = None) -> list[Finding]:
+    """Probe the site root — plus up to 3 extra API-ish `paths` when given (see
+    cors_candidate_paths) — with crafted Origin headers. Every request goes
+    through `_get`, i.e. the shared scope rate limit."""
+    urls = [base_url]
+    if paths:
+        root = "{0.scheme}://{0.netloc}".format(urllib.parse.urlparse(base_url))
+        urls.extend(root + p for p in paths[:3] if p.startswith("/"))
+    findings: list[Finding] = []
+    seen: set[str] = set()  # one finding per misconfiguration, not per probed path
+    for url in urls:
+        reachable, found = _cors_probe(url, insecure, auth)
+        if url == base_url and not reachable:
+            return []  # target unreachable — no point probing deeper paths
+        for f in found:
+            if f.title not in seen:
+                seen.add(f.title)
+                findings.append(f)
     return findings
 
 
 # ---- subdomain takeover (safe-active) -----------------------------------------
 
 # (cname substring, response fingerprint, service) for dangling-CNAME takeovers.
+# Fingerprints follow the community-maintained can-i-take-over-xyz list
+# (https://github.com/EdOverflow/can-i-take-over-xyz) — only entries with a
+# documented dangling-CNAME takeover path and a distinctive unclaimed-resource
+# body string. The dangling-CNAME precondition (a live CNAME pointing at the
+# provider domain) is the real FP guard; the body match confirms it.
 _TAKEOVER_SIGS = [
     ("github.io", "There isn't a GitHub Pages site here", "GitHub Pages"),
     ("herokuapp.com", "No such app", "Heroku"),
@@ -247,6 +302,9 @@ _TAKEOVER_SIGS = [
     ("azurewebsites.net", "404 Web Site not found", "Azure"),
     ("trafficmanager.net", "404 Web Site not found", "Azure"),
     ("cloudapp.net", "404 Web Site not found", "Azure"),
+    ("azure-api.net", "404 Web Site not found", "Azure"),
+    ("azureedge.net", "404 Web Site not found", "Azure"),
+    ("core.windows.net", "The resource you are looking for has been removed", "Azure Storage"),
     ("fastly.net", "Fastly error: unknown domain", "Fastly"),
     ("myshopify.com", "Sorry, this shop is currently unavailable", "Shopify"),
     ("surge.sh", "project not found", "Surge.sh"),
@@ -254,6 +312,40 @@ _TAKEOVER_SIGS = [
     ("pantheonsite.io", "The gods are wise", "Pantheon"),
     ("zendesk.com", "Help Center Closed", "Zendesk"),
     ("readthedocs.io", "unknown to Read the Docs", "Read the Docs"),
+    ("netlify.app", "Not Found - Request ID", "Netlify"),
+    ("vercel.app", "DEPLOYMENT_NOT_FOUND", "Vercel"),
+    ("firebaseapp.com", "Site Not Found", "Firebase"),
+    ("squarespace.com", "No Such Account", "Squarespace"),
+    ("tumblr.com", "Whatever you were looking for", "Tumblr"),
+    ("wordpress.com", "Do you want to register", "WordPress.com"),
+    ("ghost.io", "The thing you were looking for is no longer here", "Ghost"),
+    ("fly.dev", "404 Not Found", "Fly.io"),
+    ("freshdesk.com", "There is no helpdesk here", "Freshdesk"),
+    ("helpscoutdocs.com", "No settings were found for this company", "Help Scout"),
+    ("custom.intercom.help", "Uh oh. That page doesn't exist", "Intercom"),
+    ("statuspage.io", "You are being redirected", "Statuspage"),
+    ("hubspot.net", "Domain not configured", "HubSpot"),
+    ("unbouncepages.com", "The requested URL was not found on this server", "Unbounce"),
+    ("s.strikinglydns.com", "But if you're looking to build your own website", "Strikingly"),
+    ("proxy.webflow.com", "The page you are looking for doesn't exist or has been moved", "Webflow"),
+    ("kinsta.cloud", "No Site For Domain", "Kinsta"),
+    ("smartjobboard.com", "This job board website is either expired or its domain name is invalid",
+     "SmartJobBoard"),
+    ("worksites.net", "Hello! Sorry, but the website you", "Worksites"),
+    ("cargocollective.com", "If you're moving your domain away from Cargo", "Cargo"),
+    ("tilda.ws", "Please go to the site settings", "Tilda"),
+    ("myjetbrains.com", "is not a registered InCloud YouTrack", "JetBrains YouTrack"),
+    ("agilecrm.com", "Sorry, this page is no longer available", "Agile CRM"),
+    ("ideas.aha.io", "There is no portal here", "Aha!"),
+    ("createsend.com", "Trying to access your account?", "Campaign Monitor"),
+    ("acquia-sites.com", "The site you are looking for could not be found", "Acquia"),
+    ("gr8.com", "With GetResponse Landing Pages", "GetResponse"),
+    ("launchrock.com", "It looks like you may have taken a wrong turn", "LaunchRock"),
+    ("ngrok.io", "ngrok.io not found", "Ngrok"),
+    ("stats.pingdom.com", "Sorry, couldn't find the status page", "Pingdom"),
+    ("readme.io", "The creators of this project are still working on making everything perfect",
+     "Readme.io"),
+    ("uservoice.com", "This UserVoice subdomain is currently available", "UserVoice"),
 ]
 
 

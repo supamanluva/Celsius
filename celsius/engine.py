@@ -30,10 +30,17 @@ def run_scan(
     *,
     scope: Optional[Scope] = None,
     store=None,
+    progress: "Optional[Callable[[dict], None]]" = None,
+    cancelled: "Optional[Callable[[], bool]]" = None,
 ) -> ScanResult:
     """Run a full scan. If `store` is given (a store.Store), the result is saved
     and its id is recorded in result.extra via errors/notes is avoided — the id is
-    returned on the result object as `.scan_id` attribute for the caller."""
+    returned on the result object as `.scan_id` attribute for the caller.
+
+    `progress` (web UI) is called before each plugin runs with
+    {phase, plugin, index, total}; `cancelled` is polled between plugins — when
+    it returns True the scan aborts early and the partial result is returned
+    unpersisted. Both are optional; the CLI passes neither (no-op)."""
     log = log or (lambda _m: None)
     target = parse_target(config.target)
     result = ScanResult(target=config.target, started_at=_now())
@@ -67,9 +74,18 @@ def run_scan(
                     source=getattr(config.auth, "source", "") or "session")
 
     ctx = ScanContext(config=config, target=target, result=result,
-                      scope=scope, audit=audit, log=log)
+                      scope=scope, audit=audit, log=log,
+                      progress=progress, cancelled=cancelled)
 
-    for plugin in all_plugins():
+    plugins = all_plugins()
+    total = len(plugins)
+    for index, plugin in enumerate(plugins, 1):
+        # Cancellation is checked between plugins, never mid-plugin: an
+        # interrupted check could leave a half-finished probe on the wire.
+        if ctx.cancelled is not None and ctx.cancelled():
+            result.errors.append("scan cancelled by user")
+            result.finished_at = _now()
+            return result  # partial result; deliberately not persisted
         try:
             if not plugin.enabled(ctx):
                 continue
@@ -92,10 +108,22 @@ def run_scan(
             continue
 
         log(f"[{plugin.phase.name.lower()}] {plugin.id} ...")
+        if ctx.progress is not None:
+            try:
+                ctx.progress({"phase": plugin.phase.name.lower(),
+                              "plugin": plugin.title, "index": index, "total": total})
+            except Exception:
+                pass  # a broken progress watcher must never stall the scan
         try:
             plugin.run(ctx)
         except Exception as e:  # a check must never crash the whole scan
             result.errors.append(f"{plugin.id} error: {e}")
+
+    # A cancel that landed during the last plugin still wins over persisting.
+    if ctx.cancelled is not None and ctx.cancelled():
+        result.errors.append("scan cancelled by user")
+        result.finished_at = _now()
+        return result
 
     # temporal diff vs the most recent prior scan (before saving this one)
     if config.diff and store is not None:
@@ -120,7 +148,7 @@ def _temporal_diff(result, store, log) -> None:
     """Compare against the latest prior scan of the same target; flag new items."""
     from .models import Finding, Severity
 
-    prior_list = store.list_scans(target=result.target, limit=1)
+    prior_list = store.list_scans(target=result.target, limit=1, exact=True)
     if not prior_list:
         return
     prior = store.get_scan(prior_list[0]["id"])

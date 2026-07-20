@@ -114,7 +114,9 @@ def scan_recovered(sources: dict[str, str]) -> list[Finding]:
     sev_map = {"CRITICAL": Severity.CRITICAL, "HIGH": Severity.HIGH,
                "MEDIUM": Severity.MEDIUM, "LOW": Severity.LOW, "INFO": Severity.INFO}
     for name, text in sources.items():
-        for sm in secret_rules.scan_text(text):
+        # Front-end context: JWTs in recovered browser source are usually
+        # short-lived session tokens and are softened by the scanner.
+        for sm in secret_rules.scan_text(text, context="frontend"):
             key = (sm.rule_id, sm.match)
             if key in seen:
                 continue

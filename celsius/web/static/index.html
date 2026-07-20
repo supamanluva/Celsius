@@ -3,197 +3,322 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Celsius — security scanner</title>
+  <title>Celsius</title>
+  <meta name="description" content="Celsius — local security scanner for websites, hosts and code.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 30 34'%3E%3Cpath d='M15 1.6 L27 6 V16.2 C27 24 21.6 29.8 15 32.4 C8.4 29.8 3 24 3 16.2 V6 Z' fill='%230f766e'/%3E%3Crect x='13' y='8.5' width='4' height='13' rx='2' fill='%23ffffff'/%3E%3Ccircle cx='15' cy='24' r='3.2' fill='%23ffffff'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
   <!-- ── App bar ─────────────────────────────────────────────── -->
   <header class="appbar">
     <a class="brand" href="/">
-      <svg class="brand-mark" width="30" height="34" viewBox="0 0 30 34" fill="none" aria-hidden="true">
+      <svg class="brand-mark" width="28" height="32" viewBox="0 0 30 34" fill="none" aria-hidden="true">
         <path d="M15 1.6 L27 6 V16.2 C27 24 21.6 29.8 15 32.4 C8.4 29.8 3 24 3 16.2 V6 Z"
-              stroke="currentColor" stroke-width="1.6" fill="rgba(46,242,160,.07)"/>
-        <rect x="12.6" y="8.5" width="4.8" height="13" rx="2.4" stroke="currentColor" stroke-width="1.4"/>
-        <rect x="14.1" y="12" width="1.8" height="9.5" rx="0.9" fill="currentColor"/>
-        <circle cx="15" cy="23.4" r="3.7" fill="currentColor"/>
+              fill="var(--accent)"/>
+        <rect x="13" y="8.5" width="4" height="13" rx="2" fill="var(--brand-mark-ink)"/>
+        <circle cx="15" cy="24" r="3.2" fill="var(--brand-mark-ink)"/>
       </svg>
       <span class="brand-text">
-        <span class="wordmark">CEL<b>SIUS</b></span>
-        <span class="tag">local security scanner</span>
+        <span class="wordmark">Celsius</span>
+        <span class="tag">Local security scanner</span>
       </span>
     </a>
     <div class="appbar-right">
-      <span class="pill-soft">passive · active · AI</span>
-      <button id="themeToggle" class="theme-toggle" title="Toggle light / dark" aria-label="Toggle theme"></button>
+      <button id="themeToggle" class="theme-toggle" title="Switch between light and dark theme"
+              aria-label="Toggle light / dark theme"></button>
     </div>
   </header>
 
   <main class="container">
-    <!-- ── Session bar (authorization + token) ───────────────── -->
+    <!-- ── Authorization + access token ──────────────────────── -->
     <div class="authbar" id="authbar">
       <label class="authbar-main">
         <input type="checkbox" id="authorized">
         <span class="authbar-text">I am <strong>authorized</strong> to test the targets I enter
           — I own them or have written permission.</span>
-        <span class="authbar-state">confirm to enable scanning</span>
+        <span class="authbar-state">Confirm to enable scanning</span>
       </label>
       <label class="token-field" title="Required when the server runs with CELSIUS_TOKEN (e.g. LAN/Docker exposure). Printed by 'celsius serve'.">
         <span>Access token</span>
-        <input type="password" id="accessToken" placeholder="paste if the server requires one" autocomplete="off">
+        <input type="password" id="accessToken" placeholder="Paste if the server requires one" autocomplete="off">
       </label>
     </div>
 
-    <nav class="tabs">
-      <button class="tab active" data-tab="host">Host&nbsp;/&nbsp;Web</button>
-      <button class="tab" data-tab="mail">Mail security</button>
-      <button class="tab" data-tab="code">Code &amp; secrets</button>
-      <button class="tab" data-tab="history">History</button>
+    <nav class="tabs" role="tablist" aria-label="Scanner sections">
+      <button class="tab active" data-tab="host" role="tab" aria-selected="true">Website &amp; host</button>
+      <button class="tab" data-tab="mail" role="tab" aria-selected="false">E-mail security</button>
+      <button class="tab" data-tab="code" role="tab" aria-selected="false">Code &amp; secrets</button>
+      <button class="tab" data-tab="history" role="tab" aria-selected="false">History</button>
     </nav>
 
-    <!-- HOST / WEB SCAN -->
-    <section id="tab-host" class="panel active">
-      <form id="scanForm" class="console">
-        <span class="prompt">&gt;_</span>
-        <input type="text" id="target" placeholder="https://example.com   or   203.0.113.10" autocomplete="off">
-        <button type="submit" id="scanBtn">Scan</button>
+    <!-- ══ WEBSITE / HOST SCAN ════════════════════════════════ -->
+    <section id="tab-host" class="panel active" role="tabpanel">
+      <form id="scanForm" class="targetbar">
+        <label class="visually-hidden" for="target">Target to scan</label>
+        <input type="text" id="target" placeholder="Enter a website or IP — e.g. https://example.com" autocomplete="off">
+        <button type="submit" id="scanBtn" class="btn-primary">Scan</button>
       </form>
 
-      <div class="opts" id="hostOpts">
+      <!-- Scan depth presets -->
+      <div class="presets" role="radiogroup" aria-label="Scan depth">
+        <button type="button" class="preset" data-preset="quick" role="radio" aria-checked="false">
+          <span class="preset-name">Quick</span>
+          <span class="preset-time">~1–2 min</span>
+          <span class="preset-desc">Headers, TLS certificate, technology fingerprint and known vulnerabilities.</span>
+        </button>
+        <button type="button" class="preset active" data-preset="standard" role="radio" aria-checked="true">
+          <span class="preset-name">Standard</span>
+          <span class="preset-time">~3–5 min · recommended</span>
+          <span class="preset-desc">Everything in Quick, plus subdomains, site crawl, exposed files and e-mail records.</span>
+        </button>
+        <button type="button" class="preset" data-preset="deep" role="radio" aria-checked="false">
+          <span class="preset-name">Deep</span>
+          <span class="preset-time">slower, most thorough</span>
+          <span class="preset-desc">Everything safe: archive.org history, subdomain brute-force, port scan and nuclei.</span>
+        </button>
+        <button type="button" class="preset" data-preset="custom" role="radio" aria-checked="false">
+          <span class="preset-name">Custom</span>
+          <span class="preset-time">pick every check</span>
+          <span class="preset-desc">Opens the advanced options below so you can tune each check yourself.</span>
+        </button>
+      </div>
+
+      <!-- Advanced options (all raw toggles, plain-English labels) -->
+      <details id="advancedOpts" class="advanced">
+        <summary>Advanced options</summary>
+
         <div class="optgroup">
-          <h4 class="optgroup-title">Recon <span>passive</span></h4>
-          <div class="optgroup-row">
-            <label><input type="checkbox" id="opt-web" checked> web headers</label>
-            <label><input type="checkbox" id="opt-cve" checked> CVE lookup</label>
-            <label><input type="checkbox" id="opt-secrets" checked> front-end secrets</label>
-            <label><input type="checkbox" id="opt-dns" checked> DNS</label>
-            <label><input type="checkbox" id="opt-tls" checked> TLS</label>
-            <label><input type="checkbox" id="opt-fingerprint" checked> fingerprint</label>
-            <label><input type="checkbox" id="opt-subdomains"> subdomains</label>
-            <label title="Map IP topology of target+subdomains via Shodan/RDAP (passive): VPS vs home vs SaaS"><input type="checkbox" id="opt-topology"> topology</label>
-            <label title="Harvest historical URLs/params from archive.org (passive)"><input type="checkbox" id="opt-wayback"> wayback</label>
-          </div>
+          <h4 class="optgroup-title">Essentials</h4>
+          <label class="opt"><input type="checkbox" id="opt-web" checked>
+            <span class="opt-body"><span class="opt-name">Security headers &amp; config</span>
+            <span class="opt-desc">Fetch the site and audit HTTP headers, cookies and CORS policy.</span></span></label>
+          <label class="opt"><input type="checkbox" id="opt-cve" checked>
+            <span class="opt-body"><span class="opt-name">Known vulnerabilities (CVEs)</span>
+            <span class="opt-desc">Match detected software versions against the NVD and MITRE databases.</span></span></label>
+          <label class="opt"><input type="checkbox" id="opt-secrets" checked>
+            <span class="opt-body"><span class="opt-name">Leaked secrets in the page</span>
+            <span class="opt-desc">Scan the HTML and linked JavaScript for API keys and tokens.</span></span></label>
+          <label class="opt"><input type="checkbox" id="opt-dns" checked>
+            <span class="opt-body"><span class="opt-name">DNS records</span>
+            <span class="opt-desc">Read A, AAAA, MX, NS and TXT records over encrypted DNS.</span></span></label>
+          <label class="opt"><input type="checkbox" id="opt-tls" checked>
+            <span class="opt-body"><span class="opt-name">Certificate &amp; TLS</span>
+            <span class="opt-desc">Check the HTTPS certificate, protocol version and expiry date.</span></span></label>
+          <label class="opt"><input type="checkbox" id="opt-fingerprint" checked>
+            <span class="opt-body"><span class="opt-name">Technology fingerprint</span>
+            <span class="opt-desc">Identify the web server, framework, CMS, CDN and WAF in use.</span></span></label>
+          <label class="opt"><input type="checkbox" id="opt-mailsec">
+            <span class="opt-body"><span class="opt-name">E-mail security records</span>
+            <span class="opt-desc">Check the domain's anti-spoofing records (SPF, DKIM, DMARC).</span></span></label>
         </div>
 
         <div class="optgroup">
           <h4 class="optgroup-title">Discovery</h4>
-          <div class="optgroup-row">
-            <label><input type="checkbox" id="opt-crawl"> crawl + JS</label>
-            <label title="Render single-page apps with a headless browser (needs the 'dynamic' extra)"><input type="checkbox" id="opt-dynamic"> dynamic (SPA)</label>
-            <label><input type="checkbox" id="opt-apidisco"> API discovery</label>
-            <label title="Probe for exposed sensitive files (.git/.env/backups)"><input type="checkbox" id="opt-content"> content discovery</label>
-          </div>
+          <label class="opt"><input type="checkbox" id="opt-subdomains">
+            <span class="opt-body"><span class="opt-name">Subdomain discovery</span>
+            <span class="opt-desc">Find subdomains from public certificate-transparency logs.</span></span></label>
+          <label class="opt"><input type="checkbox" id="opt-crawl">
+            <span class="opt-body"><span class="opt-name">Site crawl &amp; JavaScript analysis</span>
+            <span class="opt-desc">Follow links, collect endpoints and recover sources from source maps.</span></span></label>
+          <label class="opt"><input type="checkbox" id="opt-content">
+            <span class="opt-body"><span class="opt-name">Exposed files</span>
+            <span class="opt-desc">Probe for accidentally public files such as .git, .env and backups.</span></span></label>
+          <label class="opt"><input type="checkbox" id="opt-apidisco">
+            <span class="opt-body"><span class="opt-name">API discovery</span>
+            <span class="opt-desc">Look for OpenAPI specifications and GraphQL endpoints.</span></span></label>
+          <label class="opt"><input type="checkbox" id="opt-wayback">
+            <span class="opt-body"><span class="opt-name">Wayback Machine</span>
+            <span class="opt-desc">Find old, forgotten pages and parameters from archive.org.</span></span></label>
+          <label class="opt"><input type="checkbox" id="opt-topology">
+            <span class="opt-body"><span class="opt-name">Infrastructure topology</span>
+            <span class="opt-desc">Map where the site and its subdomains are hosted (VPS, home, SaaS).</span></span></label>
+          <label class="opt"><input type="checkbox" id="opt-dynamic">
+            <span class="opt-body"><span class="opt-name">Render JavaScript apps</span>
+            <span class="opt-desc">Use a headless browser on single-page apps (needs the “dynamic” extra).</span></span></label>
         </div>
 
-        <div class="optgroup optgroup-active">
-          <h4 class="optgroup-title">Active <span>sends traffic</span></h4>
-          <div class="optgroup-row">
-            <label><input type="checkbox" id="opt-ports"> nmap ports</label>
-            <label title="Also scan UDP (OpenVPN/DNS/SNMP live on UDP). Needs root; slower. Auto-runs for VPN/DNS-tagged hosts."><input type="checkbox" id="opt-udp"> UDP</label>
-            <input type="text" id="opt-portrange" class="aikey" placeholder="port range (e.g. 1-65535 or 22,80,443) — overrides top-100" autocomplete="off">
-            <label title="nmap OS/device fingerprint (-O; needs sudo/root)"><input type="checkbox" id="opt-osdetect"> OS detect</label>
-            <label title="Also DNS-bruteforce a subdomain wordlist"><input type="checkbox" id="opt-subbrute"> subdomain brute</label>
-            <label title="Active: tries curated vendor default logins (admin/admin, tomcat/tomcat, anonymous FTP). Only on targets you're authorized to test."><input type="checkbox" id="opt-defaultcreds"> default creds</label>
-            <label><input type="checkbox" id="opt-nuclei"> nuclei</label>
-            <label title="Run the ENTIRE nuclei set (slow)"><input type="checkbox" id="opt-nucleifull"> nuclei full</label>
-            <label title="Confirm detected CVEs with matching nuclei templates"><input type="checkbox" id="opt-cveverify"> verify CVEs</label>
-            <input type="text" id="opt-nucleitags" class="aikey" placeholder="nuclei tags (e.g. cve,exposure)" autocomplete="off">
-          </div>
+        <div class="optgroup">
+          <h4 class="optgroup-title">Network checks <span class="optgroup-note">sends traffic to the target</span></h4>
+          <label class="opt"><input type="checkbox" id="opt-ports">
+            <span class="opt-body"><span class="opt-name">Port scan (nmap)</span>
+            <span class="opt-desc">Scan the most common network ports for running services.</span></span></label>
+          <label class="opt"><input type="checkbox" id="opt-udp">
+            <span class="opt-body"><span class="opt-name">UDP services</span>
+            <span class="opt-desc">Also scan UDP ports (VPN, DNS). Needs root; slower.</span></span></label>
+          <label class="opt"><input type="checkbox" id="opt-osdetect">
+            <span class="opt-body"><span class="opt-name">Operating-system detection</span>
+            <span class="opt-desc">Guess the OS and device type with nmap (needs root).</span></span></label>
+          <label class="opt"><input type="checkbox" id="opt-subbrute">
+            <span class="opt-body"><span class="opt-name">Subdomain brute-force</span>
+            <span class="opt-desc">Guess extra subdomains from a wordlist via DNS queries.</span></span></label>
+          <label class="opt"><input type="checkbox" id="opt-nuclei">
+            <span class="opt-body"><span class="opt-name">Nuclei templates</span>
+            <span class="opt-desc">Run the community nuclei vulnerability scanner when installed.</span></span></label>
+          <label class="opt"><input type="checkbox" id="opt-nucleifull">
+            <span class="opt-body"><span class="opt-name">Full nuclei set</span>
+            <span class="opt-desc">Run the entire nuclei template collection (much slower).</span></span></label>
+          <label class="opt"><input type="checkbox" id="opt-cveverify">
+            <span class="opt-body"><span class="opt-name">Verify CVEs</span>
+            <span class="opt-desc">Confirm each detected CVE with a matching nuclei template.</span></span></label>
+          <label class="opt"><input type="checkbox" id="opt-defaultcreds">
+            <span class="opt-body"><span class="opt-name">Default logins</span>
+            <span class="opt-desc">Try well-known vendor default credentials. Only on targets you own.</span></span></label>
+          <label class="opt opt-field"><span class="opt-body"><span class="opt-name">Custom port range</span>
+            <span class="opt-desc">Overrides the top-100 list — e.g. 1-65535 or 22,80,443.</span></span>
+            <input type="text" id="opt-portrange" class="text-inp" placeholder="1-65535 or 22,80,443" autocomplete="off"></label>
+          <label class="opt opt-field"><span class="opt-body"><span class="opt-name">Nuclei tags</span>
+            <span class="opt-desc">Limit templates by tag — e.g. cve,exposure.</span></span>
+            <input type="text" id="opt-nucleitags" class="text-inp" placeholder="cve,exposure" autocomplete="off"></label>
         </div>
 
-        <div class="optgroup optgroup-ai">
+        <div class="optgroup">
           <h4 class="optgroup-title">AI analysis</h4>
-          <div class="optgroup-row">
-            <label class="opt-ai"><input type="checkbox" id="opt-ai"> enable</label>
-            <select id="opt-ai-provider" title="AI provider">
-              <option value="deepseek">DeepSeek</option>
-              <option value="openai">OpenAI</option>
-              <option value="anthropic">Anthropic</option>
-              <option value="local">Local (Ollama)</option>
-              <option value="mock">Mock (offline)</option>
-            </select>
-            <input type="password" id="opt-ai-key" class="aikey" placeholder="AI API key (optional — else env var)" autocomplete="off">
-            <input type="text" id="opt-ai-model" class="aikey" placeholder="model (optional, e.g. llama3.1)" autocomplete="off">
-            <input type="text" id="opt-ai-base" class="aikey" placeholder="base URL (local Ollama: http://localhost:11434/v1)" autocomplete="off">
+          <p class="ai-hint hidden" id="aiHint">Add an API key to enable AI insights — see the docs.
+            <button type="button" id="aiConfigureBtn" class="linklike">Configure AI</button></p>
+          <p class="ai-hint hidden" id="aiReady">✓ An AI provider is configured on the server.</p>
+          <div id="aiForm">
+            <label class="opt"><input type="checkbox" id="opt-ai">
+              <span class="opt-body"><span class="opt-name">Enable AI analysis</span>
+              <span class="opt-desc">An LLM triages results and proposes hypotheses. Secrets are masked before anything is sent.</span></span></label>
+            <div class="ai-fields">
+              <label class="ai-field"><span>Provider</span>
+                <select id="opt-ai-provider">
+                  <option value="deepseek">DeepSeek</option>
+                  <option value="openai">OpenAI</option>
+                  <option value="anthropic">Anthropic</option>
+                  <option value="local">Local (Ollama)</option>
+                  <option value="mock">Demo mode (no key needed)</option>
+                </select></label>
+              <label class="ai-field"><span>API key <em>(optional — else server env var)</em></span>
+                <input type="password" id="opt-ai-key" class="text-inp" placeholder="sk-…" autocomplete="off"></label>
+              <label class="ai-field"><span>Model <em>(optional)</em></span>
+                <input type="text" id="opt-ai-model" class="text-inp" placeholder="e.g. llama3.1" autocomplete="off"></label>
+              <label class="ai-field"><span>Base URL <em>(local Ollama)</em></span>
+                <input type="text" id="opt-ai-base" class="text-inp" placeholder="http://localhost:11434/v1" autocomplete="off"></label>
+            </div>
           </div>
         </div>
-      </div>
-
-      <details id="authscan" class="labmode">
-        <summary>🔑 Authenticated scan — reach surfaces behind a login</summary>
-        <p class="or">Attach a session so the crawler, secret scan, API discovery, nuclei and active checks
-          run as a logged-in user. Use a <strong>test / staging account</strong> — an authenticated
-          active scan can change state.</p>
-        <input type="text" id="opt-cookie" class="aikey" placeholder="Cookie — e.g. session=abc; csrf=xyz" autocomplete="off">
-        <input type="password" id="opt-bearer" class="aikey" placeholder="Bearer token (optional)" autocomplete="off">
-        <textarea id="opt-headers" class="aikey" rows="2" placeholder="Extra headers, one per line — e.g. X-Api-Key: ..." autocomplete="off"></textarea>
-        <p class="or">— or log in via a form —</p>
-        <input type="text" id="opt-login-url" class="aikey" placeholder="Login URL (POST target, e.g. https://app.example.com/login)" autocomplete="off">
-        <input type="text" id="opt-login-user" class="aikey" placeholder="username" autocomplete="off">
-        <input type="password" id="opt-login-pass" class="aikey" placeholder="password" autocomplete="off">
-        <input type="text" id="opt-login-fuser" class="aikey" placeholder="username field name (optional, default: username)" autocomplete="off">
-        <input type="text" id="opt-login-fpass" class="aikey" placeholder="password field name (optional, default: password)" autocomplete="off">
       </details>
 
-      <details id="labmode" class="labmode labmode-danger">
-        <summary>⚠️ Lab mode — active exploitation (advanced)</summary>
-        <p class="or">Non-destructive active <strong>verification</strong> — reflected-XSS, open-redirect,
+      <details id="authscan" class="disclosure">
+        <summary>Authenticated scan — reach pages behind a login</summary>
+        <p class="note">Attach a session so the crawler, secret scan, API discovery and active checks
+          run as a logged-in user. Use a <strong>test / staging account</strong> — an authenticated
+          scan can change state.</p>
+        <input type="text" id="opt-cookie" class="text-inp" placeholder="Cookie — e.g. session=abc; csrf=xyz" autocomplete="off">
+        <input type="password" id="opt-bearer" class="text-inp" placeholder="Bearer token (optional)" autocomplete="off">
+        <textarea id="opt-headers" class="text-inp" rows="2" placeholder="Extra headers, one per line — e.g. X-Api-Key: ..." autocomplete="off"></textarea>
+        <p class="note">— or log in via a form —</p>
+        <input type="text" id="opt-login-url" class="text-inp" placeholder="Login URL (POST target, e.g. https://app.example.com/login)" autocomplete="off">
+        <input type="text" id="opt-login-user" class="text-inp" placeholder="Username" autocomplete="off">
+        <input type="password" id="opt-login-pass" class="text-inp" placeholder="Password" autocomplete="off">
+        <input type="text" id="opt-login-fuser" class="text-inp" placeholder="Username field name (default: username)" autocomplete="off">
+        <input type="text" id="opt-login-fpass" class="text-inp" placeholder="Password field name (default: password)" autocomplete="off">
+      </details>
+
+      <details id="labmode" class="disclosure disclosure-danger">
+        <summary>Lab mode — active exploitation (advanced)</summary>
+        <p class="note">Non-destructive active <strong>verification</strong> — reflected-XSS, open-redirect,
           path-traversal and SQLi probes that send <em>real payloads</em>. Rate-limited and request-capped.
           Use only on systems you are explicitly authorized to <em>actively</em> test.</p>
         <label class="lab-enable"><input type="checkbox" id="opt-exploit"> Enable lab-mode active verification</label>
-        <input type="text" id="opt-attest" class="lab-attest"
-          placeholder="Authorization attestation (≥10 chars) — e.g. &quot;I am authorized to actively test this target&quot;"
+        <label class="visually-hidden" for="opt-attest">Authorization attestation</label>
+        <input type="text" id="opt-attest" class="text-inp lab-attest"
+          placeholder="Authorization attestation (≥10 chars) — e.g. “I am authorized to actively test this target”"
           autocomplete="off">
-        <label><input type="checkbox" id="opt-dryrun"> dry-run (preview payloads, send nothing)</label>
+        <label class="lab-dry"><input type="checkbox" id="opt-dryrun"> Dry-run (preview payloads, send nothing)</label>
       </details>
 
-      <details id="testsites" class="testsites">
-        <summary>Need a legal target? Authorized vulnerable test sites ▾</summary>
-        <p class="or" id="testsitesNote"></p>
+      <details id="testsites" class="disclosure testsites">
+        <summary>Need a legal target? Authorized vulnerable test sites</summary>
+        <p class="note" id="testsitesNote"></p>
         <div id="testsitesList"></div>
       </details>
 
-      <div id="scanStatus" class="status hidden" role="status" aria-live="polite"></div>
-      <pre id="scanLog" class="log hidden" aria-live="polite" aria-atomic="false"></pre>
+      <!-- Live progress -->
+      <div id="scanProgress" class="progress-card hidden" role="status" aria-live="polite">
+        <div class="progress-head">
+          <span id="progPhase" class="progress-phase">Starting…</span>
+          <span id="progElapsed" class="progress-elapsed">0:00</span>
+        </div>
+        <div class="progress-bar" role="progressbar" aria-label="Scan progress"
+             aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="progBar">
+          <div id="progFill" class="progress-fill"></div>
+        </div>
+        <div class="progress-foot">
+          <span id="progPlugin" class="progress-plugin"></span>
+          <button type="button" id="cancelBtn" class="btn-ghost-danger">Cancel scan</button>
+        </div>
+        <details class="techlog">
+          <summary>Technical details</summary>
+          <pre id="scanLog" aria-live="polite" aria-atomic="false"></pre>
+        </details>
+      </div>
 
-      <div id="summary" class="summary hidden"></div>
+      <div id="scanStatus" class="status hidden" role="status" aria-live="polite"></div>
+
       <div id="results"></div>
     </section>
 
-    <!-- MAIL SECURITY -->
-    <section id="tab-mail" class="panel">
-      <form id="mailForm" class="console">
-        <span class="prompt">&gt;_</span>
-        <input type="text" id="mailDomain" placeholder="example.com   (domain, URL or e-mail address)" autocomplete="off">
-        <button type="submit" id="mailBtn">Check</button>
+    <!-- ══ E-MAIL SECURITY ════════════════════════════════════ -->
+    <section id="tab-mail" class="panel" role="tabpanel">
+      <form id="mailForm" class="targetbar">
+        <label class="visually-hidden" for="mailDomain">Domain to check</label>
+        <input type="text" id="mailDomain" placeholder="example.com — domain, URL or e-mail address" autocomplete="off">
+        <button type="submit" id="mailBtn" class="btn-primary">Check</button>
       </form>
-      <p class="or">Passive check — SPF · DKIM · DMARC · MTA-STS · TLS-RPT · DNSSEC · BIMI. No packets are sent to the mail server.</p>
+      <p class="note">Passive check — SPF · DKIM · DMARC · MTA-STS · TLS-RPT · DNSSEC · BIMI.
+        No packets are sent to the mail server.</p>
       <div id="mailStatus" class="status hidden" role="status" aria-live="polite"></div>
       <div id="mailResults"></div>
     </section>
 
-    <!-- CODE SCAN -->
-    <section id="tab-code" class="panel">
-      <form id="codeForm" class="console">
-        <span class="prompt">&gt;_</span>
-        <input type="text" id="codePath" placeholder="/path/to/repo   (server-side path)" autocomplete="off">
-        <button type="submit" id="codeBtn">Scan path</button>
-      </form>
-      <p class="or">— or paste a snippet —</p>
-      <textarea id="codeText" placeholder="paste code/config to scan for secrets &amp; risky patterns"></textarea>
-      <button id="codeTextBtn" class="secondary">Scan pasted text</button>
+    <!-- ══ CODE & SECRETS ═════════════════════════════════════ -->
+    <section id="tab-code" class="panel" role="tabpanel">
+      <div id="dropzone" class="dropzone" tabindex="0" role="button"
+           aria-label="Upload a file to scan for secrets">
+        <svg width="34" height="34" viewBox="0 0 24 24" fill="none" aria-hidden="true" class="dz-icon">
+          <path d="M12 16V4m0 0 4 4m-4-4L8 8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+        </svg>
+        <p class="dz-title">Drop a file here, or click to choose one</p>
+        <p class="dz-note">Up to 2 MB — scanned in memory, never stored</p>
+        <input type="file" id="codeFile" hidden>
+      </div>
+
+      <p class="divider-note">— or paste a snippet —</p>
+      <label class="visually-hidden" for="codeText">Code to scan</label>
+      <textarea id="codeText" placeholder="Paste code or config to scan for secrets &amp; risky patterns"></textarea>
+      <button id="codeTextBtn" class="btn-secondary">Scan pasted text</button>
+
+      <details class="disclosure">
+        <summary>Scan a path on the server (advanced)</summary>
+        <p class="note">Reads files on the machine running Celsius, under the configured code root.</p>
+        <form id="codeForm" class="targetbar">
+          <label class="visually-hidden" for="codePath">Server path to scan</label>
+          <input type="text" id="codePath" placeholder="/path/to/repo" autocomplete="off">
+          <button type="submit" id="codeBtn" class="btn-primary">Scan path</button>
+        </form>
+      </details>
+
       <div id="codeStatus" class="status hidden" role="status" aria-live="polite"></div>
       <div id="codeResults"></div>
     </section>
 
-    <!-- HISTORY -->
-    <section id="tab-history" class="panel">
-      <div class="console">
-        <span class="prompt">&gt;_</span>
-        <input type="text" id="historyFilter" placeholder="filter by target (optional)" autocomplete="off">
-        <button id="refreshHistory">Refresh</button>
-      </div>
-      <p class="or">Past scans are stored locally (SQLite). Click one to re-open its report.</p>
+    <!-- ══ HISTORY ════════════════════════════════════════════ -->
+    <section id="tab-history" class="panel" role="tabpanel">
+      <form id="historyForm" class="targetbar">
+        <label class="visually-hidden" for="historyFilter">Search past scans</label>
+        <input type="text" id="historyFilter" placeholder="Search by target…" autocomplete="off">
+        <button type="submit" id="refreshHistory" class="btn-primary">Search</button>
+      </form>
+      <p class="note">Past scans are stored locally. Open one to re-read its report.</p>
       <div id="historyList"></div>
+      <div id="historyPager" class="pager hidden">
+        <button id="histPrev" class="btn-secondary" type="button">← Previous</button>
+        <span id="histPageInfo" class="pager-info"></span>
+        <button id="histNext" class="btn-secondary" type="button">Next →</button>
+      </div>
     </section>
   </main>
 
@@ -204,6 +329,9 @@
       <div id="pocContent"></div>
     </div>
   </div>
+
+  <!-- toast notifications -->
+  <div id="toasts" class="toasts" aria-live="polite"></div>
 
   <footer>
     <strong>Celsius</strong> · for authorized security testing only · CVE data: NVD + MITRE · PoC steps are non-destructive

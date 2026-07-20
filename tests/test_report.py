@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import io
+import json
 import os
 import sys
+import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from celsius import report  # noqa: E402
+from celsius.models import CVE, Finding, ScanResult, Severity  # noqa: E402
 from celsius.store import _host_of  # noqa: E402
 
 
@@ -72,6 +76,72 @@ def test_rollup_groups_shared_ip_cves_once():
 def test_rollup_empty_is_friendly():
     html = report.domain_rollup_html("nothing.test", [])
     assert "No stored scans" in html and "nothing.test" in html
+
+
+# ---- terminal scorecard + stream binding ------------------------------------
+
+def _result(cves=None, findings=None):
+    return ScanResult(target="https://example.com", url="https://example.com/",
+                      ip="203.0.113.10", cves=cves or [], findings=findings or [])
+
+
+def _render(result):
+    buf = io.StringIO()
+    report.render_terminal(result, stream=buf)
+    return buf.getvalue()
+
+
+def test_terminal_scorecard_block():
+    res = _result(
+        cves=[CVE(id="CVE-2025-0001", severity=Severity.HIGH, cvss=7.5,
+                  description="buffer overflow", url="https://nvd.nist.gov/CVE-2025-0001",
+                  product="nginx", version="1.2")],
+        findings=[Finding(title="Missing CSP", severity=Severity.MEDIUM, category="headers",
+                          recommendation="Add a Content-Security-Policy header.")])
+    out = _render(res)
+    # compact header block at the top: grade, score, verdict, counts, fix-first
+    head = out.split("Detected services")[0]
+    assert "Grade:" in head and "/100" in head
+    assert "actionable issue(s)" in head
+    assert "CRITICAL 0" in head and "HIGH 1" in head and "MEDIUM 1" in head
+    assert "Fix these first:" in head
+    assert "CVE-2025-0001" in head and "Missing CSP" in head
+    # plain text (StringIO is not a tty) — no ANSI escapes
+    assert "\033[" not in out
+
+
+def test_terminal_scorecard_clean():
+    out = _render(_result())
+    assert "Grade: A+" in out and "100/100" in out
+    assert "no confident security issues found" in out
+    assert "Fix these first" not in out
+
+
+def test_terminal_stdout_resolved_at_call_time():
+    # stream=None must bind sys.stdout when called, not when the module was
+    # imported — redirecting stdout after import must capture the report.
+    buf = io.StringIO()
+    real = sys.stdout
+    sys.stdout = buf
+    try:
+        report.render_terminal(_result())
+    finally:
+        sys.stdout = real
+    out = buf.getvalue()
+    assert "celsius report" in out and "Grade:" in out
+
+
+def test_sarif_information_uri_is_project_url():
+    fd, path = tempfile.mkstemp(suffix=".sarif")
+    os.close(fd)
+    try:
+        report.write_sarif(_result(), path)
+        with open(path) as fh:
+            doc = json.load(fh)
+    finally:
+        os.unlink(path)
+    uri = doc["runs"][0]["tool"]["driver"]["informationUri"]
+    assert uri == "https://github.com/supamanluva/celsius"
 
 
 if __name__ == "__main__":

@@ -27,7 +27,8 @@ class Mode(str, Enum):
 
     PASSIVE      — ordinary HTTP a browser would make + third-party lookups.
     SAFE_ACTIVE  — scanners/probes (nmap, nuclei) with benign, non-destructive payloads.
-    EXPLOIT      — lab-mode active exploitation (guardrailed; future).
+    EXPLOIT      — lab-mode active verification (guardrailed: scope EXPLOIT +
+                   per-run attestation, all traffic through active/harness.py).
     """
     PASSIVE = "passive"
     SAFE_ACTIVE = "safe-active"
@@ -49,6 +50,11 @@ class ScanContext:
     log: Callable[[str], None] = lambda _m: None
     http_result: Optional["HttpResult"] = None
     data: dict = field(default_factory=dict)
+    # Optional UI plumbing (web layer). Both default to None — the CLI never
+    # sets them and the engine treats that as a no-op, so the core stays
+    # stdlib-only and unaware of who is watching.
+    progress: Optional[Callable[[dict], None]] = None  # {phase, plugin, index, total}
+    cancelled: Optional[Callable[[], bool]] = None     # True -> abort between plugins
 
 
 class Plugin:

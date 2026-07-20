@@ -183,11 +183,20 @@ def _to_finding(obj: dict) -> Finding:
     ref_str = ""
     if isinstance(refs, list) and refs:
         ref_str = " | refs: " + ", ".join(refs[:3])
+    # Template tags ("cve,verified,..." — a comma string or list depending on the
+    # nuclei version) ride in the evidence so downstream exploitability scoring
+    # can corroborate a hit (e.g. a 'verified' tag) without re-running nuclei.
+    tags = info.get("tags") or ""
+    if isinstance(tags, list):
+        tags = ",".join(str(t) for t in tags)
+    evidence = f"matched: {matched}"
+    if tags:
+        evidence += f" | tags: {tags}"
     return Finding(
         title=f"[nuclei] {name}",
         severity=severity,
         category="nuclei",
         description=(desc + ref_str).strip(),
         recommendation=f"Review template {template_id}; confirm and remediate.",
-        evidence=f"matched: {matched}",
+        evidence=evidence,
     )
