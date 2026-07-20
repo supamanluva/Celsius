@@ -8,6 +8,8 @@ context appropriate to their source (file:line vs URL).
 
 from __future__ import annotations
 
+import base64
+import json
 import math
 import re
 
@@ -86,6 +88,35 @@ def shannon_entropy(s: str) -> float:
 
 _HIGH_ENTROPY_TOKEN = re.compile(r"['\"]([A-Za-z0-9+/_\-]{24,})['\"]")
 
+# UUID-shaped tokens (8-4-4-4-12 hex) are identifiers (session/device/object
+# ids), not credentials. Random UUIDs carry enough character variety to trip
+# the entropy fallback, so suppress the shape outright.
+_UUID_TOKEN = re.compile(
+    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+)
+
+# Markers of minified/bundled JavaScript: quoted high-entropy strings in these
+# blobs are overwhelmingly framework internals (chunk hashes, module ids, SRI
+# digests), not secrets. Bare "webpack" is deliberately NOT a marker — it shows
+# up in config files and docs where real secrets also live.
+_MINIFIED_MARKERS = ("__webpack_require__", "webpackJsonp", "sourceMappingURL")
+
+# Minifiers collapse a whole bundle onto one line; a line this long is a strong
+# bundle signal even without explicit markers.
+_MINIFIED_LINE_LEN = 500
+
+
+def _minified_context(text: str, start: int, end: int) -> bool:
+    """True if the match at text[start:end] sits inside what looks like a
+    minified bundle: the containing line is very long, or the blob carries
+    bundler markers. Entropy candidates there are build artifacts, not keys."""
+    if any(marker in text for marker in _MINIFIED_MARKERS):
+        return True
+    line_start = text.rfind("\n", 0, start) + 1
+    nl = text.find("\n", end)
+    line_end = nl if nl != -1 else len(text)
+    return line_end - line_start > _MINIFIED_LINE_LEN
+
 # A high-entropy *token* that is really a URL/asset path, not a credential.
 # Real keys don't start with "/" and don't carry file extensions; URL slugs,
 # webpack public paths and asset URLs do.
@@ -138,15 +169,16 @@ def _benign_token_context(before: str) -> bool:
 
 
 class SecretMatch:
-    __slots__ = ("rule_id", "title", "severity", "match", "redacted", "entropy")
+    __slots__ = ("rule_id", "title", "severity", "match", "redacted", "entropy", "note")
 
-    def __init__(self, rule_id, title, severity, match, entropy=0.0):
+    def __init__(self, rule_id, title, severity, match, entropy=0.0, note=""):
         self.rule_id = rule_id
         self.title = title
         self.severity = severity
         self.match = match
         self.redacted = redact(match)
         self.entropy = entropy
+        self.note = note
 
 
 def redact(s: str) -> str:
@@ -179,8 +211,28 @@ def _looks_like_secret(value: str) -> bool:
     return True
 
 
-def scan_text(text: str, *, entropy_threshold: float = 4.3) -> list[SecretMatch]:
-    """Find secrets in a blob of text. Deduplicates by (rule_id, match)."""
+def _jwt_has_exp(token: str) -> bool:
+    """Decode a JWT's payload segment (base64url, signature NOT verified) and
+    report whether it carries an `exp` claim. A token without `exp` never
+    expires and is far more dangerous when leaked."""
+    try:
+        payload = token.split(".")[1]
+        payload += "=" * (-len(payload) % 4)
+        data = json.loads(base64.urlsafe_b64decode(payload))
+        return isinstance(data, dict) and "exp" in data
+    except (ValueError, IndexError):
+        return False
+
+
+def scan_text(text: str, *, entropy_threshold: float = 4.3,
+              context: str = "code") -> list[SecretMatch]:
+    """Find secrets in a blob of text. Deduplicates by (rule_id, match).
+
+    `context` is a minimal hint about the source: "code" (default) for source
+    files, "frontend" for content shipped to the browser (HTML/JS). It only
+    softens rules that are noisy in front-end code (e.g. JWTs, which there are
+    usually short-lived session tokens rather than credentials).
+    """
     found: dict[tuple[str, str], SecretMatch] = {}
 
     for rule_id, title, pat, sev in _RULES:
@@ -194,9 +246,21 @@ def scan_text(text: str, *, entropy_threshold: float = 4.3) -> list[SecretMatch]
             # avoid matching UI labels like password:"Password".
             if rule_id == "generic-assignment" and not _looks_like_secret(value):
                 continue
+            note = ""
+            match_sev, match_title = sev, title
+            if rule_id == "jwt" and context == "frontend":
+                if _jwt_has_exp(raw):
+                    # JWTs in client-side code are usually short-lived session
+                    # tokens — exposed by design, low value to an attacker.
+                    match_sev, match_title = "LOW", "Exposed token (JWT)"
+                    note = ("JWT carries an exp claim; tokens in client-side code "
+                            "are usually short-lived session tokens.")
+                else:
+                    # Never-expiring token in the browser: keep MEDIUM.
+                    note = "JWT has no exp claim — never-expiring tokens stay MEDIUM."
             key = (rule_id, raw)
             if key not in found:
-                found[key] = SecretMatch(rule_id, title, sev, raw)
+                found[key] = SecretMatch(rule_id, match_title, match_sev, raw, note=note)
 
     # Entropy pass for quoted long tokens not already caught.
     already = {sm.match for sm in found.values()}
@@ -207,6 +271,10 @@ def scan_text(text: str, *, entropy_threshold: float = 4.3) -> list[SecretMatch]
         # Suppress URL/asset paths and HTML-attribute/verification values: these
         # are high-entropy but never credentials (common false positives).
         if _is_pathish_token(tok) or _benign_token_context(text[:m.start()]):
+            continue
+        # Suppress UUID-shaped identifiers and anything inside minified bundles:
+        # both are high-entropy build/runtime artifacts, not credentials.
+        if _UUID_TOKEN.match(tok) or _minified_context(text, m.start(1), m.end(1)):
             continue
         ent = shannon_entropy(tok)
         if ent >= entropy_threshold and _looks_random(tok):

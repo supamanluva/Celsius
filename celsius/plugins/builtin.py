@@ -7,7 +7,10 @@ plugins handle orchestration, phase ordering, and mode classification.
 from __future__ import annotations
 
 import os
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
+
+if TYPE_CHECKING:
+    from ..active.harness import LabContext
 
 from .. import defaultcreds
 from .. import remediation
@@ -33,6 +36,7 @@ from ..recon import robots as robots_mod
 from ..recon import sourcemaps as sm_mod
 from ..recon import subdomains as subs_mod
 from ..recon import wayback as wayback_mod
+from ..recon import wpcheck as wpcheck_mod
 from ..recon import tls as tls_mod
 from .base import Mode, Phase, Plugin, ScanContext, register
 
@@ -763,6 +767,37 @@ class AppVersionProbe(Plugin):
 
 
 @register
+class WordPressChecks(Plugin):
+    id = "wp-check"
+    title = "WordPress checks (version disclosure, author enum, xmlrpc, dir listing)"
+    phase = Phase.DETECT      # after the RECON fingerprint identified the CMS
+    mode = Mode.SAFE_ACTIVE   # plain GETs to well-known WordPress paths
+    category = "wordpress"
+
+    def enabled(self, ctx: ScanContext) -> bool:
+        if not (ctx.config.web and not ctx.target.is_ip):
+            return False
+        tech = ctx.result.recon.get("tech") or []
+        return any("wordpress" in (t.get("name") or "").lower() for t in tech)
+
+    def run(self, ctx: ScanContext) -> None:
+        base = ctx.result.url or ctx.target.web_url()
+        ctx.audit.active_probe(self.id, ctx.target.host, self.mode.value,
+                               detail="wordpress readme/users/xmlrpc/uploads probes")
+        html = getattr(ctx.http_result, "body", "") if ctx.http_result else ""
+        findings, info, errs = wpcheck_mod.check(
+            base, html=html, insecure=ctx.config.insecure, auth=ctx.config.auth)
+        ctx.result.findings.extend(findings)
+        ctx.result.errors.extend(errs)
+        if info:
+            ctx.result.recon["wordpress"] = info
+        if info.get("version"):
+            # feed the confirmed version into the ENRICH CVE lookup
+            ctx.result.services.append(Service(
+                name="WordPress", version=info["version"], source="wp-check"))
+
+
+@register
 class CoHostDiscovery(Plugin):
     id = "cohost"
     title = "co-hosted hosts on the same IP (cert SANs + reverse-IP)"
@@ -1010,6 +1045,33 @@ class ApiDiscovery(Plugin):
             ctx.result.recon["api"] = info
 
 
+def _ready_lab(ctx: ScanContext, plugin_id: str, *, dry_run_reason: str = ""
+               ) -> tuple[LabContext, bool]:
+    """Build the lab-mode harness context for an EXPLOIT-mode plugin and run the
+    readiness gate (attestation, kill-switch, rate/request caps all live in the
+    harness). Returns (lab, ok) — when ok is False the plugin must return
+    without probing; the skip reason is already in result.errors (and audited
+    for a readiness failure). `dry_run_reason` blocks dry-runs for probes that
+    need live traffic: it completes the "<id>: skipped — <reason>" message."""
+    from ..active.harness import LabContext
+    cfg = ctx.config
+    lab = LabContext(
+        host=ctx.target.host, enabled=cfg.allow_exploit,
+        attested=bool(cfg.lab_attestation), audit=ctx.audit, dry_run=cfg.dry_run,
+        rate_limit_rps=cfg.exploit_rate_limit, max_requests=cfg.exploit_max_requests,
+        insecure=cfg.insecure, log=ctx.log, auth=cfg.auth,
+    )
+    ready, why = lab.ready()
+    if not ready:
+        ctx.result.errors.append(f"{plugin_id}: skipped ({why})")
+        ctx.audit.skipped(plugin_id, ctx.target.host, why)
+        return lab, False
+    if dry_run_reason and cfg.dry_run:
+        ctx.result.errors.append(f"{plugin_id}: skipped — {dry_run_reason}")
+        return lab, False
+    return lab, True
+
+
 @register
 class ActiveVerification(Plugin):
     id = "active-verify"
@@ -1022,20 +1084,12 @@ class ActiveVerification(Plugin):
         return ctx.config.allow_exploit
 
     def run(self, ctx: ScanContext) -> None:
-        from ..active.harness import LabContext, discover_points
+        from ..active.harness import discover_points
         from ..active.verifiers import run_all
 
         cfg = ctx.config
-        lab = LabContext(
-            host=ctx.target.host, enabled=cfg.allow_exploit,
-            attested=bool(cfg.lab_attestation), audit=ctx.audit, dry_run=cfg.dry_run,
-            rate_limit_rps=cfg.exploit_rate_limit, max_requests=cfg.exploit_max_requests,
-            insecure=cfg.insecure, log=ctx.log, auth=cfg.auth,
-        )
-        ready, why = lab.ready()
-        if not ready:
-            ctx.result.errors.append(f"active-verify: skipped ({why})")
-            ctx.audit.skipped(self.id, ctx.target.host, why)
+        lab, ok = _ready_lab(ctx, self.id)
+        if not ok:
             return
 
         # record the attestation in the audit trail
@@ -1045,7 +1099,7 @@ class ActiveVerification(Plugin):
         ctx.log(f"lab-mode active verification on {base} "
                 f"(dry-run={cfg.dry_run}, cap={cfg.exploit_max_requests}) ...")
 
-        points = discover_points(base, lab)
+        points = discover_points(base, lab, recon=ctx.result.recon)
         if not points:
             ctx.result.errors.append("active-verify: no injectable parameters found")
             return
@@ -1091,25 +1145,16 @@ class OobProbes(Plugin):
 
     def run(self, ctx: ScanContext) -> None:
         from ..active.canary import DNSCanary, OOBCanary, detect_callback_host
-        from ..active.harness import LabContext, discover_points
+        from ..active.harness import discover_points
         from ..active.verifiers import OOB_PROBES
 
         cfg = ctx.config
         wanted = self._enabled_probes(cfg)
-        lab = LabContext(
-            host=ctx.target.host, enabled=cfg.allow_exploit,
-            attested=bool(cfg.lab_attestation), audit=ctx.audit, dry_run=cfg.dry_run,
-            rate_limit_rps=cfg.exploit_rate_limit, max_requests=cfg.exploit_max_requests,
-            insecure=cfg.insecure, log=ctx.log, auth=cfg.auth,
-        )
-        ready, why = lab.ready()
-        if not ready:
-            ctx.result.errors.append(f"oob-probes: skipped ({why})")
-            ctx.audit.skipped(self.id, ctx.target.host, why)
-            return
-        if cfg.dry_run:
-            ctx.result.errors.append("oob-probes: skipped — an OOB probe depends on a real "
-                                     "callback and can't be dry-run; re-run without --dry-run")
+        lab, ok = _ready_lab(
+            ctx, self.id,
+            dry_run_reason="an OOB probe depends on a real callback and can't be "
+                           "dry-run; re-run without --dry-run")
+        if not ok:
             return
 
         # DNS canary (a delegated domain) reaches egress-filtered targets via their
@@ -1140,7 +1185,7 @@ class OobProbes(Plugin):
         ctx.audit.event("lab_attestation", host=ctx.target.host,
                         statement=str(cfg.lab_attestation)[:300], dry_run=cfg.dry_run)
         base = ctx.result.url or ctx.target.web_url()
-        points = discover_points(base, lab)
+        points = discover_points(base, lab, recon=ctx.result.recon)
         findings: list = []
         try:
             if not points:
@@ -1174,30 +1219,21 @@ class TimeSqliProbe(Plugin):
         return ctx.config.allow_exploit and ctx.config.time_sqli
 
     def run(self, ctx: ScanContext) -> None:
-        from ..active.harness import LabContext, discover_points
+        from ..active.harness import discover_points
         from ..active.verifiers import time_based_sqli
 
         cfg = ctx.config
-        lab = LabContext(
-            host=ctx.target.host, enabled=cfg.allow_exploit,
-            attested=bool(cfg.lab_attestation), audit=ctx.audit, dry_run=cfg.dry_run,
-            rate_limit_rps=cfg.exploit_rate_limit, max_requests=cfg.exploit_max_requests,
-            insecure=cfg.insecure, log=ctx.log, auth=cfg.auth,
-        )
-        ready, why = lab.ready()
-        if not ready:
-            ctx.result.errors.append(f"time-sqli: skipped ({why})")
-            ctx.audit.skipped(self.id, ctx.target.host, why)
-            return
-        if cfg.dry_run:
-            ctx.result.errors.append("time-sqli: skipped — timing-based confirmation needs live "
-                                     "requests and can't be dry-run; re-run without --dry-run")
+        lab, ok = _ready_lab(
+            ctx, self.id,
+            dry_run_reason="timing-based confirmation needs live requests and can't be "
+                           "dry-run; re-run without --dry-run")
+        if not ok:
             return
 
         ctx.audit.event("lab_attestation", host=ctx.target.host,
                         statement=str(cfg.lab_attestation)[:300], dry_run=cfg.dry_run)
         base = ctx.result.url or ctx.target.web_url()
-        points = discover_points(base, lab)
+        points = discover_points(base, lab, recon=ctx.result.recon)
         if not points:
             ctx.result.errors.append("time-sqli: no parameterized requests found")
             return
@@ -1224,7 +1260,7 @@ class IdorProbe(Plugin):
         return ctx.config.allow_exploit and ctx.config.idor
 
     def run(self, ctx: ScanContext) -> None:
-        from ..active.harness import LabContext, discover_points
+        from ..active.harness import discover_points
         from ..active.verifiers import idor_bola
 
         cfg = ctx.config
@@ -1233,26 +1269,17 @@ class IdorProbe(Plugin):
                 "idor: skipped — needs a primary authenticated session (--cookie/--bearer or "
                 "--login-*); the test is relative to what the logged-in user may access")
             return
-        lab = LabContext(
-            host=ctx.target.host, enabled=cfg.allow_exploit,
-            attested=bool(cfg.lab_attestation), audit=ctx.audit, dry_run=cfg.dry_run,
-            rate_limit_rps=cfg.exploit_rate_limit, max_requests=cfg.exploit_max_requests,
-            insecure=cfg.insecure, log=ctx.log, auth=cfg.auth,
-        )
-        ready, why = lab.ready()
-        if not ready:
-            ctx.result.errors.append(f"idor: skipped ({why})")
-            ctx.audit.skipped(self.id, ctx.target.host, why)
-            return
-        if cfg.dry_run:
-            ctx.result.errors.append("idor: skipped — the probe compares live responses across "
-                                     "identities and can't be dry-run; re-run without --dry-run")
+        lab, ok = _ready_lab(
+            ctx, self.id,
+            dry_run_reason="the probe compares live responses across identities and "
+                           "can't be dry-run; re-run without --dry-run")
+        if not ok:
             return
 
         ctx.audit.event("lab_attestation", host=ctx.target.host,
                         statement=str(cfg.lab_attestation)[:300], dry_run=cfg.dry_run)
         base = ctx.result.url or ctx.target.web_url()
-        points = discover_points(base, lab)
+        points = discover_points(base, lab, recon=ctx.result.recon)
         if not points:
             ctx.result.errors.append("idor: no parameterized requests found to test")
             return
@@ -1280,7 +1307,7 @@ class AiActiveVerify(Plugin):
         return ctx.config.ai and ctx.config.allow_exploit
 
     def run(self, ctx: ScanContext) -> None:
-        from ..active.harness import LabContext, discover_points
+        from ..active.harness import discover_points
         from ..ai import agent, get_provider
         from ..ai.cache import Budget
         from ..ai.provider import AIError
@@ -1297,16 +1324,8 @@ class AiActiveVerify(Plugin):
             ctx.result.errors.append(f"ai-active-verify: provider unavailable ({why})")
             return
 
-        lab = LabContext(
-            host=ctx.target.host, enabled=cfg.allow_exploit,
-            attested=bool(cfg.lab_attestation), audit=ctx.audit, dry_run=cfg.dry_run,
-            rate_limit_rps=cfg.exploit_rate_limit, max_requests=cfg.exploit_max_requests,
-            insecure=cfg.insecure, log=ctx.log, auth=cfg.auth,
-        )
-        ready, why = lab.ready()
-        if not ready:
-            ctx.result.errors.append(f"ai-active-verify: skipped ({why})")
-            ctx.audit.skipped(self.id, ctx.target.host, why)
+        lab, ok = _ready_lab(ctx, self.id)
+        if not ok:
             return
 
         base = ctx.result.url or ctx.target.web_url()
@@ -1314,7 +1333,7 @@ class AiActiveVerify(Plugin):
         budget = Budget(max_tokens=2_000_000)   # don't starve the analysis of tokens
         try:
             # 1. Injection proof loop on discovered parameters (XSS/redirect/SQLi/…)
-            points = discover_points(base, lab)
+            points = discover_points(base, lab, recon=ctx.result.recon)
             if points:
                 inj = agent.agentic_verify(ctx.result.to_dict(), points, provider, lab,
                                            budget=budget, audit=ctx.audit, log=ctx.log,
@@ -1380,8 +1399,12 @@ class Cors(Plugin):
     def run(self, ctx: ScanContext) -> None:
         base = ctx.result.url or ctx.target.web_url()
         ctx.audit.active_probe(self.id, ctx.target.host, self.mode.value, detail="CORS Origin probe")
+        # beyond the site root: API-ish paths the crawler/apidisco surfaced
+        # (crawl + api-discovery are DETECT too and register before this plugin)
+        paths = webchecks.cors_candidate_paths(ctx.result.recon)
         ctx.result.findings.extend(
-            webchecks.check_cors(base, insecure=ctx.config.insecure, auth=ctx.config.auth))
+            webchecks.check_cors(base, insecure=ctx.config.insecure, auth=ctx.config.auth,
+                                 paths=paths))
 
 
 @register
@@ -1636,7 +1659,6 @@ class AiCveVerify(Plugin):
         return ctx.config.ai and ctx.config.allow_exploit and bool(ctx.result.cves)
 
     def run(self, ctx: ScanContext) -> None:
-        from ..active.harness import LabContext
         from ..ai import agent, get_provider
         from ..ai.cache import Budget
         from ..ai.provider import AIError
@@ -1658,16 +1680,8 @@ class AiCveVerify(Plugin):
             ctx.result.errors.append(f"ai-cve-verify: provider unavailable ({why})")
             return
 
-        lab = LabContext(
-            host=ctx.target.host, enabled=cfg.allow_exploit,
-            attested=bool(cfg.lab_attestation), audit=ctx.audit, dry_run=cfg.dry_run,
-            rate_limit_rps=cfg.exploit_rate_limit, max_requests=cfg.exploit_max_requests,
-            insecure=cfg.insecure, log=ctx.log, auth=cfg.auth,
-        )
-        ready, why = lab.ready()
-        if not ready:
-            ctx.result.errors.append(f"ai-cve-verify: skipped ({why})")
-            ctx.audit.skipped(self.id, ctx.target.host, why)
+        lab, ok = _ready_lab(ctx, self.id)
+        if not ok:
             return
 
         ctx.log(f"ai-cve-verify: planning benign probes for {len(todo)} firm CVE(s) ...")

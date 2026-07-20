@@ -138,12 +138,6 @@ def check_http_basic(url: str, *, insecure: bool = False, hints: str = "") -> Op
     return None
 
 
-def check_tomcat_manager(base_url: str, *, insecure: bool = False) -> Optional[CredResult]:
-    """Apache Tomcat Manager (/manager/html) — a classic default-cred → RCE path."""
-    url = base_url.rstrip("/") + "/manager/html"
-    return check_http_basic(url, insecure=insecure, hints="tomcat")
-
-
 def check_ftp_anonymous(host: str, port: int = 21) -> Optional[CredResult]:
     """Anonymous FTP login."""
     ftp = ftplib.FTP()

@@ -1,9 +1,13 @@
 """Command-line interface.
 
 Subcommands:
-  scan   <target>   host/web scan (services, CVEs, headers, secrets) [default]
-  code   <path>     static code/secret scan of a directory or file
-  serve             launch the web app (FastAPI)
+  scan      <target>  host/web scan (services, CVEs, headers, secrets) [default]
+  code      <path>    static code/secret scan of a directory or file
+  serve               launch the web app (FastAPI)
+  history             list past scans from the local store
+  recheck             re-match stored scans against the latest CVEs (no traffic)
+  monitor             watch hosts for NEW exposure (CVEs/subdomains/ports) and alert
+  typosquat           find registered look-alike / phishing domains
 
 `celsius <target>` with no subcommand is treated as `celsius scan <target>`.
 """
@@ -32,6 +36,67 @@ CONSENT_TEXT = """\
 
 _SUBCOMMANDS = {"scan", "code", "serve", "history", "recheck", "monitor", "typosquat"}
 
+_SCAN_EPILOG = """\
+examples:
+  celsius scan https://example.com -y        basic scan (headers, TLS, CVEs)
+  celsius scan https://example.com --profile deep -y
+                                             thorough scan, no root needed
+  celsius code ./src                         static code + secret scan
+  celsius serve                              launch the web UI on 127.0.0.1:8000
+
+Need a legal practice target? celsius/testsites.py lists curated,
+deliberately-vulnerable sites published by their vendors for security
+testing (also shown in the web UI) — scan those, not systems you don't own.
+"""
+
+# --profile bundles. Enable-flags a profile may turn on default to None in
+# argparse (not False) so an explicit flag on the command line always wins
+# over the bundle; _apply_profile() resolves the Nones before the scan runs.
+_PROFILE_TOGGLES = ("subdomains", "wayback", "crawl", "api_discovery",
+                    "content_discovery", "mail", "cve_verify", "ports", "nuclei")
+_PROFILES = {
+    # quick: just the fast passive core — headers, TLS, CVEs (skip the extras)
+    "quick": {"no_secrets": True, "no_robots": True, "no_favicon": True,
+              "no_fingerprint": True, "no_cve_pocs": True,
+              "no_exploitability": True, "no_diff": True},
+    # standard: the everyday defaults plus light discovery
+    "standard": {"subdomains": True, "crawl": True, "content_discovery": True},
+    # deep: everything --full does except the checks that need root (os_detect)
+    "deep": {"ports": True, "nuclei": True, "subdomains": True, "wayback": True,
+             "crawl": True, "api_discovery": True, "content_discovery": True,
+             "mail": True, "cve_verify": True},
+}
+
+
+def _apply_profile(args) -> None:
+    """Resolve --profile into concrete flag values. Explicit flags win: they
+    parse to True while profile-managed toggles default to None, so a bundle
+    only fills in what the user did not set. Toggles still None afterwards
+    become False (the old argparse default)."""
+    for attr, val in _PROFILES.get(args.profile or "", {}).items():
+        if attr.startswith("no_") or getattr(args, attr) is None:
+            setattr(args, attr, val)
+    for attr in _PROFILE_TOGGLES:
+        if getattr(args, attr) is None:
+            setattr(args, attr, False)
+
+
+def _apply_full(args, warn=lambda _m: None) -> None:
+    """--full/--thorough: enable the whole safe (passive + safe-active) battery.
+    Lab/exploit and AI stay opt-in (they need attestation / an API key)."""
+    for attr in ("ports", "nuclei", "subdomains", "wayback", "crawl", "api_discovery",
+                 "content_discovery", "mail", "cve_verify"):
+        setattr(args, attr, True)
+    # nmap -O needs raw sockets (root). Warn and skip for the common non-root
+    # case instead of letting the scan error into the notes — unless the user
+    # explicitly asked for --os-detect, which we leave alone.
+    if not args.os_detect:
+        geteuid = getattr(os, "geteuid", None)
+        if geteuid is not None and geteuid() != 0:
+            warn("OS detection needs root; skipping.")
+        else:
+            args.os_detect = True
+
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="celsius", description=BANNER)
@@ -39,117 +104,149 @@ def build_parser() -> argparse.ArgumentParser:
     sub = p.add_subparsers(dest="command")
 
     # scan
-    s = sub.add_parser("scan", help="host/web scan")
+    s = sub.add_parser("scan", help="host/web scan",
+                       formatter_class=argparse.RawDescriptionHelpFormatter,
+                       epilog=_SCAN_EPILOG)
     s.add_argument("target", help="URL, hostname, or IP")
-    s.add_argument("--full", "--thorough", action="store_true", dest="full",
-                   help="turn on every safe check at once (ports, nuclei, subdomains, "
-                        "crawl, API discovery, mail, CVE-verify, OS detect)")
-    s.add_argument("--no-web", action="store_true", help="skip HTTP header/CSP analysis")
-    s.add_argument("--no-cve", action="store_true", help="skip NVD CVE lookup")
-    s.add_argument("--no-cve-pocs", action="store_true", help="skip public-exploit/PoC links (trickest/cve)")
-    s.add_argument("--no-secrets", action="store_true", help="skip front-end secret scan")
-    s.add_argument("--no-dns", action="store_true", help="skip DNS recon")
-    s.add_argument("--no-tls", action="store_true", help="skip TLS/certificate analysis")
-    s.add_argument("--no-robots", action="store_true", help="skip robots.txt/sitemap.xml harvesting")
-    s.add_argument("--no-favicon", action="store_true", help="skip favicon hash fingerprinting")
-    s.add_argument("--mail", action="store_true",
-                   help="e-mail security: SPF/DKIM/DMARC/MTA-STS/TLS-RPT/DNSSEC/BIMI (passive)")
-    s.add_argument("--no-fingerprint", action="store_true", help="skip tech fingerprinting")
-    s.add_argument("--subdomains", action="store_true", help="enumerate subdomains (crt.sh)")
-    s.add_argument("--subdomain-bruteforce", action="store_true", help="also resolve a wordlist")
-    s.add_argument("--topology", action="store_true",
-                   help="map IP topology of target+subdomains (Shodan/RDAP, passive): VPS vs home vs SaaS")
-    s.add_argument("--wayback", action="store_true", help="harvest historical URLs/params from archive.org (passive)")
-    s.add_argument("--no-diff", action="store_true", help="skip temporal diff vs last scan")
-    s.add_argument("--no-exploitability", action="store_true", help="skip EPSS/KEV exploitability assessment")
-    s.add_argument("--cve-verify", action="store_true", help="confirm detected CVEs with matching nuclei templates (safe-active)")
-    s.add_argument("--crawl", action="store_true", help="crawl + JS endpoint/route + source-map recovery")
-    s.add_argument("--crawl-max-pages", type=int, default=40)
-    s.add_argument("--api-discovery", action="store_true", help="probe OpenAPI/Swagger + GraphQL introspection")
-    s.add_argument("--content-discovery", action="store_true", help="probe for exposed sensitive files (.git/.env/backups)")
-    s.add_argument("--dynamic", action="store_true", help="use Playwright dynamic crawl if installed")
-    s.add_argument("--ports", action="store_true", help="run nmap port/service scan")
-    s.add_argument("--default-creds", action="store_true",
-                   help="safe-active: try curated vendor default logins (admin/admin, "
-                        "tomcat/tomcat, anonymous FTP, …) on identified panels/services")
-    s.add_argument("--nuclei", action="store_true", help="run nuclei templates")
-    s.add_argument("--nuclei-full", action="store_true", help="run the ENTIRE nuclei set (slow)")
-    s.add_argument("--top-ports", type=int, default=100)
-    s.add_argument("--port-range", help="explicit nmap ports, e.g. '1-65535' (full) or '22,80,443'")
-    s.add_argument("--udp", action="store_true", help="also run a UDP service scan (needs root; slow)")
-    s.add_argument("--os-detect", action="store_true",
-                   help="nmap OS/device fingerprint (-O); identifies router/firewall/vendor (needs sudo/root)")
-    s.add_argument("--nvd-api-key", default=os.environ.get("NVD_API_KEY"))
-    s.add_argument("--scope", metavar="FILE", help="scope.yml authorizing targets/modes")
-    s.add_argument("--no-active", action="store_true", help="disable safe-active checks (nmap/nuclei)")
-    s.add_argument("--lab", action="store_true",
-                   help="LAB MODE: non-destructive active verification (needs scope EXPLOIT + attestation)")
-    s.add_argument("--lab-attest", metavar="TEXT", help="attestation statement for lab mode")
-    s.add_argument("--dry-run", action="store_true", help="lab mode: preview payloads without sending")
-    s.add_argument("--ssrf", action="store_true",
-                   help="lab mode: blind-SSRF probe via an out-of-band callback canary (needs --lab)")
-    s.add_argument("--rce", action="store_true",
-                   help="lab mode: OS command-injection probe via an out-of-band callback (needs --lab)")
-    s.add_argument("--blind-xss", action="store_true",
-                   help="lab mode: blind/stored-XSS beacon via an out-of-band callback (needs --lab)")
-    s.add_argument("--xxe", action="store_true",
-                   help="lab mode: blind-XXE probe via an out-of-band callback (needs --lab)")
-    s.add_argument("--oob-host", metavar="ADDR",
-                   help="address the target should call back to for OOB probes (default: auto-detect LAN IP)")
-    s.add_argument("--oob-domain", metavar="DOMAIN",
-                   help="use a DNS canary on this delegated domain (catches OOB via DNS, so it reaches "
-                        "egress-filtered targets; the domain's NS must point at this host)")
-    s.add_argument("--oob-dns-port", type=int, default=53, metavar="PORT",
-                   help="UDP port for the --oob-domain DNS canary (default 53; needs root)")
-    s.add_argument("--time-sqli", action="store_true",
-                   help="lab mode: time-based blind SQLi — DELIBERATELY delays the DB (load-adjacent; "
-                        "opt-in exception to the non-destructive default; needs --lab)")
-    s.add_argument("--time-sqli-delay", type=float, default=3.0, metavar="SECS",
-                   help="seconds the injected SQL sleep should pause for (default 3)")
-    s.add_argument("--idor", action="store_true",
-                   help="lab mode: IDOR/BOLA authorization probe (needs --lab and an auth session; "
-                        "add --auth2-* for cross-user testing)")
-    s.add_argument("--auth2-cookie", metavar="COOKIE",
-                   help="second identity's Cookie header for --idor cross-user (BOLA) testing")
-    s.add_argument("--auth2-bearer", metavar="TOKEN",
-                   help="second identity's bearer token for --idor cross-user (BOLA) testing")
-    s.add_argument("--exploit-max-requests", type=int, default=200)
-    s.add_argument("--exploit-rate-limit", type=float, default=5.0)
-    s.add_argument("--no-db", action="store_true", help="do not persist the scan to the local store")
-    s.add_argument("--ai", action="store_true", help="AI triage + attack-surface hypotheses")
-    s.add_argument("--ai-provider", default="deepseek", help="deepseek|openai|anthropic|local|mock")
-    s.add_argument("--ai-model", help="override the provider's default model (e.g. a local Ollama model)")
-    s.add_argument("--ai-base-url", help="AI API base URL (local Ollama: http://localhost:11434/v1)")
-    grp = s.add_mutually_exclusive_group()
+
+    gprof = s.add_argument_group("scan profiles",
+                                 "curated flag bundles; explicit flags always win over the profile")
+    gprof.add_argument("--profile", choices=("quick", "standard", "deep"),
+                       help="quick = minimal (headers/TLS/CVEs); standard = defaults + "
+                            "subdomains/crawl/content discovery; deep = --full minus the "
+                            "root-requiring checks")
+    gprof.add_argument("--full", "--thorough", action="store_true", dest="full",
+                       help="turn on every safe check at once (ports, nuclei, subdomains, "
+                            "crawl, API discovery, mail, CVE-verify, OS detect)")
+
+    gcore = s.add_argument_group("core checks")
+    gcore.add_argument("--no-web", action="store_true", help="skip HTTP header/CSP analysis")
+    gcore.add_argument("--no-cve", action="store_true", help="skip NVD CVE lookup")
+    gcore.add_argument("--no-cve-pocs", action="store_true", help="skip public-exploit/PoC links (trickest/cve)")
+    gcore.add_argument("--no-secrets", action="store_true", help="skip front-end secret scan")
+    gcore.add_argument("--no-exploitability", action="store_true", help="skip EPSS/KEV exploitability assessment")
+    gcore.add_argument("--cve-verify", action="store_true", default=None,
+                       help="confirm detected CVEs with matching nuclei templates (safe-active)")
+
+    grecon = s.add_argument_group("recon (passive)")
+    grecon.add_argument("--no-dns", action="store_true", help="skip DNS recon")
+    grecon.add_argument("--no-tls", action="store_true", help="skip TLS/certificate analysis")
+    grecon.add_argument("--no-robots", action="store_true", help="skip robots.txt/sitemap.xml harvesting")
+    grecon.add_argument("--no-favicon", action="store_true", help="skip favicon hash fingerprinting")
+    grecon.add_argument("--no-fingerprint", action="store_true", help="skip tech fingerprinting")
+    grecon.add_argument("--mail", action="store_true", default=None,
+                        help="e-mail security: SPF/DKIM/DMARC/MTA-STS/TLS-RPT/DNSSEC/BIMI (passive)")
+    grecon.add_argument("--subdomains", action="store_true", default=None,
+                        help="enumerate subdomains (crt.sh)")
+    grecon.add_argument("--subdomain-bruteforce", action="store_true", help="also resolve a wordlist")
+    grecon.add_argument("--topology", action="store_true",
+                        help="map IP topology of target+subdomains (Shodan/RDAP, passive): VPS vs home vs SaaS")
+    grecon.add_argument("--wayback", action="store_true", default=None,
+                        help="harvest historical URLs/params from archive.org (passive)")
+    grecon.add_argument("--no-diff", action="store_true", help="skip temporal diff vs last scan")
+    grecon.add_argument("--nvd-api-key", default=os.environ.get("NVD_API_KEY"))
+
+    gdisc = s.add_argument_group("discovery")
+    gdisc.add_argument("--crawl", action="store_true", default=None,
+                       help="crawl + JS endpoint/route + source-map recovery")
+    gdisc.add_argument("--crawl-max-pages", type=int, default=40)
+    gdisc.add_argument("--api-discovery", action="store_true", default=None,
+                       help="probe OpenAPI/Swagger + GraphQL introspection")
+    gdisc.add_argument("--content-discovery", action="store_true", default=None,
+                       help="probe for exposed sensitive files (.git/.env/backups)")
+    gdisc.add_argument("--dynamic", action="store_true", help="use Playwright dynamic crawl if installed")
+
+    gact = s.add_argument_group("active scanning (safe-active)")
+    gact.add_argument("--ports", action="store_true", default=None, help="run nmap port/service scan")
+    gact.add_argument("--top-ports", type=int, default=100)
+    gact.add_argument("--port-range", help="explicit nmap ports, e.g. '1-65535' (full) or '22,80,443'")
+    gact.add_argument("--udp", action="store_true", help="also run a UDP service scan (needs root; slow)")
+    gact.add_argument("--os-detect", action="store_true",
+                      help="nmap OS/device fingerprint (-O); identifies router/firewall/vendor (needs sudo/root)")
+    gact.add_argument("--default-creds", action="store_true",
+                      help="safe-active: try curated vendor default logins (admin/admin, "
+                           "tomcat/tomcat, anonymous FTP, …) on identified panels/services")
+    gact.add_argument("--nuclei", action="store_true", default=None, help="run nuclei templates")
+    gact.add_argument("--nuclei-full", action="store_true", help="run the ENTIRE nuclei set (slow)")
+    gact.add_argument("--no-active", action="store_true", help="disable safe-active checks (nmap/nuclei)")
+
+    glab = s.add_argument_group("lab mode (exploit — needs scope EXPLOIT + attestation)")
+    glab.add_argument("--lab", action="store_true",
+                      help="LAB MODE: non-destructive active verification (needs scope EXPLOIT + attestation)")
+    glab.add_argument("--lab-attest", metavar="TEXT", help="attestation statement for lab mode")
+    glab.add_argument("--dry-run", action="store_true", help="lab mode: preview payloads without sending")
+    glab.add_argument("--ssrf", action="store_true",
+                      help="lab mode: blind-SSRF probe via an out-of-band callback canary (needs --lab)")
+    glab.add_argument("--rce", action="store_true",
+                      help="lab mode: OS command-injection probe via an out-of-band callback (needs --lab)")
+    glab.add_argument("--blind-xss", action="store_true",
+                      help="lab mode: blind/stored-XSS beacon via an out-of-band callback (needs --lab)")
+    glab.add_argument("--xxe", action="store_true",
+                      help="lab mode: blind-XXE probe via an out-of-band callback (needs --lab)")
+    glab.add_argument("--oob-host", metavar="ADDR",
+                      help="address the target should call back to for OOB probes (default: auto-detect LAN IP)")
+    glab.add_argument("--oob-domain", metavar="DOMAIN",
+                      help="use a DNS canary on this delegated domain (catches OOB via DNS, so it reaches "
+                           "egress-filtered targets; the domain's NS must point at this host)")
+    glab.add_argument("--oob-dns-port", type=int, default=53, metavar="PORT",
+                      help="UDP port for the --oob-domain DNS canary (default 53; needs root)")
+    glab.add_argument("--time-sqli", action="store_true",
+                      help="lab mode: time-based blind SQLi — DELIBERATELY delays the DB (load-adjacent; "
+                           "opt-in exception to the non-destructive default; needs --lab)")
+    glab.add_argument("--time-sqli-delay", type=float, default=3.0, metavar="SECS",
+                      help="seconds the injected SQL sleep should pause for (default 3)")
+    glab.add_argument("--idor", action="store_true",
+                      help="lab mode: IDOR/BOLA authorization probe (needs --lab and an auth session; "
+                           "add --auth2-* for cross-user testing)")
+    glab.add_argument("--auth2-cookie", metavar="COOKIE",
+                      help="second identity's Cookie header for --idor cross-user (BOLA) testing")
+    glab.add_argument("--auth2-bearer", metavar="TOKEN",
+                      help="second identity's bearer token for --idor cross-user (BOLA) testing")
+    glab.add_argument("--exploit-max-requests", type=int, default=200)
+    glab.add_argument("--exploit-rate-limit", type=float, default=5.0)
+
+    gai = s.add_argument_group("AI")
+    gai.add_argument("--ai", action="store_true", help="AI triage + attack-surface hypotheses")
+    gai.add_argument("--ai-provider", default="deepseek", help="deepseek|openai|anthropic|local|mock")
+    gai.add_argument("--ai-model", help="override the provider's default model (e.g. a local Ollama model)")
+    gai.add_argument("--ai-base-url", help="AI API base URL (local Ollama: http://localhost:11434/v1)")
+    grp = gai.add_mutually_exclusive_group()
     grp.add_argument("--ai-redact", action="store_true", default=True, dest="ai_redact",
                      help="mask secrets before sending to the AI (default ON)")
     grp.add_argument("--ai-no-redact", action="store_false", dest="ai_redact",
                      help="send unmasked content to the AI (only on a target you own)")
-    s.add_argument("--json", metavar="FILE")
-    s.add_argument("--html", metavar="FILE")
-    s.add_argument("--sarif", metavar="FILE", help="write a SARIF 2.1.0 report (CI/IDE)")
-    s.add_argument("--markdown", metavar="FILE", help="write a Markdown report")
-    s.add_argument("--poc", action="store_true", help="print reproduction steps for findings/CVEs")
-    s.add_argument("--insecure", action="store_true")
-    # authenticated scan: attach a logged-in session to crawl/checks/nuclei/active
-    s.add_argument("--cookie", help="Cookie header to send (e.g. \"session=abc; csrf=xyz\")")
-    s.add_argument("--header", action="append", metavar="\"K: V\"",
-                   help="extra request header (repeatable), e.g. --header \"Authorization: Bearer ...\"")
-    s.add_argument("--bearer", help="shortcut for an Authorization: Bearer <token> header")
-    s.add_argument("--login-url", help="form login: URL to POST credentials to (captures the session)")
-    s.add_argument("--login-data", help="form login: raw body, e.g. \"user=alice&pass=secret\"")
-    s.add_argument("--login-user", help="form login: username value")
-    s.add_argument("--login-pass", help="form login: password value")
-    s.add_argument("--login-field-user", default="username", help="form login: username field name")
-    s.add_argument("--login-field-pass", default="password", help="form login: password field name")
-    s.add_argument("-y", "--yes", action="store_true", help="skip authorization prompt")
-    s.add_argument("-v", "--verbose", action="store_true",
-                   help="show per-step progress on stderr even when piped")
-    s.add_argument("--debug", action="store_true",
-                   help="verbose + debug detail (commands, subprocess stderr)")
-    s.add_argument("--quiet", action="store_true", help="only show errors on stderr")
-    s.add_argument("--log-file", metavar="PATH",
-                   help="write the full debug trace here (default ~/.local/share/celsius/scan.log)")
+
+    gauth = s.add_argument_group("authentication (scan as a logged-in user)")
+    gauth.add_argument("--cookie", help="Cookie header to send (e.g. \"session=abc; csrf=xyz\")")
+    gauth.add_argument("--header", action="append", metavar="\"K: V\"",
+                       help="extra request header (repeatable), e.g. --header \"Authorization: Bearer ...\"")
+    gauth.add_argument("--bearer", help="shortcut for an Authorization: Bearer <token> header")
+    gauth.add_argument("--login-url", help="form login: URL to POST credentials to (captures the session)")
+    gauth.add_argument("--login-data", help="form login: raw body, e.g. \"user=alice&pass=secret\"")
+    gauth.add_argument("--login-user", help="form login: username value")
+    gauth.add_argument("--login-pass", help="form login: password value")
+    gauth.add_argument("--login-field-user", default="username", help="form login: username field name")
+    gauth.add_argument("--login-field-pass", default="password", help="form login: password field name")
+    gauth.add_argument("--insecure", action="store_true")
+
+    gout = s.add_argument_group("output")
+    gout.add_argument("--json", metavar="FILE")
+    gout.add_argument("--html", metavar="FILE")
+    gout.add_argument("--sarif", metavar="FILE", help="write a SARIF 2.1.0 report (CI/IDE)")
+    gout.add_argument("--markdown", metavar="FILE", help="write a Markdown report")
+    gout.add_argument("--poc", action="store_true", help="print reproduction steps for findings/CVEs")
+    gout.add_argument("--no-db", action="store_true", help="do not persist the scan to the local store")
+
+    ggen = s.add_argument_group("general")
+    ggen.add_argument("--scope", metavar="FILE", help="scope.yml authorizing targets/modes")
+    ggen.add_argument("-y", "--yes", action="store_true", help="skip authorization prompt")
+    ggen.add_argument("-v", "--verbose", action="store_true",
+                      help="show per-step progress on stderr even when piped")
+    ggen.add_argument("--debug", action="store_true",
+                      help="verbose + debug detail (commands, subprocess stderr)")
+    ggen.add_argument("--quiet", action="store_true", help="only show errors on stderr")
+    ggen.add_argument("--log-file", metavar="PATH",
+                      help="write the full debug trace here (default ~/.local/share/celsius/scan.log)")
 
     # history
     h = sub.add_parser("history", help="list past scans from the local store")
@@ -252,12 +349,11 @@ def _cmd_scan(args) -> int:
         print("Aborted: authorization not confirmed.", file=sys.stderr)
         return 2
 
-    # --full / --thorough: enable the whole safe (passive + safe-active) battery.
-    # Lab/exploit and AI stay opt-in (they need attestation / an API key).
+    # Profiles fill in their bundle first (explicit flags already won at parse
+    # time), then --full force-enables the whole safe battery on top.
+    _apply_profile(args)
     if args.full:
-        for attr in ("ports", "nuclei", "subdomains", "wayback", "crawl", "api_discovery",
-                     "content_discovery", "mail", "cve_verify", "os_detect"):
-            setattr(args, attr, True)
+        _apply_full(args, warn=lambda m: print(f"[!] --full: {m}", file=sys.stderr))
 
     # Lab-mode attestation gate (in addition to scope EXPLOIT + the auth prompt).
     lab_attest = None

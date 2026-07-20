@@ -12,6 +12,7 @@ import sqlite3
 import uuid
 from typing import Optional
 
+from . import grade
 from .models import severity_rank
 from .timeutil import utcnow_iso as _now
 
@@ -57,6 +58,12 @@ class Store:
         self._conn = sqlite3.connect(path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._conn.executescript(_SCHEMA)
+        # Lightweight migration: grade/score are stored at save time so the
+        # history list can show them without re-parsing 50 result_json blobs.
+        cols = {r[1] for r in self._conn.execute("PRAGMA table_info(scans)")}
+        if "grade" not in cols:
+            self._conn.execute("ALTER TABLE scans ADD COLUMN grade TEXT")
+            self._conn.execute("ALTER TABLE scans ADD COLUMN score INTEGER")
         self._conn.commit()
 
     def save_scan(self, result_dict: dict) -> str:
@@ -64,14 +71,16 @@ class Store:
         cves = result_dict.get("cves", [])
         findings = result_dict.get("findings", [])
         worst = _worst_severity(cves, findings)
+        assessment = grade.assess(result_dict)
         self._conn.execute(
             "INSERT INTO scans (id, target, url, ip, started_at, finished_at, "
-            "created_at, n_findings, n_cves, worst, result_json) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            "created_at, n_findings, n_cves, worst, grade, score, result_json) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (scan_id, result_dict.get("target", ""), result_dict.get("url"),
              result_dict.get("ip"), result_dict.get("started_at"),
              result_dict.get("finished_at"), _now(), len(findings), len(cves),
-             worst, json.dumps(result_dict)),
+             worst, assessment["grade"], assessment["score"],
+             json.dumps(result_dict)),
         )
         rows = []
         for c in cves:
@@ -86,17 +95,39 @@ class Store:
         self._conn.commit()
         return scan_id
 
-    def list_scans(self, target: Optional[str] = None, limit: int = 100) -> list[dict]:
-        if target:
+    def list_scans(self, target: Optional[str] = None, limit: int = 100,
+                   offset: int = 0, exact: bool = False) -> list[dict]:
+        """History rows, newest first. `target` filters case-insensitively by
+        substring (LIKE with escaped wildcards, so a literal '%' in the query
+        can't widen the match); `exact=True` keeps the old whole-string match
+        (used by the temporal diff, which must compare the same target)."""
+        cols = ("id,target,url,ip,started_at,finished_at,n_findings,n_cves,"
+                "worst,grade,score")
+        if target and exact:
             cur = self._conn.execute(
-                "SELECT id,target,url,ip,started_at,finished_at,n_findings,n_cves,worst "
-                "FROM scans WHERE target=? ORDER BY created_at DESC LIMIT ?",
-                (target, limit))
+                f"SELECT {cols} FROM scans WHERE target=? "
+                "ORDER BY created_at DESC LIMIT ? OFFSET ?",
+                (target, limit, offset))
+        elif target:
+            pat = "%" + _escape_like(target.lower()) + "%"
+            cur = self._conn.execute(
+                f"SELECT {cols} FROM scans WHERE lower(target) LIKE ? ESCAPE '\\' "
+                "ORDER BY created_at DESC LIMIT ? OFFSET ?",
+                (pat, limit, offset))
         else:
             cur = self._conn.execute(
-                "SELECT id,target,url,ip,started_at,finished_at,n_findings,n_cves,worst "
-                "FROM scans ORDER BY created_at DESC LIMIT ?", (limit,))
+                f"SELECT {cols} FROM scans ORDER BY created_at DESC LIMIT ? OFFSET ?",
+                (limit, offset))
         return [dict(r) for r in cur.fetchall()]
+
+    def delete_scan(self, scan_id: str) -> bool:
+        """Remove one scan (and its findings rows) from history. False if absent."""
+        cur = self._conn.execute("DELETE FROM scans WHERE id=?", (scan_id,))
+        if cur.rowcount:
+            self._conn.execute("DELETE FROM findings WHERE scan_id=?", (scan_id,))
+            self._conn.commit()
+            return True
+        return False
 
     def get_scan(self, scan_id: str) -> Optional[dict]:
         cur = self._conn.execute("SELECT result_json FROM scans WHERE id=?", (scan_id,))
@@ -126,6 +157,11 @@ class Store:
 
     def close(self) -> None:
         self._conn.close()
+
+
+def _escape_like(s: str) -> str:
+    """Escape LIKE wildcards so user input matches literally (ESCAPE '\\')."""
+    return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 def _host_of(target: str) -> str:

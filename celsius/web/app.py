@@ -3,9 +3,15 @@
 Endpoints:
   GET  /                      single-page UI
   POST /api/scan              start a host/web scan job (requires authorized=true)
-  GET  /api/scan/{job_id}     poll job status / log / result
-  POST /api/code              static code/secret scan (path or pasted text)
+  GET  /api/scan/{job_id}     poll job status / log / progress / result
+  DELETE /api/scan/{job_id}   request cancellation of a running job
+  GET  /api/health            liveness probe (open — no token needed)
+  GET  /api/scans             scan history (target substring filter, limit/offset)
+  DELETE /api/scans/{id}      remove a scan from history
+  GET  /api/scans/{id}/export.{fmt}  download a stored scan (json|md|sarif|html)
+  POST /api/code              static code/secret scan (path, pasted text, or upload)
   POST /api/poc               text-only reproduction steps for a finding/CVE
+  GET  /api/ai/status         which AI providers are configured (booleans only)
   GET  /api/testsites         curated authorized vulnerable test targets
 
 Scan jobs run in a thread pool; state is kept in-memory (single-process).
@@ -15,8 +21,11 @@ from __future__ import annotations
 
 import hmac
 import ipaddress
+import json
 import os
+import socket
 import threading
+import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Optional
@@ -25,15 +34,17 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+from starlette.datastructures import UploadFile
 
-from .. import codescan, grade, poc, report
+from .. import __version__, codescan, grade, poc, report
 from ..engine import ScanConfig, run_scan
 from ..logsetup import get_logger, setup_logging
-from ..models import CVE, Finding, Severity
+from ..models import CVE, Finding, ScanResult, Service, Severity
 from ..plugins.base import Mode
 from ..scope import Scope
 from ..store import Store
 from ..targets import parse_target
+from ..timeutil import utcnow_iso
 
 # Ensure scans launched from the web UI are traced to the persistent log file
 # too (the per-job in-memory log only lives as long as the process).
@@ -55,6 +66,8 @@ _store = Store()
 # fine for a loopback-only bind, but `celsius serve` auto-generates a token when
 # binding to a non-loopback host so LAN exposure is never unauthenticated.
 _TOKEN = os.environ.get("CELSIUS_TOKEN", "").strip()
+
+_SEV = {s.value: s for s in Severity}
 
 # /api/code may only read files under this root (defaults to the working dir).
 # Without it, an authenticated caller could read arbitrary host files (e.g.
@@ -174,10 +187,25 @@ class PocRequest(BaseModel):
 
 def _run_job(job_id: str, config: ScanConfig, scope: "Optional[Scope]" = None,
              auth_params: "Optional[dict]" = None) -> None:
+    t0 = time.monotonic()
+
     def log(msg: str) -> None:
         _log.info("[job %s] %s", job_id, msg)
         with _jobs_lock:
             _jobs[job_id]["log"].append(msg)
+
+    def progress(info: dict) -> None:
+        # Engine reports {phase, plugin, index, total} before each plugin runs;
+        # stamp elapsed so the poller can render it without clock math.
+        with _jobs_lock:
+            job = _jobs.get(job_id)
+            if job is not None:
+                job["progress"] = {**info, "elapsed": round(time.monotonic() - t0, 2)}
+
+    def cancelled() -> bool:
+        with _jobs_lock:
+            job = _jobs.get(job_id)
+            return bool(job and job.get("cancel_requested"))
 
     # Authenticated scan: build the session here (form login does network I/O — keep
     # it off the request thread). Failures degrade to an unauthenticated scan.
@@ -191,7 +219,15 @@ def _run_job(job_id: str, config: ScanConfig, scope: "Optional[Scope]" = None,
 
     _log.info("[job %s] scan starting: target=%s", job_id, config.target)
     try:
-        result = run_scan(config, log=log, store=_store, scope=scope)
+        result = run_scan(config, log=log, store=_store, scope=scope,
+                          progress=progress, cancelled=cancelled)
+        if cancelled():
+            # Engine aborted between plugins; the partial result is discarded
+            # (never persisted — the engine skips the store on cancel).
+            _log.info("[job %s] scan cancelled", job_id)
+            with _jobs_lock:
+                _jobs[job_id]["status"] = "cancelled"
+            return
         for e in result.errors:
             _log.warning("[job %s] note/error: %s", job_id, e)
         d = result.to_dict()
@@ -258,7 +294,9 @@ def start_scan(req: ScanRequest) -> dict:
         "insecure": req.insecure,
     }
     with _jobs_lock:
-        _jobs[job_id] = {"status": "running", "log": [], "result": None, "error": None}
+        _jobs[job_id] = {"status": "running", "log": [], "result": None, "error": None,
+                         "started_at": utcnow_iso(), "progress": None,
+                         "cancel_requested": False}
     _executor.submit(_run_job, job_id, config, scope, auth_params)
     return {"job_id": job_id}
 
@@ -272,11 +310,31 @@ def scan_status(job_id: str) -> dict:
         return dict(job)
 
 
+@app.delete("/api/scan/{job_id}")
+def cancel_scan(job_id: str) -> dict:
+    """Ask a running job to stop; the engine honors it between plugins."""
+    with _jobs_lock:
+        job = _jobs.get(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="Unknown job id.")
+        if job["status"] != "running":
+            raise HTTPException(status_code=409,
+                                detail=f"Job already {job['status']}.")
+        job["cancel_requested"] = True
+    return {"job_id": job_id, "status": "cancelling"}
+
+
+@app.get("/api/health")
+def health() -> dict:
+    return {"status": "ok", "version": __version__}
+
+
 # ---- history ------------------------------------------------------------------
 
 @app.get("/api/scans")
-def list_scans(target: Optional[str] = None, limit: int = 50) -> dict:
-    return {"scans": _store.list_scans(target=target, limit=limit)}
+def list_scans(target: Optional[str] = None, limit: int = 50, offset: int = 0) -> dict:
+    # target is a case-insensitive substring filter (store escapes LIKE wildcards).
+    return {"scans": _store.list_scans(target=target, limit=limit, offset=offset)}
 
 
 @app.get("/api/scans/{scan_id}")
@@ -286,6 +344,80 @@ def get_scan(scan_id: str) -> dict:
         raise HTTPException(status_code=404, detail="Unknown scan id.")
     result.setdefault("assessment", grade.assess(result))
     return result
+
+
+@app.delete("/api/scans/{scan_id}")
+def delete_scan(scan_id: str) -> dict:
+    if not _store.delete_scan(scan_id):
+        raise HTTPException(status_code=404, detail="Unknown scan id.")
+    return {"deleted": scan_id}
+
+
+_EXPORT_MIME = {
+    "json": "application/json",
+    "md": "text/markdown; charset=utf-8",
+    "sarif": "application/sarif+json",
+    "html": "text/html; charset=utf-8",
+}
+
+
+@app.get("/api/scans/{scan_id}/export.{fmt}")
+def export_scan(scan_id: str, fmt: str) -> Response:
+    """Download a stored scan as json / md / sarif / html (always an attachment)."""
+    fmt = fmt.lower()
+    if fmt not in _EXPORT_MIME:
+        raise HTTPException(status_code=400,
+                            detail=f"Unknown export format '{fmt}' (json|md|sarif|html).")
+    result = _store.get_scan(scan_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Unknown scan id.")
+    fname = f"celsius-{_safe_name(result.get('target', scan_id))}.{fmt}"
+    return Response(
+        content=_render_export(result, fmt),
+        media_type=_EXPORT_MIME[fmt],
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+    )
+
+
+def _render_export(data: dict, fmt: str) -> str:
+    if fmt == "json":
+        return json.dumps(data, indent=2)
+    if fmt == "html":
+        return report.html_report(data)
+    # md/sarif writers take a ScanResult and a path: rebuild the dataclasses
+    # and render into a temp file, then read it back.
+    import tempfile
+
+    result = _result_from_dict(data)
+    fd, path = tempfile.mkstemp(suffix=f".{fmt}")
+    os.close(fd)
+    try:
+        if fmt == "md":
+            report.write_markdown(result, path)
+        else:
+            report.write_sarif(result, path)
+        with open(path) as fh:
+            return fh.read()
+    finally:
+        os.unlink(path)
+
+
+def _result_from_dict(d: dict) -> ScanResult:
+    """Rebuild a ScanResult from its to_dict() form (a stored scan)."""
+    r = ScanResult(target=d.get("target", ""), url=d.get("url"), ip=d.get("ip"),
+                   errors=list(d.get("errors", [])), recon=d.get("recon", {}),
+                   chains=d.get("chains", []), coverage=d.get("coverage", {}),
+                   started_at=d.get("started_at", ""), finished_at=d.get("finished_at", ""))
+    r.services = [Service(**s) for s in d.get("services", [])]
+    for c in d.get("cves", []):
+        kw = dict(c)
+        kw["severity"] = _SEV.get(str(kw.get("severity", "INFO")).upper(), Severity.INFO)
+        r.cves.append(CVE(**kw))
+    for f in d.get("findings", []):
+        kw = dict(f)
+        kw["severity"] = _SEV.get(str(kw.get("severity", "INFO")).upper(), Severity.INFO)
+        r.findings.append(Finding(**kw))
+    return r
 
 
 def _safe_name(s: str) -> str:
@@ -395,8 +527,42 @@ def mailsec_report(domain: str = "", download: bool = False) -> HTMLResponse:
 
 # ---- code scan ----------------------------------------------------------------
 
+# Uploaded files are read fully in memory and scanned as text — never persisted.
+_MAX_UPLOAD = 2 * 1024 * 1024
+
+
 @app.post("/api/code")
-def code_scan(req: CodeRequest) -> dict:
+async def code_scan(request: Request) -> dict:
+    """Three input modes: JSON {"path": ...} (server-side, code-root restricted),
+    JSON {"text": ...} (pasted code), or multipart/form-data file upload."""
+    if request.headers.get("content-type", "").startswith("multipart/form-data"):
+        form = await request.form()
+        upload = form.get("file")
+        if not isinstance(upload, UploadFile):
+            raise HTTPException(status_code=400,
+                                detail="Multipart request needs a 'file' field.")
+        return _scan_uploaded(await upload.read(_MAX_UPLOAD + 1))
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON body.") from None
+    try:
+        req = CodeRequest(**body)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid code-scan request.") from None
+    return _code_scan_request(req)
+
+
+def _scan_uploaded(data: bytes) -> dict:
+    if not data:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty.")
+    if len(data) > _MAX_UPLOAD:
+        raise HTTPException(status_code=413,
+                            detail=f"Upload too large (max {_MAX_UPLOAD // (1024 * 1024)} MB).")
+    return codescan.scan_text_blob(data.decode("utf-8", errors="replace")).to_dict()
+
+
+def _code_scan_request(req: CodeRequest) -> dict:
     if req.text:
         return codescan.scan_text_blob(req.text).to_dict()
     if req.path:
@@ -411,9 +577,40 @@ def code_scan(req: CodeRequest) -> dict:
     raise HTTPException(status_code=400, detail="Provide a 'path' or 'text'.")
 
 
-# ---- proof-of-concept ---------------------------------------------------------
+# ---- AI status ----------------------------------------------------------------
 
-_SEV = {s.value: s for s in Severity}
+# Booleans only — the presence of a key is reported, never its value.
+_AI_ENV = {"deepseek": "DEEPSEEK_API_KEY", "openai": "OPENAI_API_KEY",
+           "anthropic": "ANTHROPIC_API_KEY"}
+_ollama_probe: dict[str, Any] = {"at": 0.0, "ok": False}
+
+
+def _ollama_reachable() -> bool:
+    """Is a local Ollama likely up? Cheap probe (0.5s connect, 30s cache) so the
+    status endpoint never blocks meaningfully, and it can never raise."""
+    now = time.monotonic()
+    if now - _ollama_probe["at"] < 30.0:
+        return bool(_ollama_probe["ok"])
+    try:
+        with socket.create_connection(("127.0.0.1", 11434), timeout=0.5):
+            ok = True
+    except OSError:
+        ok = False
+    _ollama_probe["at"] = now
+    _ollama_probe["ok"] = ok
+    return ok
+
+
+@app.get("/api/ai/status")
+def ai_status() -> dict:
+    return {"providers": {
+        **{name: bool(os.environ.get(env, "").strip()) for name, env in _AI_ENV.items()},
+        "local": _ollama_reachable(),
+        "mock": True,  # always available — needs nothing
+    }}
+
+
+# ---- proof-of-concept ---------------------------------------------------------
 
 
 @app.post("/api/poc")

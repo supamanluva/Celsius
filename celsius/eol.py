@@ -4,8 +4,8 @@ Given a product name + version (as surfaced by the fingerprinter or nmap), decid
 whether that release is past its vendor end-of-life — i.e. no longer receiving
 security patches. Dates are curated and conservative; update them over time.
 
-`check_eol()` handles versioned runtimes/servers (PHP, IIS→Windows, Apache httpd,
-Tomcat, OpenSSL). `check_os_distro()` flags EOL OS distributions named in a
+`check_eol()` handles versioned runtimes/servers/CMSs (PHP, IIS→Windows, Apache
+httpd, Tomcat, OpenSSL, nginx, Caddy, Drupal). `check_os_distro()` flags EOL OS distributions named in a
 verbose Server header (e.g. "Apache/2.4.6 (CentOS)").
 """
 
@@ -70,6 +70,11 @@ _IIS_WINDOWS = {
     "8.0": ("Windows Server 2012", "2023-10-10"),
     "8.5": ("Windows Server 2012 R2", "2023-10-10"),
     "10.0": ("Windows Server 2016/2019/2022", "2027-01-12"),
+}
+
+# Drupal major -> EOL date (10.x/11.x still supported; only dead majors listed).
+_DRUPAL_EOL = {
+    "7": "2025-01-05", "8": "2021-11-02", "9": "2023-11-01",
 }
 
 
@@ -153,6 +158,10 @@ def check_eol(name: str, version: str, *, today: Optional[date] = None) -> Optio
                                   "security fixes — confirm with your vendor",
                             today=today)
         return None
+
+    if "drupal" in n:
+        eol = _DRUPAL_EOL.get(str(_ver(version)[0]))
+        return _verdict("Drupal", version, eol, today=today) if eol else None
 
     return None
 

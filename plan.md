@@ -8,8 +8,10 @@
 **Active testing posture:** non-destructive by default; **opt-in active
 exploitation only in an explicit lab mode** behind hard guardrails.
 **AI:** DeepSeek now, behind a pluggable multi-provider abstraction.
-**Privacy:** redaction is **configurable, default OFF** (let the model find
-everything) — the report always carries full secret values for the target's IT
+**Privacy:** secret redaction before sending to a model is **default ON** —
+secrets are masked with typed placeholders (`<AWS_KEY>`) so the value never
+leaves the host; `--ai-no-redact` opts out for maximum model visibility on a
+target you own. The report always carries full secret values for the target's IT
 to rotate; we log what was sent and recommend the provider's no-retention mode.
 
 ---
@@ -45,14 +47,17 @@ These are hard constraints, not aspirations. They shape every feature.
    We build verification and proof, not weaponized intrusion or stealth.
 5. **Explainability.** Every finding carries evidence, a confidence, and a
    citation (advisory, request/response, code location).
-6. **Privacy is configurable, exposure is logged.** Redaction before sending to an
-   external model is a per-scan **toggle, default OFF** — letting the model find
-   everything is the goal, and findings exist to be reported to the asset owner for
-   rotation. The *report* always contains full, unmasked values for remediation
-   regardless. We always log what was transmitted, recommend the provider's
-   no-retention/no-training mode, and offer a fully-local model so nothing leaves
-   the machine when desired. Trade-off the operator must own: sending a *live*
-   credential to a third-party API widens the leak until rotation.
+6. **Privacy by default, exposure is logged.** Redaction before sending to an
+   external model is a per-scan **toggle, default ON** — secrets are masked with
+   typed placeholders so the model can still reason about "a secret is here"
+   without the value leaving the host; `--ai-no-redact` opts out when full
+   context matters on a target you own. The *report* always contains full,
+   unmasked values for remediation regardless. We always log what was
+   transmitted (`masked` + `sensitive_count`), recommend the provider's
+   no-retention/no-training mode, and offer a fully-local model so nothing
+   leaves the machine when desired. Trade-off the operator must own: sending a
+   *live* credential to a third-party API unmasked widens the leak until
+   rotation.
 7. **Fail safe.** Unknown/uncertain → lower severity + "verify manually", never a
    silent destructive default.
 
@@ -86,7 +91,8 @@ SARIF 2.1.0 + Markdown export.
 **M5 (Lab-mode active verification)** ✅ — non-destructive verifiers (reflected-XSS,
 open-redirect, traversal, error-SQLi) behind a layered safety harness: lab flag +
 scope EXPLOIT + per-run attestation + dry-run + kill-switch + caps + full audit.
-CLI-only by design. Confirmed issues are marked `confirmed-exploitable`.
+Available from both the CLI and the web UI lab panel. Confirmed issues are marked
+`confirmed-exploitable`.
 
 **M4 (Exploitability)** ✅ — EPSS + CISA KEV enrichment, reachability, a
 multi-signal verdict + priority, and a "how to check if exploitable" decision
@@ -112,7 +118,8 @@ SQLite store (`store.py`, scan history), `scope.yml` authorization gate
 `--scope`/`--no-active`/`--no-db`/`--nuclei-full`; web app gained a History tab.
 
 **M2 (AI layer)** ✅ — pluggable LLM providers (DeepSeek default; OpenAI,
-Anthropic, local/Ollama, mock) in `ai/`, optional redaction (default OFF) with
+Anthropic, local/Ollama, mock) in `ai/`, secret redaction (default ON,
+`--ai-no-redact` opts out) with
 accurate audit, disk cache + token budget, AI triage/attack-surface hypotheses in
 the scan pipeline, and `code --ai` secure-code review. All AI output is labeled
 `ai-hypothesis` with confidence. CLI `--ai*`; web AI toggle + provider picker.
@@ -196,16 +203,17 @@ celsius/ai/
   openai.py        # optional
   anthropic.py     # optional
   local.py         # Ollama / llama.cpp — never leaves the machine
-  redact.py        # OPTIONAL secret/PII masking (default off; reuses secrets.py)
+  redact.py        # secret/PII masking, default ON (reuses secrets.py)
   prompts/         # versioned, testable prompt templates
   budget.py        # token/cost guard, caching of identical prompts
 ```
 
-**Redaction (optional, default OFF):** by default we send full context so the
-model finds *everything* — that is the point, and results go to the asset owner
-to fix and rotate. A per-scan toggle (`--ai-redact` / `ai.redact: true`) can mask
-`secrets.py` matches with typed placeholders (`<AWS_KEY_1>`) for sensitive
-engagements or third-party code. Regardless of the toggle: (a) the **report always
+**Redaction (default ON):** by default `secrets.py` matches are masked with typed
+placeholders (`<AWS_KEY_1>`) before anything is sent — the model can still reason
+about "a secret is here" without the value leaving the host. A per-scan opt-out
+(`--ai-no-redact` / `ai_redact: false`) sends full context for maximum detection
+on a target you own; findings exist to be reported to the asset owner for
+rotation either way. Regardless of the toggle: (a) the **report always
 contains the full unmasked values** needed for remediation, (b) we log a manifest
 of exactly what was transmitted, (c) we surface the provider's no-retention /
 no-training option, and (d) a local model (`local.py`) keeps data on-box entirely.
@@ -365,13 +373,14 @@ Each milestone is independently shippable and testable.
 **M2 — AI layer (DeepSeek, pluggable) + redaction** ✅ DONE (v0.4.0)
 - ✅ Provider abstraction (`ai/provider.py`): DeepSeek (default), OpenAI, Anthropic,
   local/Ollama, mock — all stdlib HTTP.
-- ✅ Optional redaction (`ai/redact.py`, default OFF) + accurate audit (masked flag,
+- ✅ Redaction (`ai/redact.py`, default ON; `--ai-no-redact` opts out) + accurate
+  audit (masked flag,
   sensitive_count) on every external send.
 - ✅ Disk cache + token budget (`ai/cache.py`). Robust JSON parsing.
 - ✅ AI triage + attack-surface hypotheses (scan ENRICH plugin) and secure-code
   review (`code --ai`), all labeled `ai-hypothesis` with a confidence, never
   auto-promoted to verified.
-- ✅ CLI `--ai/--ai-provider/--ai-model/--ai-redact`; web AI toggle + provider picker.
+- ✅ CLI `--ai/--ai-provider/--ai-model/--ai-no-redact`; web AI toggle + provider picker.
 - TODO (later): RAG knowledge base, multi-file code reasoning, dedup via AI.
 
 **M3 — Crawler & client-side intelligence** ✅ DONE (v0.6.0)
@@ -399,9 +408,11 @@ Each milestone is independently shippable and testable.
   every active request, enforcing lab-mode flag + scope.yml EXPLOIT entry + per-run
   attestation + dry-run preview + kill-switch (`~/.celsius-stop`) + request cap +
   rate limit + audit of every request. Verified by tests for each guardrail.
-- ✅ CLI-only by design (`--lab/--lab-attest/--dry-run/--exploit-max-requests`),
-  with interactive attestation. Confirmed findings get verdict `confirmed-exploitable`.
-- TODO (later): SSRF via OOB collaborator (M6), authenticated-session testing.
+- ✅ CLI (`--lab/--lab-attest/--dry-run/--exploit-max-requests`) + web UI lab
+  panel, with interactive attestation. Confirmed findings get verdict `confirmed-exploitable`.
+- ✅ (post-M5) OOB canary probes (blind SSRF/RCE/XSS/XXE via `--oob-host` /
+  `--oob-domain`) and authenticated-session testing (`--cookie`/`--login-*`,
+  `--idor` cross-user).
 
 **M6 — Correlation, differentiators & reporting** ✅ DONE (v1.0.0)
 - ✅ Exploit-chain correlation (`correlate.py`): composes findings/CVEs into scored
@@ -411,8 +422,7 @@ Each milestone is independently shippable and testable.
   steps, so a clean result isn't mistaken for a complete one.
 - ✅ Blue-team detection-rule / remediation generation.
 - ✅ SARIF 2.1.0 + Markdown export (`--sarif`/`--markdown`), alongside JSON/HTML.
-- TODO (future): vector RAG knowledge base, AI-augmented chains, OOB SSRF
-  collaborator, PDF export, web report-download buttons.
+- TODO (future): vector RAG knowledge base, AI-augmented chains, PDF export.
 
 🎉 **Roadmap M0–M6 complete.** celsius is a full AI-augmented offensive-security
 platform: 15-stage plugin pipeline, attack-surface mapping, client-side intel,
@@ -452,7 +462,7 @@ multi-format reporting — all behind scope/authorization + audit.
 |------|-----------|
 | Legal/abuse | Scope gate, lab-mode gating, no mass-targeting, audit log, exclusions |
 | AI hallucinated vulns | `ai-hypothesis` labeling + deterministic/human verification before "verified" |
-| Data leakage to LLM | Default full-context (by design) but: send-manifest logging, provider no-retention mode, optional redaction toggle, local-model option; report carries full values for the owner to rotate |
+| Data leakage to LLM | Redaction default ON (opt-out for full context); send-manifest logging, provider no-retention mode, local-model option; report carries full values for the owner to rotate |
 | False positives | Reachability fusion, multi-signal confirmation, confidence scores |
 | Destructive accidents | Non-destructive default, dry-run preview, per-action confirm, kill-switch |
 | Scope creep | Milestones are independently shippable; M0–M2 first |
@@ -466,13 +476,6 @@ multi-format reporting — all behind scope/authorization + audit.
 - Packaging/distribution (pipx, Docker, single binary via PyInstaller).
 
 ---
-
-### Immediate next steps (proposed)
-1. **M0 kickoff:** introduce the plugin interface + SQLite store, migrate current
-   checks, add `scope.yml` + audit log. (Unlocks everything else.)
-2. Scope nuclei templates for a fast default.
-3. Stand up the AI provider abstraction + redaction (M2 backbone) so we can start
-   getting AI value early on existing findings.
 
 > This plan is a living document. We build in vertical slices, keep every active
 > capability behind consent + guardrails, and prefer *proving* a vulnerability

@@ -93,10 +93,40 @@ _SIGS: list[tuple[str, str, str, re.Pattern]] = [
     # CMS
     ("WordPress", "cms", "body", re.compile(r"wp-content|wp-includes|<meta name=\"generator\" content=\"WordPress (?P<ver>[\d.]+)", re.I)),
     ("SiteVision", "cms", "any-header", re.compile(r"sitevision", re.I)),
-    ("Drupal", "cms", "any-header", re.compile(r"drupal", re.I)),
+    # X-Generator names the major ("Drupal 7"); the version feeds the EOL check.
+    ("Drupal", "cms", "any-header", re.compile(r"drupal(?:[ /](?P<ver>\d+(?:\.\d+)*))?", re.I)),
+    ("Drupal", "cms", "body", re.compile(r"Drupal(?:\s*(?P<ver>\d+(?:\.\d+)*))?\b|/sites/default/", re.I)),
     ("Joomla", "cms", "body", re.compile(r"joomla", re.I)),
     ("Shopify", "cms", "any-header", re.compile(r"shopify", re.I)),
     ("Ghost", "cms", "body", re.compile(r"content=\"Ghost (?P<ver>[\d.]+)", re.I)),
+    ("TYPO3", "cms", "body", re.compile(r"typo3conf|typo3temp|content=\"TYPO3", re.I)),
+    ("Magento", "cms", "any-header", re.compile(r"x-magento-", re.I)),
+    ("Magento", "cms", "body", re.compile(r"\bMage\.Cookies\b|/static/frontend/|magento", re.I)),
+    ("PrestaShop", "cms", "cookie", re.compile(r"PrestaShop-", re.I)),
+    ("PrestaShop", "cms", "body", re.compile(r"prestashop", re.I)),
+    # Frameworks: session cookies + telltale headers (Express is above).
+    ("Laravel", "framework", "cookie", re.compile(r"laravel_session", re.I)),
+    ("Laravel", "framework", "any-header", re.compile(r"\blaravel\b", re.I)),
+    ("Django", "framework", "cookie", re.compile(r"csrftoken", re.I)),
+    ("Ruby on Rails", "framework", "cookie", re.compile(r"_rails_session|_session_id=", re.I)),
+    ("Ruby on Rails", "framework", "any-header", re.compile(r"x-runtime\s*:", re.I)),
+    ("Spring Boot", "framework", "any-header", re.compile(r"x-application-context", re.I)),
+    ("Spring Boot", "framework", "body", re.compile(r"Whitelabel Error Page", re.I)),
+    # Self-hosted apps / admin & monitoring panels
+    ("phpMyAdmin", "app", "cookie", re.compile(r"phpMyAdmin=", re.I)),
+    ("phpMyAdmin", "app", "body", re.compile(r"<title>phpMyAdmin", re.I)),
+    ("Roundcube", "app", "cookie", re.compile(r"roundcube_sessid", re.I)),
+    ("Strapi", "app", "any-header", re.compile(r"\bstrapi\b", re.I)),
+    ("Prometheus", "app", "body", re.compile(r"<title>Prometheus", re.I)),
+    ("Alertmanager", "app", "body", re.compile(r"<title>Alertmanager", re.I)),
+    # kbn-version carries the version; the name/product tells are suppressed by
+    # the lookahead when a version header is present so Kibana isn't listed twice.
+    ("Kibana", "app", "any-header",
+     re.compile(r"kbn-version:\s*(?P<ver>[\d.]+)", re.I)),
+    ("Kibana", "app", "any-header",
+     re.compile(r"kbn-name\s*:(?!.*?kbn-version)|x-elastic-product", re.I)),
+    ("Jenkins", "app", "any-header",
+     re.compile(r"x-(?:jenkins|hudson)(?::\s*(?P<ver>[\d.]+))?", re.I)),
     # JS frameworks / libraries (versions where exposed)
     ("React", "framework", "body", re.compile(r"data-reactroot|react(?:\.production)?(?:\.min)?\.js", re.I)),
     ("Vue.js", "framework", "body", re.compile(r"vue(?:@(?P<ver>[\d.]+))?(?:\.min)?\.js|data-v-", re.I)),

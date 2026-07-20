@@ -1,4 +1,5 @@
-"""Rendering of ScanResult to the terminal, JSON, and a standalone HTML file."""
+"""Rendering of ScanResult to the terminal, JSON, SARIF, Markdown, and a
+standalone HTML file."""
 
 from __future__ import annotations
 
@@ -19,6 +20,15 @@ _COLORS = {
 _RESET = "\033[0m"
 _BOLD = "\033[1m"
 
+# Grade-letter colors for the terminal scorecard (A is good, F is not).
+_GRADE_COLORS = {
+    "A": "\033[92m",     # green
+    "B": "\033[93m",     # yellow-green
+    "C": "\033[93m",     # yellow
+    "D": "\033[91m",     # red
+    "F": "\033[97;41m",  # white on red
+}
+
 
 def _use_color(stream) -> bool:
     return hasattr(stream, "isatty") and stream.isatty()
@@ -31,7 +41,43 @@ def _sev_tag(sev: Severity, color: bool) -> str:
     return label
 
 
-def render_terminal(result: ScanResult, stream=sys.stdout) -> None:
+def _render_scorecard(w, asmt: dict, color: bool) -> None:
+    """Top-of-report health scorecard from grade.assess(): letter grade, 0-100
+    score, one-line verdict, severity counts, and the prioritized "fix these
+    first" list. Plain ASCII-safe text; ANSI color only when the stream is a tty.
+    """
+    letter = str(asmt["grade"])
+    if color:
+        gcol = _GRADE_COLORS.get(letter[:1], "")
+        w(f" Grade: {gcol}{_BOLD}{letter}{_RESET}  {asmt['score']}/100")
+    else:
+        w(f" Grade: {letter}  {asmt['score']}/100")
+    if asmt["clean"]:
+        w("  — no confident security issues found ✓\n")
+        return
+    w(f"  — {asmt['total_actionable']} actionable issue(s)\n")
+    counts = asmt["counts"]
+    w("        " + "  ".join(f"{s} {counts.get(s, 0)}"
+                            for s in ("CRITICAL", "HIGH", "MEDIUM", "LOW")) + "\n")
+    top = asmt["fix_first"][:5]
+    w(" Fix these first:\n")
+    for i, it in enumerate(top, 1):
+        sev = Severity(it["severity"]) if it["severity"] in Severity.__members__ else Severity.INFO
+        vmark = "  ✔ verified" if it.get("verified") else ""
+        w(f"   {i}. {_sev_tag(sev, color)} {it['title']}{vmark}\n")
+        fix = (it.get("fix") or "").strip()
+        if fix:
+            w(f"        ↳ {fix[:150]}\n")
+    more = asmt["total_actionable"] - len(top)
+    if more > 0:
+        w(f"   … +{more} more — details below.\n")
+
+
+def render_terminal(result: ScanResult, stream=None) -> None:
+    # Resolve stdout at call time, not import time, so redirecting sys.stdout
+    # (tests, wrappers, embedding) picks up the right stream.
+    if stream is None:
+        stream = sys.stdout
     color = _use_color(stream)
     w = stream.write
 
@@ -45,6 +91,11 @@ def render_terminal(result: ScanResult, stream=sys.stdout) -> None:
         w(f" URL: {result.url}\n")
     if result.ip:
         w(f" IP:  {result.ip}\n")
+    hr()
+
+    # Health scorecard (grade/score/fix-first) — the headline before the details.
+    from . import grade as _grade
+    _render_scorecard(w, _grade.assess(result.to_dict()), color)
     hr()
 
     # Summary counts
@@ -214,7 +265,7 @@ def write_sarif(result: ScanResult, path: str) -> None:
         "runs": [{
             "tool": {"driver": {
                 "name": "celsius", "version": __version__,
-                "informationUri": "https://localhost/celsius",
+                "informationUri": "https://github.com/supamanluva/celsius",
                 "rules": list(rules.values()),
             }},
             "results": results,
