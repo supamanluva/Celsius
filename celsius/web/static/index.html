@@ -5,23 +5,17 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Celsius</title>
   <meta name="description" content="Celsius — local security scanner for websites, hosts and code.">
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 30 34'%3E%3Cpath d='M15 1.6 L27 6 V16.2 C27 24 21.6 29.8 15 32.4 C8.4 29.8 3 24 3 16.2 V6 Z' fill='%230f766e'/%3E%3Crect x='13' y='8.5' width='4' height='13' rx='2' fill='%23ffffff'/%3E%3Ccircle cx='15' cy='24' r='3.2' fill='%23ffffff'/%3E%3C/svg%3E">
-  <link rel="stylesheet" href="/static/style.css">
+  <link rel="icon" type="image/png" href="/static/logo-mark.png">
+  <link rel="stylesheet" href="/static/style.css?v=2">
 </head>
 <body>
   <!-- ── App bar ─────────────────────────────────────────────── -->
   <header class="appbar">
-    <a class="brand" href="/">
-      <svg class="brand-mark" width="28" height="32" viewBox="0 0 30 34" fill="none" aria-hidden="true">
-        <path d="M15 1.6 L27 6 V16.2 C27 24 21.6 29.8 15 32.4 C8.4 29.8 3 24 3 16.2 V6 Z"
-              fill="var(--accent)"/>
-        <rect x="13" y="8.5" width="4" height="13" rx="2" fill="var(--brand-mark-ink)"/>
-        <circle cx="15" cy="24" r="3.2" fill="var(--brand-mark-ink)"/>
-      </svg>
-      <span class="brand-text">
-        <span class="wordmark">Celsius</span>
-        <span class="tag">Local security scanner</span>
-      </span>
+    <a class="brand" href="/" aria-label="Celsius — local security scanner, home">
+      <img class="brand-logo brand-logo-light" src="/static/logo.png"
+           alt="Celsius — local security scanner" width="108" height="32">
+      <img class="brand-logo brand-logo-dark" src="/static/logo-dark.png"
+           alt="" aria-hidden="true" width="110" height="32">
     </a>
     <div class="appbar-right">
       <button id="themeToggle" class="theme-toggle" title="Switch between light and dark theme"
@@ -238,21 +232,22 @@
       <!-- Live progress -->
       <div id="scanProgress" class="progress-card hidden" role="status" aria-live="polite">
         <div class="progress-head">
-          <span id="progPhase" class="progress-phase">Starting…</span>
+          <span id="progTitle" class="progress-title">Starting…</span>
           <span id="progElapsed" class="progress-elapsed">0:00</span>
+        </div>
+        <div class="progress-sub">
+          <span id="progPhase" class="progress-phase"></span>
+          <span id="progPlugin" class="progress-plugin"></span>
         </div>
         <div class="progress-bar" role="progressbar" aria-label="Scan progress"
              aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="progBar">
           <div id="progFill" class="progress-fill"></div>
         </div>
         <div class="progress-foot">
-          <span id="progPlugin" class="progress-plugin"></span>
           <button type="button" id="cancelBtn" class="btn-ghost-danger">Cancel scan</button>
         </div>
-        <details class="techlog">
-          <summary>Technical details</summary>
-          <pre id="scanLog" aria-live="polite" aria-atomic="false"></pre>
-        </details>
+        <pre id="scanLog" class="console-log" aria-live="polite" aria-atomic="false"
+             aria-label="Scan activity log"></pre>
       </div>
 
       <div id="scanStatus" class="status hidden" role="status" aria-live="polite"></div>
@@ -337,6 +332,6 @@
     <strong>Celsius</strong> · for authorized security testing only · CVE data: NVD + MITRE · PoC steps are non-destructive
   </footer>
 
-  <script src="/static/app.js"></script>
+  <script src="/static/app.js?v=2"></script>
 </body>
 </html>
