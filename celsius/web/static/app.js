@@ -145,7 +145,12 @@ const PRESETS = {
   },
 };
 
+const PRESET_LABELS = { quick: "Quick", standard: "Standard", deep: "Deep", custom: "Custom" };
+let _activePreset = "standard";
+function presetLabel() { return PRESET_LABELS[_activePreset] || "Custom"; }
+
 function selectPreset(name, applyValues) {
+  _activePreset = name;
   document.querySelectorAll(".preset").forEach((p) => {
     const on = p.dataset.preset === name;
     p.classList.toggle("active", on);
@@ -422,6 +427,31 @@ function showProgress(job) {
     $("progPlugin").textContent = (job.log || []).slice(-1)[0] || "";
   }
 }
+
+// Terminal states: keep the card on screen with a clear headline and the full
+// step console — the running state must never silently vanish.
+function completeProgress(state, target, gradeLetter) {
+  stopElapsed();
+  const card = $("scanProgress");
+  const elapsed = fmtElapsed(_lastElapsed != null ? _lastElapsed : (Date.now() - _elapsedBase) / 1000);
+  $("cancelBtn").classList.add("hidden");
+  $("progPlugin").textContent = "";
+  $("progElapsed").textContent = elapsed;
+  if (state === "done") {
+    card.classList.add("done");
+    $("progTitle").textContent =
+      `${presetLabel()} scan of ${target} — finished in ${elapsed}${gradeLetter ? " · grade " + gradeLetter : ""}`;
+    $("progPhase").textContent = "Complete";
+    $("progFill").style.width = "100%";
+    $("progBar").setAttribute("aria-valuenow", "100");
+  } else {
+    card.classList.add("cancelled");
+    $("progTitle").textContent = `${presetLabel()} scan of ${target} — cancelled after ${elapsed}`;
+    $("progPhase").textContent = "Cancelled";
+  }
+  _currentJobId = null;
+}
+
 function hideProgress() {
   stopElapsed();
   $("scanProgress").classList.add("hidden");
@@ -436,8 +466,14 @@ async function runScan(target) {
   $("results").innerHTML = "";
   $("scanLog").textContent = "";
   setStatus("scanStatus", `Starting scan of ${target}…${queueNote()}`, false);
-  $("scanProgress").classList.remove("hidden");
+  const card = $("scanProgress");
+  card.classList.remove("hidden", "done", "cancelled");
+  $("progTitle").textContent = `${presetLabel()} scan of ${target} — running…`;
+  $("progPhase").textContent = "Starting…";
+  $("progPlugin").textContent = "";
+  $("cancelBtn").classList.remove("hidden");
   $("progFill").style.width = "0%";
+  $("progBar").setAttribute("aria-valuenow", "0");
   startElapsed(null);
   try {
     const resp = await fetch("/api/scan", {
@@ -529,14 +565,15 @@ async function pollJob(jobId) {
       showProgress(job);
       setTimeout(() => pollJob(jobId), 800);
     } else if (job.status === "done") {
-      hideProgress();
+      const a = (job.result || {}).assessment || {};
+      completeProgress("done", (job.result || {}).target || "target", a.grade);
       setStatus("scanStatus", "Scan complete." + queueNote(), false);
       renderResult(job.result, job.scan_id);
       finishTitle(job.result);
-      toast("Scan of " + esc((job.result || {}).target || "target") + " finished.", "success");
+      toast("Scan of " + ((job.result || {}).target || "target") + " finished.", "success");
       nextScan();
     } else if (job.status === "cancelled") {
-      hideProgress();
+      completeProgress("cancelled", $("target").value || "target", null);
       setStatus("scanStatus", "Scan cancelled." + queueNote(), false);
       toast("Scan cancelled.", "info");
       nextScan();
