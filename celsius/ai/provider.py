@@ -5,6 +5,7 @@ Providers:
   openai     OpenAI chat API
   local      Ollama / any OpenAI-compatible server (default localhost:11434)
   anthropic  Anthropic Messages API
+  kimi       Moonshot AI Kimi (api.moonshot.ai), OpenAI-compatible
   mock       deterministic, offline — for tests and dry runs
 
 Selection: get_provider(name, model=..., api_key=..., base_url=...). API keys fall
@@ -139,6 +140,13 @@ class LocalProvider(OpenAICompatProvider):
         return "LOCAL_LLM_KEY"
 
 
+class KimiProvider(OpenAICompatProvider):
+    """Moonshot AI Kimi — OpenAI-compatible chat API."""
+    name = "kimi"
+    default_model = "kimi-k2-0711-preview"
+    default_base_url = "https://api.moonshot.ai/v1"
+
+
 # ---- Anthropic ----------------------------------------------------------------
 
 class AnthropicProvider(LLMProvider):
@@ -208,6 +216,7 @@ _PROVIDERS = {
     "openai": OpenAIProvider,
     "local": LocalProvider,
     "anthropic": AnthropicProvider,
+    "kimi": KimiProvider,
     "mock": MockProvider,
 }
 
@@ -215,7 +224,11 @@ _ENV_KEYS = {
     "deepseek": "DEEPSEEK_API_KEY",
     "openai": "OPENAI_API_KEY",
     "anthropic": "ANTHROPIC_API_KEY",
+    "kimi": "KIMI_API_KEY",
 }
+
+# Secondary env vars accepted when the primary one is unset.
+_ENV_FALLBACK = {"kimi": "MOONSHOT_API_KEY"}
 
 
 def available_providers() -> list[str]:
@@ -231,6 +244,8 @@ def get_provider(name: str = "deepseek", *, model: Optional[str] = None,
         raise AIError(f"unknown AI provider '{name}'. Options: {', '.join(_PROVIDERS)}")
     if api_key is None and name in _ENV_KEYS:
         api_key = os.environ.get(_ENV_KEYS[name])
+    if api_key is None and name in _ENV_FALLBACK:
+        api_key = os.environ.get(_ENV_FALLBACK[name])
     _validate_base_url(base_url, name)
     return cls(model=model, api_key=api_key, base_url=base_url, timeout=timeout)
 
