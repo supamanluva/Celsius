@@ -282,7 +282,19 @@
         <div class="chart-card hidden" id="chartTrend"></div>
       </div>
 
+      <!-- results view toggle: findings list vs attack-surface graph (Task 6) -->
+      <div id="resultsToggle" class="seg hidden" role="tablist" aria-label="Results view">
+        <button type="button" id="viewFindings" class="seg-btn active" role="tab" aria-selected="true">Findings</button>
+        <button type="button" id="viewSurface" class="seg-btn" role="tab" aria-selected="false">Attack surface</button>
+      </div>
+
       <div id="results"></div>
+
+      <!-- attack-surface graph view — filled lazily by surface.js (CELSIUS.surface) -->
+      <div id="surfaceView" class="hidden">
+        <div id="surfaceGraph" class="graph-wrap"></div>
+        <div id="surfaceDetail" class="surface-detail hidden"></div>
+      </div>
     </section>
 
     <!-- ══ E-MAIL SECURITY ════════════════════════════════════ -->
@@ -365,6 +377,7 @@
   <script src="/static/app.js?v=3" defer></script>
   <script src="/static/scan.js?v=3" defer></script>
   <script src="/static/charts.js?v=3" defer></script>
+  <script src="/static/surface.js?v=3" defer></script>
   <script src="/static/dashboard.js?v=3" defer></script>
   <script src="/static/jobs.js?v=3" defer></script>
 </body>

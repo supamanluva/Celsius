@@ -547,6 +547,7 @@
       C.state.currentScan = { id: scanId || null, result: res };
       C.renderFindings($("results"), res);
       if (C.charts && C.charts.render) C.charts.render(res); // charts row above the findings
+      if (C.surface && C.surface.onScan) C.surface.onScan(res); // attack-surface toggle (Task 6)
     }
 
     // Load a scan into the Results tab: either a stored scan id (fetched from the
