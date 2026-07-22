@@ -92,6 +92,30 @@ def test_kimi_plain_http_base_url_rejected():
         pass
 
 
+def test_coding_endpoint_forces_temperature_1():
+    """api.kimi.com/coding rejects any temperature but 1 — the provider clamps it."""
+    calls = {}
+
+    def fake_post(url, payload, headers, timeout):
+        calls.update(url=url, payload=payload)
+        return {"choices": [{"message": {"content": "ok"}}]}
+
+    orig = prov._post_json
+    prov._post_json = fake_post
+    try:
+        p = prov.get_provider("kimi", api_key="sk-test",
+                              base_url="https://api.kimi.com/coding/v1",
+                              model="kimi-for-coding")
+        p.complete([prov.Message("user", "hi")])
+        assert calls["payload"]["temperature"] == 1
+        # the open-platform endpoint keeps the caller's temperature
+        p2 = prov.get_provider("kimi", api_key="sk-test")
+        p2.complete([prov.Message("user", "hi")])
+        assert calls["payload"]["temperature"] == 0.2
+    finally:
+        prov._post_json = orig
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     failed = 0
