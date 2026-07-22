@@ -37,6 +37,15 @@ _SERVER_PATTERNS = [
 
 MAX_BODY = 600_000  # cap captured HTML body
 
+# A default nginx/OpenResty/Apache error page ends with a footer like
+# "<hr><center>nginx/1.25.3</center>" — the exact version, emitted by the server
+# core rather than the app. Many hosts strip the `Server` header on normal 200s
+# yet leave `server_tokens on`, so a crafted request that forces a default error
+# page recovers the version the header hides. (If server_tokens is off, the footer
+# is just "nginx"/"openresty" with no number and this recovers nothing — by design.)
+_ERRPAGE_VER = re.compile(r"\b(?P<name>nginx|openresty|apache)/(?P<ver>\d+(?:\.\d+)+)", re.I)
+_ERRPAGE_PRODUCT = {"nginx": "nginx", "openresty": "OpenResty", "apache": "Apache httpd"}
+
 
 class HttpResult:
     def __init__(self, url: str, status: int, headers: dict[str, str], final_url: str,
@@ -145,6 +154,68 @@ def detect_services(result: HttpResult) -> list[Service]:
                 )
             )
     return services
+
+
+def _fetch_body(url: str, *, method: str = "GET", insecure: bool = False,
+                auth=None) -> tuple[Optional[int], str]:
+    """One request; return (status, body) capturing error-response bodies too.
+    urllib raises on 4xx/5xx, but the error page IS what we want, so read it."""
+    ctx = ssl.create_default_context()
+    if insecure:
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+    hdrs = auth.merge({"User-Agent": USER_AGENT}) if auth else {"User-Agent": USER_AGENT}
+    req = urllib.request.Request(url, headers=hdrs, method=method)
+    # No redirect handler: an error page is emitted at the origin; following a
+    # 3xx would just take us to the app's normal content.
+    opener = urllib.request.build_opener(urllib.request.HTTPSHandler(context=ctx))
+    try:
+        with opener.open(req, timeout=TIMEOUT) as resp:
+            return resp.status, resp.read(MAX_BODY).decode("utf-8", errors="replace")
+    except urllib.error.HTTPError as e:
+        try:
+            return e.code, (e.read(MAX_BODY).decode("utf-8", errors="replace") if e.fp else "")
+        except (OSError, ValueError):
+            return e.code, ""
+    except (urllib.error.URLError, ssl.SSLError, OSError):
+        return None, ""
+
+
+def probe_server_version(base_url: str, *, insecure: bool = False,
+                         auth=None) -> tuple[Optional[tuple[str, str]], list[str]]:
+    """Actively coax the origin into emitting a default error page whose footer
+    leaks an exact nginx/OpenResty/Apache version, even when the Server header
+    hides it. Returns ((product, version), notes). None if nothing was recovered.
+
+    Sends a handful of crafted-but-benign requests (an over-long URI, an unknown
+    method, a random 404 path). Safe-active: no payloads, no writes, no auth."""
+    import secrets
+
+    base = base_url.rstrip("/")
+    notes: list[str] = []
+    # Ordered by how hard the page is to customize: the 414 (over-long request
+    # line) and an unknown method are handled by nginx core before any per-location
+    # error_page directive, so they leak most reliably; a 404 may hit a custom page.
+    probes = [
+        ("414 over-long URI", "GET", f"{base}/{'a' * 14000}"),
+        ("unknown method", "QUACK", f"{base}/"),
+        ("404 random path", "GET", f"{base}/{secrets.token_hex(16)}"),
+    ]
+    for label, method, url in probes:
+        status, body = _fetch_body(url, method=method, insecure=insecure, auth=auth)
+        if not body:
+            continue
+        m = _ERRPAGE_VER.search(body)
+        if m:
+            product = _ERRPAGE_PRODUCT[m.group("name").lower()]
+            version = m.group("ver")
+            notes.append(f"recovered {product}/{version} from the {label} error page "
+                         f"(HTTP {status}) — the Server header hid it but the error "
+                         f"footer did not")
+            return (product, version), notes
+    notes.append("error-page probes did not leak a version (server_tokens off, a CDN "
+                 "served the error, or custom error pages) — version stays unknown")
+    return None, notes
 
 
 def _fronting_proxy(result: HttpResult) -> Optional[str]:

@@ -105,6 +105,85 @@ class Fingerprint(Plugin):
 
 
 @register
+class ServerVersionProbe(Plugin):
+    id = "server-version-probe"
+    title = "recover a hidden web-server version via error-page fingerprinting"
+    phase = Phase.RECON          # after WebAnalysis/Fingerprint -> sees their services
+    mode = Mode.SAFE_ACTIVE      # sends a few crafted (benign) requests to the origin
+    category = "fingerprint"
+
+    # server products whose default error page can leak an exact version
+    _RECOVERABLE = {"nginx", "OpenResty", "Apache httpd"}
+
+    def enabled(self, ctx: ScanContext) -> bool:
+        return ctx.config.web and ctx.config.fingerprint
+
+    def run(self, ctx: ScanContext) -> None:
+        # Only probe when the passive pass named an nginx-family origin but could
+        # not read its version (Server header stripped/tokens off). Nothing to
+        # gain otherwise, and we avoid crafted requests on unaffected targets.
+        svc = next((s for s in ctx.result.services
+                    if s.source == "http-header:server"
+                    and s.name in self._RECOVERABLE and not s.version), None)
+        if svc is None:
+            return
+
+        base = ctx.result.url or getattr(ctx.http_result, "final_url", None) \
+            or ctx.target.web_url()
+        recovered, notes = http_analysis.probe_server_version(
+            base, insecure=ctx.config.insecure, auth=ctx.config.auth)
+        ctx.result.errors.extend(f"server-version-probe: {n}" for n in notes)
+        if recovered is None:
+            return
+
+        product, version = recovered
+        proxy = svc.extra.get("behind_proxy")
+        # If the error page names the SAME product as the Server header and no CDN
+        # sits in front, it's the origin — attach the version to it. If the product
+        # differs (header=OpenResty, footer=nginx) or a CDN is fronting, the error
+        # page was emitted by a different layer (usually the edge); record it as its
+        # own service and do NOT overwrite the origin's identity.
+        same_layer = (product == svc.name) and not proxy
+        if same_layer:
+            svc.version = version
+            svc.extra["version_source"] = "error-page"
+            for t in ctx.result.recon.get("tech", []):
+                if t.get("name") == product and not t.get("version"):
+                    t["version"] = version
+            where = f"the origin {product}"
+            recommendation = (
+                "Turn off version disclosure on error pages too — nginx/OpenResty: "
+                "`server_tokens off;` in the http/server block; Apache: "
+                "`ServerTokens Prod` and `ServerSignature Off`. A custom error_page "
+                "for 400/404/414 also suppresses the default footer.")
+        else:
+            layer = proxy or "a fronting server"
+            ctx.result.services.append(Service(
+                name=product, version=version, source="error-page",
+                extra={"raw": f"{product}/{version}", "layer": layer,
+                       "note": f"seen in an error page; likely {layer}, not the "
+                               f"{svc.name} origin"}))
+            where = (f"{layer} (its error page leaked {product}/{version}; the "
+                     f"{svc.name} origin's own version is still hidden)")
+            recommendation = (
+                f"This version most likely belongs to {layer}, not your origin — "
+                f"attackers still learn a real build in your path. If it's the edge "
+                f"you control, suppress its error-page tokens; your {svc.name} origin "
+                f"is still correctly hiding its own version.")
+        ctx.result.findings.append(Finding(
+            severity=Severity.LOW, category="info-disclosure", confidence="firm",
+            title=f"Server version disclosed via error page — {product}/{version}",
+            description=(
+                f"The normal Server response header hid the version, but a crafted "
+                f"request forced a default error page whose footer revealed "
+                f"{product}/{version} — from {where}. Attackers use the same trick "
+                f"to map known-vulnerable builds."),
+            recommendation=recommendation,
+            evidence=f"{product}/{version} recovered via error-page fingerprinting",
+        ))
+
+
+@register
 class AppHint(Plugin):
     id = "app-hint"
     title = "likely service from hostname naming convention"
