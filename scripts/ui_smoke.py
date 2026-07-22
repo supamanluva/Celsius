@@ -30,9 +30,12 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="Dev-only Celsius UI smoke check (playwright).")
     ap.add_argument("base_url", nargs="?", default="http://127.0.0.1:8000")
     ap.add_argument("--shot", metavar="PREFIX", default=None,
-                    help="save screenshots as PREFIX-light.png, PREFIX-dark.png, PREFIX-<tab>-dark.png")
+                    help="save screenshots as PREFIX-light.png, PREFIX-dark.png, PREFIX-<tab>-dark.png, "
+                         "PREFIX-dashboard-light.png, PREFIX-surface-{light,dark}.png, PREFIX-jobsdrawer.png")
     args = ap.parse_args()
     base = args.base_url.rstrip("/")
+    if args.shot:
+        Path(args.shot).parent.mkdir(parents=True, exist_ok=True)
 
     try:
         from playwright.sync_api import sync_playwright
@@ -103,6 +106,8 @@ def main() -> int:
                   "#dashHero is empty — neither hero nor empty state rendered")
             check(page.locator("#dashHero .hero, #dashHero .dash-empty").count() == 1,
                   "#dashHero shows neither the hero nor the empty state")
+            if args.shot:
+                page.screenshot(path=f"{args.shot}-dashboard-light.png", full_page=True)
 
             # ── switch to the host tab for the scan-form checks below ──
             page.locator('.tab[data-tab="host"]').click()
@@ -256,6 +261,8 @@ def main() -> int:
                   "#jobsList is empty — neither job rows nor the empty state rendered")
             check(page.locator("#jobsList .jobs-row, #jobsList .jobs-empty").count() >= 1,
                   "#jobsList shows neither job rows nor the empty state")
+            if args.shot:
+                page.screenshot(path=f"{args.shot}-jobsdrawer.png", full_page=True)
             page.keyboard.press("Escape")
             page.wait_for_timeout(400)
             check("open" not in (page.locator("#jobsDrawer").get_attribute("class") or ""),
@@ -263,14 +270,19 @@ def main() -> int:
 
             # ── screenshots (light + dark) ──
             if args.shot:
-                prefix = Path(args.shot)
-                prefix.parent.mkdir(parents=True, exist_ok=True)
+                prefix = args.shot
                 page.screenshot(path=f"{prefix}-light.png", full_page=True)
                 page.click("#themeToggle")
                 page.wait_for_timeout(250)
                 check(page.evaluate("document.documentElement.getAttribute('data-theme')") == "dark",
                       "theme toggle did not switch to dark")
                 page.screenshot(path=f"{prefix}-dark.png", full_page=True)
+                # attack-surface graph in dark mode (mock scan still loaded)
+                page.click("#viewSurface")
+                page.wait_for_timeout(500)
+                page.screenshot(path=f"{prefix}-surface-dark.png", full_page=True)
+                page.click("#viewFindings")
+                page.wait_for_timeout(300)
                 for name in names:
                     if name == "host":
                         continue

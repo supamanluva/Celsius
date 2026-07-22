@@ -101,9 +101,13 @@ celsius/
                     planner), agent.py (proof loop), analyze.py, prompts.py,
                     redact.py (secret masking), cache.py
   web/              app.py (FastAPI backend: scan jobs + progress/cancel, history
-                    with export/delete, code upload, AI status) + static/
-                    (single-page UI: index.html, app.js (namespace/shell) +
-                    scan.js (scan features), style.css — no build step)
+                    with export/delete, code upload, AI status, GET /api/jobs
+                    job-queue listing) + static/ (single-page UI: index.html,
+                    style.css; JS split across app.js (namespace/shell), scan.js
+                    (scan features), dashboard.js (landing dashboard),
+                    charts.js (results charts), jobs.js (jobs drawer),
+                    surface.js (attack-surface graph) — no build step).
+                    Dev-only UI smoke check: scripts/ui_smoke.py (Playwright)
 ```
 
 ### Plugin architecture

@@ -196,16 +196,27 @@ uv run --extra web --extra dynamic celsius serve   # http://127.0.0.1:8000
 # convenience wrapper (detached, PID + logs): ./run.sh   (prefers uv, falls back to venv)
 ```
 
-The UI has four tabs — **Website & host**, **E-mail security**, **Code &
-secrets**, and **History** — in a clean light theme (dark toggle in the
-header). On the scan
+The UI has five tabs — **Dashboard**, **Website & host**, **E-mail security**,
+**Code & secrets**, and **History** — in a clean light theme (dark toggle in the
+header). The **Dashboard** is the landing view: it opens with the latest scan's
+hero (grade, score, severity counts, re-scan/view actions), metric tiles, and a
+list of recent scans, so you see your security posture before you scan anything.
+On the scan
 tab you pick a **preset** — *Quick*, *Standard*, *Deep* or *Custom* (mapping to
 the same `ScanConfig` flags as `--profile`, with plain-English toggles) — and
 watch a real **progress bar** (phase, current plugin, elapsed) with a **Cancel**
 button; the raw log sits behind a disclosure. Results open with a **hero grade
-card** (letter grade, 0–100 score, verdict) and severity donut, a **"Fix these
+card** (letter grade, 0–100 score, verdict) and a **charts row** — severity
+donut, top-category bars, and a CVE-trend sparkline across your recent scans —
+followed by a **"Fix these
 first"** list, and per-finding *What / Why / How to fix* sections with AI
-hypotheses visually separated from verified findings. Every result can be
+hypotheses visually separated from verified findings. A view toggle above the
+results switches to the **attack-surface graph**: a layered SVG map of what the
+scan saw (target → hosts → services → endpoints → findings), with finding pills
+pinned to the endpoint their evidence mentions and a click-to-inspect detail
+pane. The appbar's **jobs button** opens a right-side **jobs drawer** listing
+running and recent scan jobs (cancel running ones, open finished results), with
+a badge showing the live running count. Every result can be
 **exported** as JSON / Markdown / SARIF / HTML (per-scan or a whole domain as a
 ZIP). The History tab offers substring search, a grade column, delete, re-scan
 and pagination; the Code tab takes a path, pasted snippet, or a **drag-and-drop
@@ -222,7 +233,8 @@ covers the same scanning surface as the CLI.
 The API also exposes `GET /api/health`, scan-history listing with
 `limit`/`offset`/target filter (`GET /api/scans`), single-scan fetch and delete
 (`GET`/`DELETE /api/scans/{id}`), per-format export
-(`GET /api/scans/{id}/export.{json,md,sarif,html}`), and job cancellation
+(`GET /api/scans/{id}/export.{json,md,sarif,html}`), job-queue listing
+(`GET /api/jobs`, what the jobs drawer polls), and job cancellation
 (`DELETE /api/scan/{job_id}`) for scripting against a running server.
 
 ## ⚠️ Authorized use only
