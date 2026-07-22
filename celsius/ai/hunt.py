@@ -61,10 +61,15 @@ def generate_hunt_hypotheses(result_dict: dict, provider: LLMProvider, *,
                 Message("user", prompts.hunt_user_prompt(context, verify_tools.TOOL_SPECS))]
     resp = _call(provider, messages, json_mode=True, budget=budget, use_cache=True,
                  audit=audit, redaction=red)
-    data = parse_json(resp) or {}
+    data = parse_json(resp)
+    if not isinstance(data, dict):  # valid JSON of the wrong shape (e.g. a list)
+        data = {}
+    hypotheses = data.get("hypotheses")
+    if not isinstance(hypotheses, list):  # e.g. {"hypotheses": 5}
+        hypotheses = []
 
     out: list[Finding] = []
-    for h in (data.get("hypotheses") or []):
+    for h in hypotheses:
         if len(out) >= max_hypotheses:
             break
         if not isinstance(h, dict):

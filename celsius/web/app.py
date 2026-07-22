@@ -605,8 +605,13 @@ def _ollama_reachable() -> bool:
 
 @app.get("/api/ai/status")
 def ai_status() -> dict:
+    providers = {name: bool(os.environ.get(env, "").strip())
+                 for name, env in _AI_ENV.items()}
+    # kimi is also configured via the MOONSHOT_API_KEY fallback env var.
+    providers["kimi"] = bool(providers["kimi"]
+                             or os.environ.get("MOONSHOT_API_KEY", "").strip())
     return {"providers": {
-        **{name: bool(os.environ.get(env, "").strip()) for name, env in _AI_ENV.items()},
+        **providers,
         "local": _ollama_reachable(),
         "mock": True,  # always available — needs nothing
     }}

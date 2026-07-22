@@ -92,7 +92,7 @@ class ScanConfig:
 
     # M2: AI layer
     ai: bool = False                        # run AI triage/analysis
-    ai_provider: str = "deepseek"           # deepseek|openai|anthropic|local|mock
+    ai_provider: str = "deepseek"           # deepseek|openai|anthropic|kimi|local|mock
     ai_model: Optional[str] = None          # None -> provider default
     ai_base_url: Optional[str] = None
     ai_api_key: Optional[str] = None        # None -> provider env var

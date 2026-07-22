@@ -42,6 +42,27 @@ def test_kimi_unavailable_without_key():
     assert "KIMI_API_KEY" in why
 
 
+def test_empty_primary_env_var_falls_back_to_moonshot():
+    """A set-but-empty KIMI_API_KEY must not block the MOONSHOT_API_KEY fallback."""
+    _clean_env()
+    try:
+        os.environ["KIMI_API_KEY"] = ""
+        os.environ["MOONSHOT_API_KEY"] = "sk-moon"
+        assert prov.get_provider("kimi").api_key == "sk-moon"
+    finally:
+        _clean_env()
+
+
+def test_whitespace_primary_env_var_counts_as_unset():
+    _clean_env()
+    try:
+        os.environ["KIMI_API_KEY"] = "  "
+        ok, _why = prov.get_provider("kimi").available()
+        assert not ok
+    finally:
+        _clean_env()
+
+
 def test_kimi_openai_compat_request_shape():
     calls = {}
 
