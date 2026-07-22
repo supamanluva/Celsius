@@ -87,6 +87,27 @@ def main() -> int:
             page.on("request", on_request)
             page.goto(base + "/", wait_until="networkidle")
 
+            # ── dashboard is the default landing view and renders (Task 3) ──
+            dash_tab = page.locator('.tab[data-tab="dashboard"]')
+            check(dash_tab.count() == 1, "dashboard tab button missing")
+            check("active" in (dash_tab.get_attribute("class") or ""),
+                  "dashboard tab is not the default active tab")
+            check(page.locator("#tab-dashboard").is_visible(),
+                  "dashboard panel not visible on load")
+            try:
+                page.wait_for_selector("#dashHero .hero, #dashHero .dash-empty",
+                                       timeout=8000)
+            except Exception:
+                pass
+            check((page.locator("#dashHero").inner_html() or "").strip() != "",
+                  "#dashHero is empty — neither hero nor empty state rendered")
+            check(page.locator("#dashHero .hero, #dashHero .dash-empty").count() == 1,
+                  "#dashHero shows neither the hero nor the empty state")
+
+            # ── switch to the host tab for the scan-form checks below ──
+            page.locator('.tab[data-tab="host"]').click()
+            page.wait_for_timeout(200)
+
             # ── authorization gate: submitting without the checkbox must NOT scan ──
             check(not page.locator("#authorized").is_checked(),
                   "#authorized should start unchecked")
@@ -156,7 +177,8 @@ def main() -> int:
         print(f"[!] ui_smoke FAILED — {len(errors)} console error(s), "
               f"{len(failures)} assertion failure(s)")
         return 1
-    print("[✓] ui_smoke OK — tabs, authorization gate, theme toggle; zero console errors")
+    print("[✓] ui_smoke OK — dashboard home, tabs, authorization gate, theme toggle; "
+          "zero console errors")
     return 0
 
 

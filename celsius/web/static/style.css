@@ -484,6 +484,7 @@ button { font-family: var(--font-sans); }
 .chip-med  { background: var(--med-glow); border-color: transparent; color: var(--med); }
 .chip-low  { background: var(--low-glow); border-color: transparent; color: var(--low); }
 .chip-info { background: var(--surface-3); border-color: transparent; color: var(--muted); }
+.chip-ok   { background: var(--ok-glow); border-color: transparent; color: var(--ok); }
 
 /* solid severity badges (also used as the appbar count badge) */
 .badge {
@@ -531,6 +532,35 @@ button { font-family: var(--font-sans); }
 .tile.ok   .metric { color: var(--ok); }
 .tile .label { display: flex; align-items: center; gap: .4rem; }
 .tile .tile-sub { font-size: .78rem; color: var(--faint); }
+
+/* ---- dashboard home (hero actions, recent scans, empty state) ---------------------- */
+.hero-actions { display: flex; gap: .6rem; margin-top: .9rem; flex-wrap: wrap; }
+.hero-actions .btn-primary, .hero-actions .btn-secondary { margin-top: 0; }
+
+.dash-recent { display: flex; flex-direction: column; gap: .5rem; }
+.dash-row {
+  display: flex; align-items: center; gap: .8rem; flex-wrap: wrap;
+  width: 100%; padding: .6rem .9rem; text-align: left; font: inherit; color: inherit;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--r); cursor: pointer; transition: border-color .15s, box-shadow .2s;
+}
+.dash-row:hover { border-color: var(--faint); box-shadow: var(--shadow-sm); }
+.dash-row .dash-target {
+  font-weight: 600; min-width: 0; flex: 1;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.dash-row .dash-counts { font-size: .78rem; color: var(--muted); white-space: nowrap; }
+.dash-row .dash-when { font-size: .78rem; color: var(--faint); white-space: nowrap; }
+
+.dash-empty {
+  display: flex; flex-direction: column; align-items: center; gap: .5rem;
+  margin: 1.2rem 0 1.5rem; padding: 2.6rem 1.5rem; text-align: center;
+  color: var(--muted); background: var(--surface);
+  border: 1px dashed var(--border); border-radius: var(--r-lg);
+}
+.dash-empty svg { color: var(--accent); }
+.dash-empty-title { margin: 0; font-size: 1.15rem; color: var(--text); }
+.dash-empty .btn-primary { margin-top: .6rem; }
 
 /* ---- severity border glow on critical cards --------------------------------------- */
 .card-glow-crit {
