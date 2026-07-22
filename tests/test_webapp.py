@@ -213,6 +213,21 @@ def test_job_cancel_unknown_or_finished():
     _raises(lambda: webapp.cancel_scan(job_id), 409)  # safe no-op after completion
 
 
+# ---- jobs list --------------------------------------------------------------------
+
+def test_jobs_lists_submitted_job_with_target():
+    def fake(config, log=None, **kw):
+        return ScanResult(target=config.target)
+
+    job_id = _start_fake_job(fake)
+    jobs = webapp.list_jobs()["jobs"]
+    mine = [j for j in jobs if j["job_id"] == job_id]
+    assert mine and mine[0]["target"] == "127.0.0.1"
+    assert mine[0]["status"] in ("running", "done", "error", "cancelled")
+    assert "started_at" in mine[0]
+    _wait_done(job_id)  # let the executor thread settle before the next test
+
+
 # ---- health -----------------------------------------------------------------------
 
 def test_health():

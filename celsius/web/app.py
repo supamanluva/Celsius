@@ -5,6 +5,7 @@ Endpoints:
   POST /api/scan              start a host/web scan job (requires authorized=true)
   GET  /api/scan/{job_id}     poll job status / log / progress / result
   DELETE /api/scan/{job_id}   request cancellation of a running job
+  GET  /api/jobs              running + recent in-memory jobs (newest first)
   GET  /api/health            liveness probe (open — no token needed)
   GET  /api/scans             scan history (target substring filter, limit/offset)
   DELETE /api/scans/{id}      remove a scan from history
@@ -297,6 +298,7 @@ def start_scan(req: ScanRequest) -> dict:
     }
     with _jobs_lock:
         _jobs[job_id] = {"status": "running", "log": [], "result": None, "error": None,
+                         "target": req.target.strip(),
                          "started_at": utcnow_iso(), "progress": None,
                          "cancel_requested": False}
     _executor.submit(_run_job, job_id, config, scope, auth_params)
@@ -324,6 +326,18 @@ def cancel_scan(job_id: str) -> dict:
                                 detail=f"Job already {job['status']}.")
         job["cancel_requested"] = True
     return {"job_id": job_id, "status": "cancelling"}
+
+
+@app.get("/api/jobs")
+def list_jobs() -> dict:
+    """Running + recent in-memory scan jobs, newest first (single-process state)."""
+    with _jobs_lock:
+        jobs = [{"job_id": jid, "target": j.get("target", ""), "status": j["status"],
+                 "progress": j.get("progress"), "started_at": j.get("started_at"),
+                 "error": j.get("error")}
+                for jid, j in _jobs.items()]
+    jobs.sort(key=lambda j: j.get("started_at") or "", reverse=True)
+    return {"jobs": jobs}
 
 
 @app.get("/api/health")
