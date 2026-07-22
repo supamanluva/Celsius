@@ -147,6 +147,14 @@ class KimiProvider(OpenAICompatProvider):
     default_model = "kimi-k2-0711-preview"
     default_base_url = "https://api.moonshot.ai/v1"
 
+    def complete(self, messages, *, json_mode=False, temperature=0.2, max_tokens=4096) -> str:
+        # The Kimi Code membership endpoint (api.kimi.com/coding) rejects any
+        # temperature but 1; the open platform accepts the usual range.
+        if "api.kimi.com/coding" in (self.base_url or ""):
+            temperature = 1
+        return super().complete(messages, json_mode=json_mode, temperature=temperature,
+                                max_tokens=max_tokens)
+
 
 # ---- Anthropic ----------------------------------------------------------------
 
