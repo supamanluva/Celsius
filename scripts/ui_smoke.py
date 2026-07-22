@@ -8,6 +8,7 @@ Requires the `dynamic` extra (playwright) plus a Chromium build
 from __future__ import annotations
 
 import argparse
+import re
 import subprocess
 import sys
 import time
@@ -68,6 +69,16 @@ def main() -> int:
 
     errors: list[str] = []
     failures: list[str] = []
+    expected_500 = [0]  # resource-load errors we deliberately trigger (mocked 500s)
+
+    def on_console(m) -> None:
+        if m.type != "error":
+            return
+        # the mocked scan-detail 500 below logs one "Failed to load resource"
+        if expected_500[0] > 0 and "Failed to load resource" in m.text:
+            expected_500[0] -= 1
+            return
+        errors.append(f"console.error: {m.text}")
 
     def check(cond: bool, msg: str) -> None:
         if not cond:
@@ -77,8 +88,7 @@ def main() -> int:
         with sync_playwright() as p:
             browser = p.chromium.launch()
             page = browser.new_page(viewport={"width": 1280, "height": 900})
-            page.on("console", lambda m: errors.append(f"console.error: {m.text}")
-                    if m.type == "error" else None)
+            page.on("console", on_console)
             page.on("pageerror", lambda e: errors.append(f"pageerror: {e}"))
 
             scan_posts: list[str] = []
@@ -267,6 +277,65 @@ def main() -> int:
             page.wait_for_timeout(400)
             check("open" not in (page.locator("#jobsDrawer").get_attribute("class") or ""),
                   "jobs drawer did not close on Escape")
+
+            # ── final-review fixes: jobs-drawer View keeps scan_id (export links);
+            #    dashboard tiles show "–" when the scan-detail fetch fails ──
+            job_id, scan_id = "job-smoke1", "scan-smoke1"
+            job_payload = {"job_id": job_id, "target": "https://example.com",
+                           "status": "done", "scan_id": scan_id,
+                           "result": dict(mock_scan)}
+            hist_row = {"id": scan_id, "target": "https://example.com",
+                        "url": "https://example.com", "grade": "D", "score": 42,
+                        "worst": "CRITICAL", "n_findings": 3, "n_cves": 2,
+                        "finished_at": "2026-07-22T00:00:00Z"}
+
+            def mock_api(route):
+                path = urllib.parse.urlparse(route.request.url).path
+                if path == "/api/jobs":
+                    route.fulfill(json={"jobs": [job_payload]})
+                elif path == "/api/scan/" + job_id:
+                    route.fulfill(json=job_payload)
+                elif path == "/api/scans":
+                    route.fulfill(json={"scans": [hist_row]})
+                elif path == "/api/scans/" + scan_id:
+                    route.fulfill(status=500, body="detail fetch broken")
+                else:
+                    route.continue_()
+
+            # note: glob patterns did not match these URLs (query strings), so one regex route
+            api_mock = re.compile(r".*/api/(jobs|scan/" + job_id + r"|scans(/" + scan_id + r")?)")
+            page.route(api_mock, mock_api)
+            try:
+                # dash tiles: list OK but detail 500 → "–", not misleading 0s
+                expected_500[0] = 1  # the mocked detail 500 logs one resource-load error
+                page.locator('.tab[data-tab="dashboard"]').click()
+                page.wait_for_function(
+                    "() => { const m = document.querySelectorAll('#dashTiles .tile .metric');"
+                    " return m.length === 6 && m[0].textContent.trim() === '–'; }",
+                    timeout=6000)
+                metrics = [t.inner_text().strip()
+                           for t in page.locator("#dashTiles .tile .metric").all()]
+                check(metrics[:4] == ["–"] * 4,
+                      f"severity tiles should show – on detail-fetch failure (got {metrics[:4]})")
+                check(metrics[4] == "2",
+                      f"CVE tile should fall back to the history-row count (got {metrics[4]})")
+                check(metrics[5] == "–",
+                      f"AI-verified tile should show – on detail-fetch failure (got {metrics[5]})")
+
+                # jobs drawer View → result renders with export links + scan id meta
+                page.click("#jobsBtn")
+                page.wait_for_selector("#jobsList .jobs-view", timeout=6000)
+                page.click("#jobsList .jobs-view")
+                page.wait_for_function(
+                    "(sid) => { const el = document.querySelector('#results .metafoot-line');"
+                    " return el && el.textContent.includes(sid); }",
+                    arg=scan_id, timeout=6000)
+                check(scan_id in (page.locator("#results .metafoot-line").inner_text() or ""),
+                      "result from jobs-drawer View is missing the 'scan {id}' meta line")
+                check(page.locator("#results .exports a.reportlink").count() >= 5,
+                      "export links (HTML/json/md/sarif) missing after jobs-drawer View")
+            finally:
+                page.unroute(api_mock)
 
             # ── screenshots (light + dark) ──
             if args.shot:

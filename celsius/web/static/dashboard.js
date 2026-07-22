@@ -129,8 +129,10 @@
   function renderTiles(row, res) {
     const counts = res ? sevCounts(res) : null;
     const nCves = res ? (res.cves || []).length : (row.n_cves || 0);
-    const nVerified = res ? verifiedCount(res) : 0;
-    const sev = (s) => (counts ? counts[s] : 0);
+    // Detail fetch failed: render "–" rather than a misleading 0 for tiles only
+    // the full scan can answer — the scan may actually have criticals.
+    const sev = (s) => (counts ? counts[s] : "–");
+    const nVerified = res ? verifiedCount(res) : "–";
     const tile = (cls, label, n, sub) => `
       <div class="tile ${cls}">
         <span class="label">${label}</span>
@@ -143,7 +145,7 @@
       tile("med", "Medium", sev("MEDIUM"), "plan a fix") +
       tile("low", "Low", sev("LOW"), "when convenient") +
       tile(nCves ? "high" : "ok", "CVEs", nCves, "known vulnerabilities") +
-      tile(nVerified ? "ok" : "", "AI-verified", nVerified, "confirmed by verification");
+      tile(res && nVerified ? "ok" : "", "AI-verified", nVerified, "confirmed by verification");
   }
 
   function renderRecent(scans) {
