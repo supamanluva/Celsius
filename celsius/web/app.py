@@ -159,6 +159,7 @@ class ScanRequest(BaseModel):
     ai_base_url: Optional[str] = None
     ai_api_key: Optional[str] = None
     ai_redact: bool = True  # mask secrets before sending to the AI (default ON)
+    ai_hunt: bool = True    # lab mode: AI hunt planner proposes hypotheses from recon
     # authenticated scan (optional) — attach a session and/or log in via a form
     auth_cookie: Optional[str] = None
     auth_bearer: Optional[str] = None
@@ -283,6 +284,7 @@ def start_scan(req: ScanRequest) -> dict:
         allow_exploit=req.allow_exploit, lab_attestation=req.lab_attestation, dry_run=req.dry_run,
         ai=req.ai, ai_provider=req.ai_provider, ai_model=req.ai_model,
         ai_base_url=req.ai_base_url, ai_api_key=req.ai_api_key, ai_redact=req.ai_redact,
+        ai_hunt=req.ai_hunt,
     )
     auth_params = {
         "cookie": req.auth_cookie or "", "bearer": req.auth_bearer or "",
@@ -581,7 +583,7 @@ def _code_scan_request(req: CodeRequest) -> dict:
 
 # Booleans only — the presence of a key is reported, never its value.
 _AI_ENV = {"deepseek": "DEEPSEEK_API_KEY", "openai": "OPENAI_API_KEY",
-           "anthropic": "ANTHROPIC_API_KEY"}
+           "anthropic": "ANTHROPIC_API_KEY", "kimi": "KIMI_API_KEY"}
 _ollama_probe: dict[str, Any] = {"at": 0.0, "ok": False}
 
 

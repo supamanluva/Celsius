@@ -394,13 +394,14 @@ def _env_restore(old):
 
 def test_ai_status_booleans_no_key_leak():
     old = _env_patch(DEEPSEEK_API_KEY="sk-super-secret-value",
-                     OPENAI_API_KEY=None, ANTHROPIC_API_KEY=None)
+                     OPENAI_API_KEY=None, ANTHROPIC_API_KEY=None, KIMI_API_KEY=None)
     orig = webapp._ollama_reachable
     webapp._ollama_reachable = lambda: False
     try:
         st = webapp.ai_status()
         assert st == {"providers": {"deepseek": True, "openai": False,
-                                    "anthropic": False, "local": False, "mock": True}}
+                                    "anthropic": False, "kimi": False,
+                                    "local": False, "mock": True}}
         assert all(v is True or v is False for v in st["providers"].values())
         assert "sk-super-secret-value" not in json.dumps(st)  # never leak key material
     finally:
