@@ -352,7 +352,7 @@
       _currentJobId = null;
     }
 
-    async function runScan(target) {
+    async function runScan(target, optionOverride) {
       _scanning = true;
       document.title = "Celsius";
       $("scanBtn").disabled = true;
@@ -372,7 +372,7 @@
       try {
         const resp = await fetch("/api/scan", {
           method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ target, authorized: true, ...currentScanOptions() }),
+          body: JSON.stringify({ target, authorized: true, ...currentScanOptions(), ...(optionOverride || {}) }),
         });
         if (!resp.ok) {
           const err = await resp.json().catch(() => ({}));
@@ -389,18 +389,26 @@
       }
     }
 
-    // Advance the queue: run the next target, or go idle.
+    // Apex-level recon is derived from the registered domain, so re-running it on
+    // each discovered subdomain just re-computes the same list. Follow-up scans
+    // drop it and focus on the host's own surface (web/tls/ports/cve/crawl).
+    const FOLLOWUP_OVERRIDE = { subdomains: false, subdomain_bruteforce: false, topology: false };
+
+    // Advance the queue: run the next target, or go idle. Queue items are
+    // { target, override } (override may be undefined for a plain scan).
     function nextScan() {
       if (_scanQueue.length) {
-        runScan(_scanQueue.shift());
+        const item = _scanQueue.shift();
+        runScan(item.target, item.override);
       } else {
         _scanning = false;
         $("scanBtn").disabled = false;
       }
     }
 
+    // Queue discovered hosts as follow-up scans (apex recon stripped).
     function enqueueScans(targets) {
-      _scanQueue.push(...targets);
+      _scanQueue.push(...targets.map((target) => ({ target, override: FOLLOWUP_OVERRIDE })));
       if (!_scanning) nextScan();
     }
 
@@ -416,7 +424,7 @@
         return;
       }
       if (_scanning) {
-        _scanQueue.push(target);
+        _scanQueue.push({ target });
         setStatus("scanStatus", `Queued ${target}…${queueNote()}`, false);
         toast(`Queued ${target} — it will run next.`, "info");
         return;
@@ -1047,7 +1055,7 @@
       $("target").value = target;
       if (!C.demandAuth()) return;
       if (_scanning) {
-        _scanQueue.push(target);
+        _scanQueue.push({ target });
         toast(`Queued ${target} — it will run next.`, "info");
         return;
       }
