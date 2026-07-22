@@ -24,8 +24,6 @@ blocking; pick by value.
 - [ ] **Deeper prototype-pollution analysis** — beyond the current sink presence
       check in `recon/jsintel.py`.
 - [ ] **ASN / netblock recon** — expand attack-surface mapping in `recon/`.
-- [ ] **Attack-surface graph view** — visualize hosts → services → endpoints →
-      findings (the data is already persisted).
 - [ ] **PDF export** — render the HTML/Markdown report to PDF (needs a renderer).
 
 ## Lower value / polish
@@ -54,6 +52,10 @@ blocking; pick by value.
       form login (`--login-*`) cover post-auth surface; `--idor` does cross-user
       BOLA testing with a second identity
 - [x] Kimi (Moonshot) AI provider + lab-mode AI hunt planner (`--ai-hunt`)
+- [x] Attack-surface graph view — web UI results toggle renders a layered SVG
+      map (target → hosts → services → endpoints → findings), finding pills
+      pinned to the endpoint their evidence mentions, click-to-inspect detail
+      pane (`celsius/web/static/surface.js`)
 
 > Reminder: every new active capability stays behind scope/authorization + audit,
 > non-destructive by default. No weaponized/mass-exploitation features.
