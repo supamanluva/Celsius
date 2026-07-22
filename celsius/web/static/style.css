@@ -1,10 +1,11 @@
 /* ============================================================================
-   Celsius — clean SaaS UI (light default, dark via [data-theme="dark"])
-   No frameworks, no web fonts — system stack only.
+   Celsius — Evolved Celsius visual system (light default, dark flagship via
+   [data-theme="dark"]). No frameworks, no web fonts — system stack only.
+   Variable names are stable: existing markup and later tasks build on them.
    ========================================================================== */
 :root {
   /* neutral slate palette */
-  --bg:          #f6f8fa;
+  --bg:          #f4f7fa;
   --surface:     #ffffff;
   --surface-2:   #f1f5f9;
   --surface-3:   #e8eef4;
@@ -20,6 +21,7 @@
   --accent-ink:    #0f766e;
   --accent-soft:   rgba(13, 148, 136, .08);
   --accent-border: rgba(13, 148, 136, .35);
+  --accent-glow:   rgba(13, 148, 136, .22);
 
   /* severity (findings only) */
   --crit: #dc2626;
@@ -28,6 +30,17 @@
   --low:  #2563eb;
   --info: #64748b;
   --ok:   #16a34a;
+
+  /* severity glow accents (borders, halos) */
+  --crit-glow: rgba(220, 38, 38, .30);
+  --high-glow: rgba(234, 88, 12, .30);
+  --med-glow:  rgba(217, 119, 6, .30);
+  --low-glow:  rgba(37, 99, 235, .28);
+  --info-glow: rgba(100, 116, 139, .25);
+  --ok-glow:   rgba(22, 163, 74, .30);
+
+  /* hero panel gradient wash */
+  --grad-hero: radial-gradient(1200px 400px at 20% -10%, rgba(13, 148, 136, .14), transparent 60%);
 
   --font-sans: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
                "Helvetica Neue", Arial, system-ui, sans-serif;
@@ -42,11 +55,12 @@
 }
 
 [data-theme="dark"] {
-  --bg:          #0b1220;
-  --surface:     #111a2c;
-  --surface-2:   #16223a;
-  --surface-3:   #1c2b47;
-  --border:      #243352;
+  /* layered navy surfaces */
+  --bg:          #080d16;
+  --surface:     #0e1626;
+  --surface-2:   #131e33;
+  --surface-3:   #1a2740;
+  --border:      #22304d;
   --border-soft: #1b2942;
   --text:        #e6edf6;
   --muted:       #93a3ba;
@@ -57,6 +71,7 @@
   --accent-ink:    #5eead4;
   --accent-soft:   rgba(45, 212, 191, .10);
   --accent-border: rgba(45, 212, 191, .35);
+  --accent-glow:   rgba(45, 212, 191, .25);
 
   --crit: #f87171;
   --high: #fb923c;
@@ -64,6 +79,15 @@
   --low:  #60a5fa;
   --info: #94a3b8;
   --ok:   #4ade80;
+
+  --crit-glow: rgba(248, 113, 113, .35);
+  --high-glow: rgba(251, 146, 60, .35);
+  --med-glow:  rgba(251, 191, 36, .32);
+  --low-glow:  rgba(96, 165, 250, .32);
+  --info-glow: rgba(148, 163, 184, .28);
+  --ok-glow:   rgba(74, 222, 128, .32);
+
+  --grad-hero: radial-gradient(1200px 400px at 20% -10%, rgba(13, 148, 136, .22), transparent 60%);
 
   --shadow:    0 1px 2px rgba(0, 0, 0, .4), 0 14px 32px -18px rgba(0, 0, 0, .7);
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, .35);
@@ -97,6 +121,21 @@ a:hover { text-decoration: underline; }
   outline-offset: 2px;
   border-radius: var(--r-xs);
 }
+
+/* ---- typography scale ------------------------------------------------------- */
+.section-title {
+  font-size: 22px; font-weight: 700; letter-spacing: -.01em;
+  margin: 1.8rem 0 .8rem;
+}
+.label {
+  font-size: 12px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: .08em; color: var(--muted);
+}
+.metric {
+  font-size: 28px; font-weight: 800; letter-spacing: -.02em; line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+.mono { font-family: var(--font-mono); font-size: .82rem; }
 
 /* ---- app bar --------------------------------------------------------------- */
 .appbar {
@@ -133,7 +172,7 @@ a:hover { text-decoration: underline; }
   border-left: 4px solid var(--med); border-radius: var(--r-lg);
   box-shadow: var(--shadow-sm); transition: border-color .2s, box-shadow .2s;
 }
-.authbar.attention { border-color: var(--crit); box-shadow: 0 0 0 3px rgba(220, 38, 38, .18); }
+.authbar.attention { border-color: var(--crit); box-shadow: 0 0 0 3px var(--crit-glow); }
 .authbar-main { display: flex; align-items: center; gap: .7rem; cursor: pointer; flex: 1; min-width: 280px; }
 .authbar-text { font-size: .92rem; }
 .authbar-state {
@@ -219,7 +258,7 @@ button { font-family: var(--font-sans); }
   padding: .34rem .85rem; border-radius: var(--r-sm); cursor: pointer;
   font-size: .8rem; font-weight: 600; transition: background .15s;
 }
-.btn-ghost-danger:hover { background: rgba(220, 38, 38, .1); }
+.btn-ghost-danger:hover { background: var(--crit-glow); }
 .linklike {
   background: none; border: none; color: var(--accent-ink); font-size: inherit;
   font-weight: 600; cursor: pointer; padding: 0; text-decoration: underline;
@@ -271,7 +310,7 @@ button { font-family: var(--font-sans); }
 }
 .advanced > summary:hover, .disclosure > summary:hover { color: var(--text); }
 .advanced[open] > summary, .disclosure[open] > summary { color: var(--text); margin-bottom: .5rem; }
-.disclosure-danger { border-color: rgba(234, 88, 12, .45); }
+.disclosure-danger { border-color: var(--high-glow); }
 .disclosure-danger > summary { color: var(--high); }
 
 .optgroup { padding: .6rem 0 .9rem; border-top: 1px solid var(--border-soft); }
@@ -283,7 +322,7 @@ button { font-family: var(--font-sans); }
 }
 .optgroup-note {
   font-size: .68rem; letter-spacing: .04em; color: var(--high); font-weight: 600;
-  border: 1px solid rgba(234, 88, 12, .4); border-radius: 999px; padding: .1rem .55rem;
+  border: 1px solid var(--high-glow); border-radius: 999px; padding: .1rem .55rem;
   text-transform: none;
 }
 .opt {
@@ -336,14 +375,14 @@ button { font-family: var(--font-sans); }
   background: var(--surface); border: 1px solid var(--border);
   border-radius: var(--r-lg); box-shadow: var(--shadow);
 }
-.progress-card.done { border-color: rgba(22, 163, 74, .5); }
+.progress-card.done { border-color: var(--ok-glow); }
 .progress-card.done .progress-title { color: var(--ok); }
 .progress-card.done .progress-fill { background: var(--ok); }
-.progress-card.cancelled { border-color: rgba(217, 119, 6, .5); }
+.progress-card.cancelled { border-color: var(--med-glow); }
 .progress-card.cancelled .progress-title { color: var(--med); }
 .progress-head { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; }
 .progress-title { font-weight: 700; font-size: .98rem; letter-spacing: -.01em; overflow-wrap: anywhere; }
-.progress-elapsed { font-family: var(--font-mono); font-size: .82rem; color: var(--muted); flex: none; }
+.progress-elapsed { font-family: var(--font-mono); font-size: .82rem; color: var(--muted); flex: none; font-variant-numeric: tabular-nums; }
 .progress-sub { display: flex; gap: .6rem; align-items: baseline; margin-top: .15rem; flex-wrap: wrap; }
 .progress-phase { font-weight: 600; font-size: .86rem; color: var(--accent-ink); }
 .progress-plugin { font-family: var(--font-mono); font-size: .78rem; color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -393,11 +432,14 @@ button { font-family: var(--font-sans); }
 .toast.out { opacity: 0; transform: translateX(12px); transition: opacity .25s, transform .25s; }
 @keyframes toast-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
 
-/* ---- results: hero -------------------------------------------------------------- */
+/* ---- results: hero (gradient panel) ---------------------------------------------- */
 .hero {
   display: flex; gap: 1.6rem; align-items: center; flex-wrap: wrap;
   margin: 1.2rem 0 1.5rem; padding: 1.4rem 1.5rem;
-  background: var(--surface); border: 1px solid var(--border);
+  background-color: var(--surface);
+  background-image: var(--grad-hero);
+  background-repeat: no-repeat;
+  border: 1px solid var(--border);
   border-radius: var(--r-lg); box-shadow: var(--shadow);
 }
 .hero-grade {
@@ -409,11 +451,11 @@ button { font-family: var(--font-sans); }
 .hero.grade-C .hero-grade { color: var(--med); }
 .hero.grade-D .hero-grade { color: var(--high); }
 .hero.grade-F .hero-grade { color: var(--crit); }
-.hero.grade-A { border-color: rgba(22, 163, 74, .4); }
-.hero.grade-F { border-color: rgba(220, 38, 38, .4); }
+.hero.grade-A { border-color: var(--ok-glow); }
+.hero.grade-F { border-color: var(--crit-glow); }
 .hero-body { flex: 1; min-width: 240px; }
 .hero-score { font-size: .95rem; color: var(--muted); }
-.hero-score strong { color: var(--text); font-size: 1.5rem; font-weight: 750; }
+.hero-score strong { color: var(--text); font-size: 1.5rem; font-weight: 750; font-variant-numeric: tabular-nums; }
 .hero-verdict { margin: .35rem 0 .6rem; font-size: 1.02rem; font-weight: 600; }
 .hero-target { font-size: .8rem; color: var(--faint); font-family: var(--font-mono); }
 .hero-counts { display: flex; gap: .45rem; flex-wrap: wrap; margin-top: .5rem; }
@@ -428,25 +470,34 @@ button { font-family: var(--font-sans); }
   font-weight: 700; font-size: .72rem; letter-spacing: .04em; text-transform: uppercase;
   background: var(--surface-2); border: 1px solid var(--border); color: var(--muted);
 }
-.chip.sev-CRITICAL { border-color: rgba(220, 38, 38, .45); color: var(--crit); }
-.chip.sev-HIGH     { border-color: rgba(234, 88, 12, .45); color: var(--high); }
-.chip.sev-MEDIUM   { border-color: rgba(217, 119, 6, .45); color: var(--med); }
-.chip.sev-LOW      { border-color: rgba(37, 99, 235, .4); color: var(--low); }
+.chip.sev-CRITICAL { border-color: var(--crit-glow); color: var(--crit); }
+.chip.sev-HIGH     { border-color: var(--high-glow); color: var(--high); }
+.chip.sev-MEDIUM   { border-color: var(--med-glow); color: var(--med); }
+.chip.sev-LOW      { border-color: var(--low-glow); color: var(--low); }
 .chip.sev-INFO     { border-color: var(--border); color: var(--muted); }
-.chip.sev-UNCONFIRMED { border-color: rgba(234, 88, 12, .35); color: var(--high); }
+.chip.sev-UNCONFIRMED { border-color: var(--high-glow); color: var(--high); }
 .chip.sev-AILEADS  { border-color: var(--accent-border); color: var(--accent-ink); }
 
-/* solid severity badges */
+/* soft-fill severity chip variants (dashboard / later tasks) */
+.chip-crit { background: var(--crit-glow); border-color: transparent; color: var(--crit); }
+.chip-high { background: var(--high-glow); border-color: transparent; color: var(--high); }
+.chip-med  { background: var(--med-glow); border-color: transparent; color: var(--med); }
+.chip-low  { background: var(--low-glow); border-color: transparent; color: var(--low); }
+.chip-info { background: var(--surface-3); border-color: transparent; color: var(--muted); }
+
+/* solid severity badges (also used as the appbar count badge) */
 .badge {
   padding: .16rem .55rem; border-radius: var(--r-xs);
   font-size: .66rem; font-weight: 700; letter-spacing: .05em; color: #fff; white-space: nowrap;
-  background: var(--info);
+  background: var(--info); font-variant-numeric: tabular-nums;
 }
 .badge.sev-CRITICAL { background: var(--crit); }
 .badge.sev-HIGH { background: var(--high); }
 .badge.sev-MEDIUM { background: var(--med); color: #1a1205; }
 .badge.sev-LOW { background: var(--low); }
 .badge.sev-INFO { background: var(--info); }
+.badge.accent { background: var(--accent); }
+[data-theme="dark"] .badge.accent { color: #06231f; }
 
 /* grade badges (history, mail) */
 .grade-badge {
@@ -459,6 +510,103 @@ button { font-family: var(--font-sans); }
 .grade-badge.grade-C { background: var(--med); }
 .grade-badge.grade-D { background: var(--high); }
 .grade-badge.grade-F { background: var(--crit); }
+
+/* ---- metric tiles (dashboard, later tasks) --------------------------------------- */
+.tiles {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: .8rem; margin: .4rem 0;
+}
+.tile {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--r-lg); padding: .9rem 1.05rem;
+  box-shadow: var(--shadow-sm); display: flex; flex-direction: column; gap: .3rem;
+  transition: border-color .15s, box-shadow .2s;
+}
+.tile:hover { border-color: var(--faint); }
+.tile .metric { color: var(--text); }
+.tile.crit .metric { color: var(--crit); }
+.tile.high .metric { color: var(--high); }
+.tile.med  .metric { color: var(--med); }
+.tile.low  .metric { color: var(--low); }
+.tile.ok   .metric { color: var(--ok); }
+.tile .label { display: flex; align-items: center; gap: .4rem; }
+.tile .tile-sub { font-size: .78rem; color: var(--faint); }
+
+/* ---- severity border glow on critical cards --------------------------------------- */
+.card-glow-crit {
+  border-left: 4px solid var(--crit) !important;
+  box-shadow: -6px 0 18px -8px var(--crit-glow), var(--shadow-sm);
+}
+
+/* ---- skeleton loader (shimmer) ------------------------------------------------------ */
+.skeleton {
+  position: relative; overflow: hidden;
+  background: var(--surface-2); border-radius: var(--r-sm);
+  min-height: 1em; color: transparent;
+}
+.skeleton::after {
+  content: ""; position: absolute; inset: 0;
+  background: linear-gradient(90deg, transparent, var(--surface-3), transparent);
+  transform: translateX(-100%);
+  animation: shimmer 1.4s infinite;
+}
+@keyframes shimmer { to { transform: translateX(100%); } }
+
+/* ---- compact progress (bar + label row — jobs drawer, later tasks) ------------------- */
+.progress { display: flex; flex-direction: column; gap: .3rem; }
+.progress .progress-label {
+  display: flex; justify-content: space-between; align-items: baseline; gap: .8rem;
+  font-size: .78rem; color: var(--muted);
+}
+.progress .progress-label .mono { font-variant-numeric: tabular-nums; }
+.progress .progress-track {
+  height: 6px; border-radius: 999px; background: var(--surface-3); overflow: hidden;
+}
+.progress .progress-value {
+  height: 100%; width: 0; border-radius: 999px;
+  background: linear-gradient(90deg, var(--accent), var(--accent-strong));
+  transition: width .25s ease;
+}
+
+/* ---- right-side jobs drawer (Task 4+) ------------------------------------------------- */
+.drawer {
+  position: fixed; top: 0; right: 0; z-index: 150;
+  width: min(380px, 92vw); height: 100vh; height: 100dvh;
+  background: var(--surface); border-left: 1px solid var(--border);
+  box-shadow: var(--shadow-lg); padding: 1.1rem 1.2rem; overflow-y: auto;
+  transform: translateX(102%); transition: transform .25s ease;
+}
+.drawer.open { transform: none; }
+
+/* ---- charts (donut / bars / sparkline / graph — Tasks 3-6) ------------------------------ */
+.donut { display: inline-flex; align-items: center; gap: .8rem; }
+.donut svg { display: block; }
+.bars { display: flex; flex-direction: column; gap: .4rem; }
+.bars .bar-row {
+  display: grid; grid-template-columns: minmax(80px, auto) 1fr auto;
+  align-items: center; gap: .6rem; font-size: .8rem;
+}
+.bars .bar-track { height: 8px; border-radius: 999px; background: var(--surface-3); overflow: hidden; }
+.bars .bar-fill { height: 100%; border-radius: 999px; background: var(--accent); transition: width .25s ease; }
+.bars .bar-fill.crit { background: var(--crit); }
+.bars .bar-fill.high { background: var(--high); }
+.bars .bar-fill.med  { background: var(--med); }
+.bars .bar-fill.low  { background: var(--low); }
+.bars .bar-fill.info { background: var(--info); }
+.bars .bar-n { font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--muted); }
+.spark { display: block; }
+.spark svg { display: block; width: 100%; height: auto; }
+.spark polyline, .spark path.line {
+  fill: none; stroke: var(--accent); stroke-width: 1.6;
+  stroke-linecap: round; stroke-linejoin: round;
+}
+.spark circle { fill: var(--accent-strong); }
+.graph-wrap {
+  position: relative; min-height: 320px; overflow: hidden;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--r-lg); box-shadow: var(--shadow-sm);
+}
+.graph-wrap svg { display: block; width: 100%; height: 100%; }
 
 /* ---- fix-first card ------------------------------------------------------------- */
 .fixfirst {
@@ -604,7 +752,7 @@ td.mono, .mono { font-family: var(--font-mono); font-size: .82rem; }
 }
 .actbtn:hover { background: var(--surface-3); border-color: var(--faint); }
 .actbtn.danger { color: var(--crit); }
-.actbtn.danger:hover { border-color: var(--crit); background: rgba(220, 38, 38, .08); }
+.actbtn.danger:hover { border-color: var(--crit); background: var(--crit-glow); }
 details.exportmenu { position: relative; }
 details.exportmenu > summary { list-style: none; }
 details.exportmenu > summary::-webkit-details-marker { display: none; }
@@ -658,7 +806,7 @@ details.exportmenu > summary::-webkit-details-marker { display: none; }
 }
 .mail-score .grade { font-size: 2.6rem; font-weight: 800; line-height: 1; letter-spacing: -.02em; }
 .mail-score .score { font-size: .95rem; color: var(--muted); }
-.mail-score .score strong { color: var(--text); font-size: 1.35rem; }
+.mail-score .score strong { color: var(--text); font-size: 1.35rem; font-variant-numeric: tabular-nums; }
 .mail-score .mx { margin-left: auto; color: var(--muted); font-size: .82rem; text-align: right; font-family: var(--font-mono); }
 .mail-score.grade-A { border-left-color: var(--ok); } .mail-score.grade-A .grade { color: var(--ok); }
 .mail-score.grade-B { border-left-color: #65a30d; } .mail-score.grade-B .grade { color: #65a30d; }
@@ -721,6 +869,7 @@ footer strong { color: var(--muted); }
   .hero-grade { font-size: 2.8rem; }
   .mail-score .mx { margin-left: 0; text-align: left; width: 100%; }
   .toasts { top: auto; bottom: 1rem; right: 1rem; left: 1rem; max-width: none; }
+  .drawer { width: 100vw; border-left: none; }
 }
 
 /* Respect users who ask for less motion. */

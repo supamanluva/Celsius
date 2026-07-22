@@ -102,7 +102,8 @@ celsius/
                     redact.py (secret masking), cache.py
   web/              app.py (FastAPI backend: scan jobs + progress/cancel, history
                     with export/delete, code upload, AI status) + static/
-                    (single-page UI: index.html, app.js, style.css — no build step)
+                    (single-page UI: index.html, app.js (namespace/shell) +
+                    scan.js (scan features), style.css — no build step)
 ```
 
 ### Plugin architecture
