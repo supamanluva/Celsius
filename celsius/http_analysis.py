@@ -230,7 +230,12 @@ def _fronting_proxy(result: HttpResult) -> Optional[str]:
         return tok[-1] if tok else "a proxy"
     if result.headers.get("cf-ray"):
         return "Cloudflare"
-    if result.headers.get("x-served-by") or result.headers.get("fastly-debug-digest"):
+    # Fastly, but only on its real signatures — a `Fastly-*` header, or an
+    # `X-Served-By` that carries Fastly's cache-node id (e.g. "cache-lga21931-LGA").
+    # A bare/vanity `X-Served-By: example.com` (sites set their own) is NOT Fastly.
+    xsb = result.headers.get("x-served-by", "")
+    if (any(k.startswith("fastly-") for k in result.headers)
+            or re.search(r"\bcache-[a-z]{3,}\d", xsb, re.I)):
         return "Fastly"
     return None
 

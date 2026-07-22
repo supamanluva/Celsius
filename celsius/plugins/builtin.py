@@ -138,19 +138,28 @@ class ServerVersionProbe(Plugin):
 
         product, version = recovered
         proxy = svc.extra.get("behind_proxy")
-        # If the error page names the SAME product as the Server header and no CDN
-        # sits in front, it's the origin — attach the version to it. If the product
-        # differs (header=OpenResty, footer=nginx) or a CDN is fronting, the error
-        # page was emitted by a different layer (usually the edge); record it as its
-        # own service and do NOT overwrite the origin's identity.
-        same_layer = (product == svc.name) and not proxy
+        # OpenResty is nginx (nginx core + LuaJIT), so a `Server: openresty` origin
+        # whose error page footer reads `nginx/<ver>` is disclosing its own nginx
+        # core version — same layer, not a fronting box.
+        family = {"nginx", "OpenResty"}
+        same_product = product == svc.name or {product, svc.name} <= family
+        # If the error page is the same server (same product/family) and no CDN sits
+        # in front, it's the origin — attach the version. Otherwise a different layer
+        # emitted it (a fronting proxy/edge); record it separately and do NOT
+        # overwrite the origin's identity.
+        same_layer = same_product and not proxy
         if same_layer:
             svc.version = version
             svc.extra["version_source"] = "error-page"
+            if product != svc.name:      # OpenResty origin, nginx core version
+                svc.extra["core"] = f"{product} {version}"
             for t in ctx.result.recon.get("tech", []):
-                if t.get("name") == product and not t.get("version"):
+                if t.get("name") in family and not t.get("version"):
                     t["version"] = version
-            where = f"the origin {product}"
+            where = (f"the origin — its `Server: {svc.name.lower()}` header hid the "
+                     f"version, but {svc.name} is built on {product}, whose error page "
+                     f"leaked the core version" if product != svc.name
+                     else f"the origin {product}")
             recommendation = (
                 "Turn off version disclosure on error pages too — nginx/OpenResty: "
                 "`server_tokens off;` in the http/server block; Apache: "
