@@ -157,7 +157,10 @@
       const job = await C.api("/api/scan/" + encodeURIComponent(jobId));
       if (job && job.result) {
         closeDrawer();
-        C.loadScan(job.result);
+        // ScanResult.to_dict() drops scan_id; it lives on the job dict (set by
+        // the backend, app.py) — hand it through so loadScan can render the
+        // export links and the "scan {id}" meta line like the History path does.
+        C.loadScan(Object.assign({}, job.result, { scan_id: job.scan_id }));
       } else {
         C.toast("That job has no stored result — check the History tab.", "info");
       }
