@@ -45,6 +45,30 @@ def test_cloudflare_cf_ray_detected():
     assert len(finds) == 1 and "Cloudflare" in finds[0].title
 
 
+def test_real_fastly_cache_node_detected():
+    # Fastly's X-Served-By carries a cache-node id
+    r = _res({"server": "nginx/1.25.0",
+              "x-served-by": "cache-iad-kiad7000027, cache-lga21931-LGA"})
+    finds = reconcile_server_identity(r, detect_services(r))
+    assert len(finds) == 1 and "Fastly" in finds[0].title
+
+
+def test_fastly_star_header_detected():
+    r = _res({"server": "nginx/1.25.0", "fastly-debug-digest": "deadbeef"})
+    finds = reconcile_server_identity(r, detect_services(r))
+    assert len(finds) == 1 and "Fastly" in finds[0].title
+
+
+def test_vanity_x_served_by_is_not_fastly():
+    # the internets.nu case: a site sets X-Served-By to its own name — not a CDN.
+    r = _res({"server": "openresty", "x-served-by": "internets.nu"})
+    svcs = detect_services(r)
+    finds = reconcile_server_identity(r, svcs)
+    assert finds == []
+    origin = next(s for s in svcs if s.source == "http-header:server")
+    assert "behind_proxy" not in origin.extra
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     failed = 0
