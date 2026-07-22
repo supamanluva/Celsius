@@ -707,6 +707,89 @@ button { font-family: var(--font-sans); }
 }
 .graph-wrap svg { display: block; width: 100%; height: 100%; }
 
+/* ---- results view toggle: Findings | Attack surface (Task 6) ----------------- */
+.seg {
+  display: inline-flex; gap: 2px; padding: 3px; margin: 0 0 1rem;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 999px;
+}
+.seg-btn {
+  border: none; background: none; cursor: pointer;
+  font: 600 .84rem var(--font-sans); color: var(--muted);
+  padding: .4rem 1.05rem; border-radius: 999px;
+}
+.seg-btn:hover { color: var(--text); }
+.seg-btn.active { background: var(--accent); color: #fff; }
+
+/* ---- attack-surface graph (Task 6) ------------------------------------------ */
+#surfaceGraph { display: flex; flex-direction: column; height: 480px; }
+#surfaceGraph svg {
+  flex: 1 1 auto; min-height: 0; height: auto;
+  cursor: grab; touch-action: none;
+}
+#surfaceGraph svg:active { cursor: grabbing; }
+.sg-toolbar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: .35rem .9rem;
+  padding: .55rem .9rem; border-bottom: 1px solid var(--border);
+  font-size: .76rem; color: var(--muted);
+}
+.sg-legend { display: flex; flex-wrap: wrap; align-items: center; gap: .3rem .8rem; }
+.sg-lg { display: inline-flex; align-items: center; }
+.sg-legend .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: .3rem; }
+.sg-sep { color: var(--faint); }
+.sg-sw {
+  display: inline-block; width: 12px; height: 9px; border-radius: 3px;
+  margin-right: .35rem; background: var(--surface-2); border: 1px solid var(--border);
+}
+.sg-sw.k-target { background: var(--accent-soft); border-color: var(--accent-border); }
+.sg-hint { margin-left: auto; color: var(--faint); font-size: .72rem; }
+.sg-node { cursor: pointer; outline: none; }
+.sg-node rect { fill: var(--surface-2); stroke: var(--border); stroke-width: 1; }
+.sg-node:hover rect, .sg-node:focus rect, .sg-node.sel rect {
+  stroke: var(--accent-strong); stroke-width: 1.6;
+}
+.sg-node text { fill: var(--text); font: 600 11.5px var(--font-sans); pointer-events: none; }
+.sg-node .sg-sub { fill: var(--muted); font: 10px var(--font-mono); }
+.sg-node.k-target rect { fill: var(--accent-soft); stroke: var(--accent-border); }
+.sg-node.sg-agg rect { fill: transparent; stroke-dasharray: 4 3; }
+.sg-pill text { font-size: 10.5px; }
+.sg-pill.sev-CRITICAL rect { fill: var(--crit-glow); stroke: var(--crit); }
+.sg-pill.sev-CRITICAL text { fill: var(--crit); }
+.sg-pill.sev-HIGH rect { fill: var(--high-glow); stroke: var(--high); }
+.sg-pill.sev-HIGH text { fill: var(--high); }
+.sg-pill.sev-MEDIUM rect { fill: var(--med-glow); stroke: var(--med); }
+.sg-pill.sev-MEDIUM text { fill: var(--med); }
+.sg-pill.sev-LOW rect { fill: var(--low-glow); stroke: var(--low); }
+.sg-pill.sev-LOW text { fill: var(--low); }
+.sg-pill.sev-INFO rect { fill: var(--surface-3); stroke: var(--border); }
+.sg-pill.sev-INFO text { fill: var(--muted); }
+.sg-edge { fill: none; stroke: var(--border); stroke-width: 1.2; }
+.sg-col-title {
+  fill: var(--faint); font: 700 10px var(--font-sans);
+  text-transform: uppercase; letter-spacing: .08em;
+}
+.surface-detail {
+  margin-top: 1rem; padding: .9rem 1.1rem;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--r-lg); box-shadow: var(--shadow-sm);
+}
+.surface-note { margin: 0; color: var(--muted); font-size: .86rem; }
+.sd-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: .5rem; }
+.sd-kind {
+  font-size: .64rem; font-weight: 700; text-transform: uppercase; letter-spacing: .07em;
+  color: var(--accent-ink); background: var(--accent-soft);
+  border: 1px solid var(--accent-border); border-radius: 999px; padding: .1rem .55rem;
+}
+.sd-label { font-size: .98rem; overflow-wrap: anywhere; }
+.sd-subline { color: var(--muted); font-size: .8rem; font-family: var(--font-mono); }
+.sd-data { margin-top: .55rem; display: flex; flex-direction: column; gap: .2rem; }
+.sd-kv { display: flex; gap: .7rem; font-size: .8rem; }
+.sd-k { flex: none; width: 110px; color: var(--faint); text-transform: uppercase; font-size: .68rem; letter-spacing: .05em; padding-top: .1rem; }
+.sd-v { color: var(--text); font-family: var(--font-mono); overflow-wrap: anywhere; }
+.sd-sub { margin: .8rem 0 .4rem; font-size: .82rem; font-weight: 700; }
+.sd-finds { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .5rem; }
+.sd-finds .chip { margin-right: .45rem; }
+.sd-desc { color: var(--muted); font-size: .8rem; margin-top: .15rem; }
+
 /* ---- fix-first card ------------------------------------------------------------- */
 .fixfirst {
   margin: 0 0 1.5rem; padding: 1.1rem 1.3rem;
