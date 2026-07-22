@@ -97,5 +97,6 @@ class ScanConfig:
     ai_base_url: Optional[str] = None
     ai_api_key: Optional[str] = None        # None -> provider env var
     ai_redact: bool = True                  # mask secrets before send (default ON; --ai-no-redact opts out)
+    ai_hunt: bool = True                    # lab mode: AI proposes recon-grounded hunt hypotheses
 
     extra: dict = field(default_factory=dict)
