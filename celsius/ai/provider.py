@@ -9,7 +9,8 @@ Providers:
   mock       deterministic, offline — for tests and dry runs
 
 Selection: get_provider(name, model=..., api_key=..., base_url=...). API keys fall
-back to env vars (DEEPSEEK_API_KEY / OPENAI_API_KEY / ANTHROPIC_API_KEY).
+back to env vars (DEEPSEEK_API_KEY / OPENAI_API_KEY / ANTHROPIC_API_KEY /
+KIMI_API_KEY / MOONSHOT_API_KEY).
 """
 
 from __future__ import annotations
@@ -243,9 +244,11 @@ def get_provider(name: str = "deepseek", *, model: Optional[str] = None,
     if cls is None:
         raise AIError(f"unknown AI provider '{name}'. Options: {', '.join(_PROVIDERS)}")
     if api_key is None and name in _ENV_KEYS:
-        api_key = os.environ.get(_ENV_KEYS[name])
+        # `or None`: a set-but-empty (or whitespace-only) var counts as unset,
+        # so the fallback lookup below still gets a chance.
+        api_key = (os.environ.get(_ENV_KEYS[name]) or "").strip() or None
     if api_key is None and name in _ENV_FALLBACK:
-        api_key = os.environ.get(_ENV_FALLBACK[name])
+        api_key = (os.environ.get(_ENV_FALLBACK[name]) or "").strip() or None
     _validate_base_url(base_url, name)
     return cls(model=model, api_key=api_key, base_url=base_url, timeout=timeout)
 

@@ -84,6 +84,17 @@ def test_garbage_response_yields_nothing():
     assert hunt.generate_hunt_hypotheses(_result(), p) == []
 
 
+def test_wrong_shape_json_yields_nothing():
+    """Valid JSON of the wrong shape must not raise — just zero hypotheses."""
+    _bypass_cache()
+    # {"hypotheses": 5} — the key exists but is not a list
+    p = _StubProvider(json.dumps({"hypotheses": 5}))
+    assert hunt.generate_hunt_hypotheses(_result(), p) == []
+    # [1, 2, 3] — parses fine but is not an object at all
+    p = _StubProvider(json.dumps([1, 2, 3]))
+    assert hunt.generate_hunt_hypotheses(_result(), p) == []
+
+
 def test_context_carries_recon_evidence():
     _bypass_cache()
     p = _StubProvider(json.dumps({"hypotheses": []}))
