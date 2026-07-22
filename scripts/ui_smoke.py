@@ -187,6 +187,29 @@ def main() -> int:
             check((page.locator("#chartDonut .chart-donut-total").text_content() or "") == "4",
                   "#chartDonut center total is not 4 (exclusion convention broken)")
 
+            # ── jobs queue drawer: opens, renders (empty state OK), closes (Task 5) ──
+            check(page.locator("#jobsBtn").count() == 1, "jobs appbar button missing")
+            check(page.locator("#jobsBadge").count() == 1, "jobs badge missing")
+            check("hidden" in (page.locator("#jobsBadge").get_attribute("class") or ""),
+                  "jobs badge should start hidden with 0 running jobs")
+            page.click("#jobsBtn")
+            page.wait_for_timeout(400)
+            check("open" in (page.locator("#jobsDrawer").get_attribute("class") or ""),
+                  "jobs drawer did not open on button click")
+            try:
+                page.wait_for_selector("#jobsList .jobs-row, #jobsList .jobs-empty",
+                                       timeout=6000)
+            except Exception:
+                pass
+            check((page.locator("#jobsList").inner_html() or "").strip() != "",
+                  "#jobsList is empty — neither job rows nor the empty state rendered")
+            check(page.locator("#jobsList .jobs-row, #jobsList .jobs-empty").count() >= 1,
+                  "#jobsList shows neither job rows nor the empty state")
+            page.keyboard.press("Escape")
+            page.wait_for_timeout(400)
+            check("open" not in (page.locator("#jobsDrawer").get_attribute("class") or ""),
+                  "jobs drawer did not close on Escape")
+
             # ── screenshots (light + dark) ──
             if args.shot:
                 prefix = Path(args.shot)
@@ -223,7 +246,7 @@ def main() -> int:
               f"{len(failures)} assertion failure(s)")
         return 1
     print("[✓] ui_smoke OK — dashboard home, tabs, authorization gate, results charts, "
-          "theme toggle; zero console errors")
+          "jobs drawer, theme toggle; zero console errors")
     return 0
 
 

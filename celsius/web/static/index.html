@@ -18,10 +18,20 @@
            alt="" aria-hidden="true" width="110" height="32">
     </a>
     <div class="appbar-right">
+      <button id="jobsBtn" class="jobs-btn" title="Scan jobs" aria-label="Scan jobs">
+        <span class="jobs-ico">◔</span><span id="jobsBadge" class="badge hidden">0</span>
+      </button>
       <button id="themeToggle" class="theme-toggle" title="Switch between light and dark theme"
               aria-label="Toggle light / dark theme"></button>
     </div>
   </header>
+
+  <!-- jobs queue drawer -->
+  <div id="jobsDrawer" class="drawer hidden" role="dialog" aria-label="Scan jobs">
+    <div class="drawer-head"><h3 class="section-title">Scan jobs</h3>
+      <button id="jobsClose" class="linklike">Close</button></div>
+    <div id="jobsList"></div>
+  </div>
 
   <main class="container">
     <!-- ── Authorization + access token ──────────────────────── -->
@@ -356,5 +366,6 @@
   <script src="/static/scan.js?v=3" defer></script>
   <script src="/static/charts.js?v=3" defer></script>
   <script src="/static/dashboard.js?v=3" defer></script>
+  <script src="/static/jobs.js?v=3" defer></script>
 </body>
 </html>

@@ -607,6 +607,39 @@ button { font-family: var(--font-sans); }
   transform: translateX(102%); transition: transform .25s ease;
 }
 .drawer.open { transform: none; }
+.drawer-head {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: .9rem;
+}
+.drawer-head .section-title { margin: 0; }
+
+/* jobs queue — appbar button (mirrors .theme-toggle) + drawer rows */
+.jobs-btn {
+  position: relative; display: grid; place-items: center; width: 36px; height: 36px; padding: 0;
+  font-size: 1.05rem; line-height: 1; background: var(--surface); color: var(--muted);
+  border: 1px solid var(--border); border-radius: 10px; cursor: pointer;
+  transition: color .15s, border-color .15s, background .15s;
+}
+.jobs-btn:hover { color: var(--accent-ink); border-color: var(--accent-border); background: var(--accent-soft); }
+.jobs-btn .badge {
+  position: absolute; top: -7px; right: -7px; padding: .08rem .4rem;
+  background: var(--accent);
+}
+[data-theme="dark"] .jobs-btn .badge { color: #06231f; }
+
+.jobs-row {
+  display: flex; flex-direction: column; gap: .5rem;
+  margin-bottom: .6rem; padding: .7rem .85rem;
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r);
+}
+.jobs-row-top { display: flex; align-items: center; gap: .6rem; }
+.jobs-target {
+  flex: 1; min-width: 0; font-size: .86rem; font-weight: 600;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.jobs-actions { display: flex; justify-content: flex-end; gap: .5rem; }
+.jobs-err { font-size: .78rem; color: var(--crit); overflow-wrap: anywhere; }
+.jobs-empty { margin: 1.4rem 0; text-align: center; font-size: .88rem; color: var(--muted); }
 
 /* ---- charts (donut / bars / sparkline / graph — Tasks 3-6) ------------------------------ */
 .donut { display: inline-flex; align-items: center; gap: .8rem; }
