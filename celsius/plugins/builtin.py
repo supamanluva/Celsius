@@ -1331,7 +1331,23 @@ class AiActiveVerify(Plugin):
         base = ctx.result.url or ctx.target.web_url()
         ctx.log(f"ai-active-verify: agentic proof loop on {base} ...")
         budget = Budget(max_tokens=2_000_000)   # don't starve the analysis of tokens
+        hunt_count = 0
         try:
+            # 0. Hunt planner: the model reads the recon picture and proposes
+            #    targeted hypotheses; the tool loop below proves/refutes them
+            #    like any other ai-hypothesis. Additive — a failure here never
+            #    blocks the existing loops.
+            if cfg.ai_hunt:
+                from ..ai import hunt
+                try:
+                    hyps = hunt.generate_hunt_hypotheses(
+                        ctx.result.to_dict(), provider, budget=budget,
+                        audit=ctx.audit, log=ctx.log, redact_secrets=cfg.ai_redact)
+                    hunt_count = len(hyps)
+                    ctx.result.findings.extend(hyps)
+                except AIError as e:
+                    ctx.result.errors.append(f"ai-hunt: {e}")
+
             # 1. Injection proof loop on discovered parameters (XSS/redirect/SQLi/…)
             points = discover_points(base, lab, recon=ctx.result.recon)
             if points:
@@ -1358,6 +1374,7 @@ class AiActiveVerify(Plugin):
             ctx.result.errors.append(f"ai-active-verify failed: {e}")
             return
         ctx.result.recon["ai_active_verify"] = {
+            "hunt_hypotheses": hunt_count,
             "injection_points": len(points), "injection_confirmed": len(inj),
             "hypotheses": len(hyps), "verdicts": vstats,
             "requests_sent": lab._count, "halted": lab.stopped_reason or None,

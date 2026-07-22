@@ -207,7 +207,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     gai = s.add_argument_group("AI")
     gai.add_argument("--ai", action="store_true", help="AI triage + attack-surface hypotheses")
-    gai.add_argument("--ai-provider", default="deepseek", help="deepseek|openai|anthropic|local|mock")
+    gai.add_argument("--ai-provider", default="deepseek", help="deepseek|openai|anthropic|kimi|local|mock")
     gai.add_argument("--ai-model", help="override the provider's default model (e.g. a local Ollama model)")
     gai.add_argument("--ai-base-url", help="AI API base URL (local Ollama: http://localhost:11434/v1)")
     grp = gai.add_mutually_exclusive_group()
@@ -215,6 +215,12 @@ def build_parser() -> argparse.ArgumentParser:
                      help="mask secrets before sending to the AI (default ON)")
     grp.add_argument("--ai-no-redact", action="store_false", dest="ai_redact",
                      help="send unmasked content to the AI (only on a target you own)")
+    grp_hunt = gai.add_mutually_exclusive_group()
+    grp_hunt.add_argument("--ai-hunt", action="store_true", default=True, dest="ai_hunt",
+                          help="lab mode: the AI reads recon and proposes targeted hunt "
+                               "hypotheses for the proof loop (default ON)")
+    grp_hunt.add_argument("--no-ai-hunt", action="store_false", dest="ai_hunt",
+                          help="skip the AI hunt planner (triage + proof loop only)")
 
     gauth = s.add_argument_group("authentication (scan as a logged-in user)")
     gauth.add_argument("--cookie", help="Cookie header to send (e.g. \"session=abc; csrf=xyz\")")
@@ -300,7 +306,7 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--no-sca", action="store_true",
                    help="skip dependency vulnerability scan (OSV.dev; needs network)")
     c.add_argument("--ai", action="store_true", help="add an AI secure-code review pass")
-    c.add_argument("--ai-provider", default="deepseek", help="deepseek|openai|anthropic|local|mock")
+    c.add_argument("--ai-provider", default="deepseek", help="deepseek|openai|anthropic|kimi|local|mock")
     c.add_argument("--ai-model", help="override the provider's default model")
     cgrp = c.add_mutually_exclusive_group()
     cgrp.add_argument("--ai-redact", action="store_true", default=True, dest="ai_redact",
@@ -424,7 +430,7 @@ def _cmd_scan(args) -> int:
         time_sqli=args.time_sqli, time_sqli_delay=args.time_sqli_delay,
         exploit_max_requests=args.exploit_max_requests, exploit_rate_limit=args.exploit_rate_limit,
         ai=args.ai, ai_provider=args.ai_provider, ai_model=args.ai_model,
-        ai_base_url=args.ai_base_url, ai_redact=args.ai_redact,
+        ai_base_url=args.ai_base_url, ai_redact=args.ai_redact, ai_hunt=args.ai_hunt,
     )
     store = None
     if config.persist:
