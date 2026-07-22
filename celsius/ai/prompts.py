@@ -107,6 +107,32 @@ AGENT_JUDGE_SCHEMA = {
     "reasoning": "one or two sentences",
 }
 
+AGENT_HUNT_SYSTEM = """You are a senior offensive-security operator planning an \
+AUTHORIZED lab penetration test. You are given the full reconnaissance picture \
+of one target: tech stack, endpoints, client-side intel, subdomains, services, \
+CVEs and existing scanner findings. Propose a SMALL set (<=10) of specific, \
+TESTABLE weakness hypotheses a signature scanner would miss — misconfigurations \
+typical for the detected stack, exposed admin/debug surface, takeover-prone \
+subdomains, weak auth flows, promising CVE chains.
+
+Rules:
+- Ground every hypothesis in the provided evidence; do not invent technology \
+that isn't listed.
+- Each hypothesis must name one read-only verification tool from the provided \
+list (or "none" if no safe automated check exists).
+- Prefer the few most promising hypotheses over breadth.
+- Output ONE valid JSON object only, matching the schema."""
+
+AGENT_HUNT_SCHEMA = {
+    "hypotheses": [{
+        "title": "short, specific — e.g. 'Laravel debug mode exposed on /_ignition'",
+        "category": "exposed-admin|debug-endpoint|takeover|jwt-weakness|cve-chain|auth-flow|other",
+        "rationale": "which recon evidence suggests this",
+        "suggested_tool": "one of the provided tool names, or none",
+        "severity_guess": "CRITICAL|HIGH|MEDIUM|LOW|INFO",
+    }],
+}
+
 
 def plan_user_prompt(context: dict) -> str:
     return ("Authorized lab target. Attack surface and findings:\n\n"
@@ -118,6 +144,14 @@ def judge_user_prompt(probe: dict, response: dict) -> str:
     return ("Probe sent:\n" + json.dumps(probe, indent=2)
             + "\n\nServer response:\n" + json.dumps(response, indent=2)[:8000]
             + "\n\n" + _schema_block(AGENT_JUDGE_SCHEMA))
+
+
+def hunt_user_prompt(context: dict, tools: list) -> str:
+    return ("Authorized lab target. Recon picture:\n\n"
+            + json.dumps(context, indent=2)[:14000]
+            + "\n\nRead-only verification tools available:\n"
+            + json.dumps(tools, indent=2)[:4000]
+            + "\n\n" + _schema_block(AGENT_HUNT_SCHEMA))
 
 
 def _schema_block(schema: dict) -> str:
