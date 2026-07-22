@@ -201,7 +201,7 @@ function demandAuth() {
     const r = await fetch("/api/ai/status");
     if (!r.ok) return;
     const { providers } = await r.json();
-    const order = ["deepseek", "openai", "anthropic", "local"];
+    const order = ["kimi", "deepseek", "openai", "anthropic", "local"];
     const configured = order.filter((p) => providers && providers[p]);
     if (configured.length) {
       $("aiReady").classList.remove("hidden");
@@ -372,6 +372,7 @@ function currentScanOptions() {
     lab_attestation: $("opt-attest").value.trim() || null,
     dry_run: $("opt-dryrun").checked,
     ai: $("opt-ai").checked, ai_provider: $("opt-ai-provider").value,
+    ai_hunt: $("opt-ai-hunt") ? $("opt-ai-hunt").checked : true,
     ai_api_key: $("opt-ai-key").value.trim() || null,
     ai_model: $("opt-ai-model").value.trim() || null,
     ai_base_url: $("opt-ai-base").value.trim() || null,

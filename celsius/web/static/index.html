@@ -178,6 +178,7 @@
               <label class="ai-field"><span>Provider</span>
                 <select id="opt-ai-provider">
                   <option value="deepseek">DeepSeek</option>
+                  <option value="kimi">Kimi (Moonshot)</option>
                   <option value="openai">OpenAI</option>
                   <option value="anthropic">Anthropic</option>
                   <option value="local">Local (Ollama)</option>
@@ -216,6 +217,9 @@
           path-traversal and SQLi probes that send <em>real payloads</em>. Rate-limited and request-capped.
           Use only on systems you are explicitly authorized to <em>actively</em> test.</p>
         <label class="lab-enable"><input type="checkbox" id="opt-exploit"> Enable lab-mode active verification</label>
+        <label class="opt"><input type="checkbox" id="opt-ai-hunt" checked>
+          <span class="opt-body"><span class="opt-name">AI hunt planner</span>
+          <span class="opt-desc">The AI reads the recon picture, proposes targeted weakness hypotheses, then proves or refutes them through the lab guardrails.</span></span></label>
         <label class="visually-hidden" for="opt-attest">Authorization attestation</label>
         <input type="text" id="opt-attest" class="text-inp lab-attest"
           placeholder="Authorization attestation (≥10 chars) — e.g. “I am authorized to actively test this target”"
