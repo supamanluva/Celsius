@@ -142,6 +142,51 @@ def main() -> int:
             page.locator('.tab[data-tab="host"]').click()
             page.wait_for_timeout(200)
 
+            # ── mock scan renders results with the charts row (Task 4) ──
+            mock_scan = {
+                "target": "https://example.com",
+                "url": "https://example.com",
+                "ip": "93.184.216.34",
+                "assessment": {"grade": "D", "score": 42, "clean": False},
+                "cves": [
+                    {"id": "CVE-2021-0001", "severity": "CRITICAL", "cvss": 9.8,
+                     "affects": "nginx 1.18", "description": "mock firm CVE",
+                     "confidence": "firm",
+                     "url": "https://nvd.nist.gov/vuln/detail/CVE-2021-0001"},
+                    {"id": "CVE-2021-0002", "severity": "HIGH", "cvss": 7.5,
+                     "affects": "openssl 1.1.1", "description": "mock weak CVE",
+                     "confidence": "weak", "caveat": "distro backport",
+                     "url": "https://nvd.nist.gov/vuln/detail/CVE-2021-0002"},
+                ],
+                "findings": [
+                    {"severity": "HIGH", "category": "headers",
+                     "title": "Missing Content-Security-Policy",
+                     "description": "mock finding", "recommendation": "add a CSP"},
+                    {"severity": "MEDIUM", "category": "headers",
+                     "title": "Missing HSTS", "description": "mock finding"},
+                    {"severity": "LOW", "category": "tls",
+                     "title": "TLS 1.0 enabled", "description": "mock finding"},
+                    {"severity": "INFO", "category": "ai-hypothesis",
+                     "title": "AI lead (excluded from counts)",
+                     "description": "mock finding"},
+                ],
+            }
+            page.evaluate("(scan) => window.CELSIUS.loadScan(scan)", mock_scan)
+            page.wait_for_timeout(700)
+            check(page.locator("#results .hero").count() == 1,
+                  "mock scan did not render the results hero")
+            check("hidden" not in (page.locator("#chartsRow").get_attribute("class") or ""),
+                  "#chartsRow stayed hidden after the mock scan rendered")
+            check(page.locator("#chartsRow svg *").count() > 0,
+                  "#chartsRow has no SVG children after the mock scan rendered")
+            check(page.locator("#chartDonut svg *").count() > 0,
+                  "#chartDonut has no SVG children")
+            check(page.locator("#chartCats svg *").count() > 0,
+                  "#chartCats has no SVG children")
+            # 1 firm CRITICAL CVE + 3 real findings (weak CVE + AI lead excluded)
+            check((page.locator("#chartDonut .chart-donut-total").text_content() or "") == "4",
+                  "#chartDonut center total is not 4 (exclusion convention broken)")
+
             # ── screenshots (light + dark) ──
             if args.shot:
                 prefix = Path(args.shot)
@@ -177,8 +222,8 @@ def main() -> int:
         print(f"[!] ui_smoke FAILED — {len(errors)} console error(s), "
               f"{len(failures)} assertion failure(s)")
         return 1
-    print("[✓] ui_smoke OK — dashboard home, tabs, authorization gate, theme toggle; "
-          "zero console errors")
+    print("[✓] ui_smoke OK — dashboard home, tabs, authorization gate, results charts, "
+          "theme toggle; zero console errors")
     return 0
 
 
