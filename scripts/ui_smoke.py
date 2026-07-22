@@ -98,6 +98,123 @@ def main() -> int:
                     scan_posts.append(req.url)
 
             page.on("request", on_request)
+
+            # ── screenshot privacy: EVERY capture below runs against mocked, ──
+            # ── sanitized API data — never the real scan store. Hosts are    ──
+            # ── example.com/.org only; IPs are RFC 5737 documentation ranges ──
+            # ── (plus example.com's well-known public IP).                   ──
+            mock_detail = {
+                "target": "https://example.com",
+                "url": "https://example.com",
+                "ip": "93.184.216.34",
+                "assessment": {"grade": "F", "score": 21, "clean": False},
+                "services": [
+                    {"name": "nginx", "version": "1.18.0", "port": 443,
+                     "protocol": "tcp", "source": "http-header"},
+                    {"name": "OpenSSH", "version": "8.9p1", "port": 22,
+                     "protocol": "tcp", "source": "banner"},
+                ],
+                "recon": {
+                    "subdomains": ["www.example.com", "api.example.com",
+                                   "dev.example.com"],
+                    "crawl": {"pages": 12, "js_files": 4,
+                              "endpoints": ["/login", "/api/v1/users", "/search"],
+                              "routes": ["/app", "/admin"]},
+                    "tech": [{"name": "nginx", "version": "1.18.0",
+                              "category": "web-server"},
+                             {"name": "PHP", "version": "8.1",
+                              "category": "language"}],
+                    "dns": {"a": ["93.184.216.34"], "mx": ["mail.example.com"]},
+                },
+                "cves": [
+                    {"id": "CVE-2021-0001", "severity": "CRITICAL", "cvss": 9.8,
+                     "affects": "nginx 1.18.0", "description": "mock CVE (demo data)",
+                     "confidence": "firm", "verified": True,
+                     "url": "https://nvd.nist.gov/vuln/detail/CVE-2021-0001"},
+                    {"id": "CVE-2021-0002", "severity": "HIGH", "cvss": 7.5,
+                     "affects": "HTTP/2", "description": "mock CVE (demo data)",
+                     "confidence": "firm",
+                     "url": "https://nvd.nist.gov/vuln/detail/CVE-2021-0002"},
+                ],
+                "findings": [
+                    {"severity": "CRITICAL", "category": "exposure",
+                     "title": "Exposed .git directory",
+                     "description": "mock finding", "recommendation": "block dotfiles",
+                     "evidence": "https://example.com/.git/HEAD returns 200",
+                     "verified": True},
+                    {"severity": "HIGH", "category": "headers",
+                     "title": "Missing Content-Security-Policy",
+                     "description": "mock finding", "recommendation": "add a CSP",
+                     "evidence": "https://example.com/login returns 200 without a CSP"},
+                    {"severity": "MEDIUM", "category": "headers",
+                     "title": "Missing HSTS", "description": "mock finding"},
+                    {"severity": "MEDIUM", "category": "tls",
+                     "title": "Weak TLS cipher suite accepted",
+                     "description": "mock finding"},
+                    {"severity": "LOW", "category": "tls",
+                     "title": "TLS 1.0 enabled", "description": "mock finding"},
+                    {"severity": "INFO", "category": "headers",
+                     "title": "Server header discloses version",
+                     "description": "mock finding"},
+                ],
+                "errors": [], "chains": [], "coverage": {},
+                "started_at": "2026-07-22T09:38:00Z",
+                "finished_at": "2026-07-22T09:41:00Z",
+            }
+            mock_hist_rows = [
+                {"id": "scan-demo01", "target": "https://example.com",
+                 "url": "https://example.com", "ip": "93.184.216.34",
+                 "started_at": "2026-07-22T09:38:00Z",
+                 "finished_at": "2026-07-22T09:41:00Z",
+                 "n_findings": 6, "n_cves": 2, "worst": "CRITICAL",
+                 "grade": "F", "score": 21},
+                {"id": "scan-demo02", "target": "https://app.example.com",
+                 "url": "https://app.example.com", "ip": "192.0.2.10",
+                 "started_at": "2026-07-21T15:58:00Z",
+                 "finished_at": "2026-07-21T16:05:00Z",
+                 "n_findings": 4, "n_cves": 1, "worst": "MEDIUM",
+                 "grade": "B+", "score": 84},
+                {"id": "scan-demo03", "target": "https://example.org",
+                 "url": "https://example.org", "ip": "198.51.100.23",
+                 "started_at": "2026-07-20T11:20:00Z",
+                 "finished_at": "2026-07-20T11:26:00Z",
+                 "n_findings": 1, "n_cves": 0, "worst": "LOW",
+                 "grade": "A", "score": 96},
+                {"id": "scan-demo04", "target": "https://example.com",
+                 "url": "https://example.com", "ip": "93.184.216.34",
+                 "started_at": "2026-07-15T08:05:00Z",
+                 "finished_at": "2026-07-15T08:12:00Z",
+                 "n_findings": 5, "n_cves": 2, "worst": "CRITICAL",
+                 "grade": "F", "score": 24},
+                {"id": "scan-demo05", "target": "http://203.0.113.7",
+                 "url": "http://203.0.113.7", "ip": "203.0.113.7",
+                 "started_at": "2026-07-10T14:41:00Z",
+                 "finished_at": "2026-07-10T14:48:00Z",
+                 "n_findings": 3, "n_cves": 1, "worst": "MEDIUM",
+                 "grade": "B+", "score": 82},
+                {"id": "scan-demo06", "target": "https://app.example.com",
+                 "url": "https://app.example.com", "ip": "192.0.2.10",
+                 "started_at": "2026-07-02T09:55:00Z",
+                 "finished_at": "2026-07-02T10:02:00Z",
+                 "n_findings": 2, "n_cves": 0, "worst": "LOW",
+                 "grade": "A", "score": 95},
+            ]
+
+            def mock_scans_api(route):
+                req = route.request
+                path = urllib.parse.urlparse(req.url).path
+                if req.method == "GET" and path == "/api/scans":
+                    route.fulfill(json={"scans": mock_hist_rows})
+                elif req.method == "GET" and re.fullmatch(r"/api/scans/[^/]+", path):
+                    route.fulfill(json=dict(mock_detail))
+                else:
+                    route.continue_()
+
+            # regex route (globs miss query strings like /api/scans?limit=8);
+            # stays active for every screenshot — the tiles/View test below
+            # registers its own route later, which takes precedence while active.
+            page.route(re.compile(r".*/api/scans(/[^?]*)?"), mock_scans_api)
+
             page.goto(base + "/", wait_until="networkidle")
 
             # ── dashboard is the default landing view and renders (Task 3) ──
