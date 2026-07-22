@@ -53,6 +53,7 @@ blocking; pick by value.
 - [x] Authenticated-session testing — `--cookie`/`--bearer`/`--header` +
       form login (`--login-*`) cover post-auth surface; `--idor` does cross-user
       BOLA testing with a second identity
+- [x] Kimi (Moonshot) AI provider + lab-mode AI hunt planner (`--ai-hunt`)
 
 > Reminder: every new active capability stays behind scope/authorization + audit,
 > non-destructive by default. No weaponized/mass-exploitation features.

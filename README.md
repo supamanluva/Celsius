@@ -288,8 +288,10 @@ an examples epilog at the bottom.
 `--ai` adds an LLM pass: **triage** (prioritize, flag likely false positives) and
 **attack-surface hypotheses** (business-logic/chained issues signatures miss) on a
 scan, or a **secure-code review** on `code`. Providers are pluggable —
-`--ai-provider deepseek|openai|anthropic|local|mock` (keys via
-`DEEPSEEK_API_KEY`/`OPENAI_API_KEY`/`ANTHROPIC_API_KEY`; `local` targets Ollama;
+`--ai-provider deepseek|openai|anthropic|kimi|local|mock` (keys via
+`DEEPSEEK_API_KEY`/`OPENAI_API_KEY`/`ANTHROPIC_API_KEY`/`KIMI_API_KEY`;
+`kimi` is Moonshot AI — falls back to `MOONSHOT_API_KEY`, default model
+`kimi-k2-0711-preview`; `local` targets Ollama;
 `mock` is offline for testing).
 
 All AI output is labeled **`ai-hypothesis`** with a confidence and a
@@ -306,6 +308,15 @@ Pass `--ai-no-redact` for maximum model visibility on a target you own; the loca
 report still carries full secret values for you to rotate. Every external send is
 recorded in the audit log with `masked` (was masking applied) and
 `sensitive_count`. Use `--ai-provider local` to keep everything on-machine.
+
+#### AI hunt planner (lab mode)
+
+With `--lab --ai`, a hunt planner (`--ai-hunt`, default on) has the model read
+the full recon picture — tech stack, endpoints, JS intel, subdomains, CVEs,
+existing findings — and propose up to 10 targeted weakness hypotheses. Each is
+labeled `ai-hypothesis` and must survive the same guardrailed proving loop
+(tool evidence + deterministic corroboration) as any other hypothesis before it
+is promoted to verified. Disable with `--no-ai-hunt`.
 
 #### Local / on-prem AI (Ollama) — nothing leaves the machine
 
@@ -595,7 +606,8 @@ celsius/
   scope.py          scope.yml authorization gate (mode/exclusion gating)
   audit.py          append-only audit log
   store.py          SQLite persistence + scan history
-  ai/               LLM layer: provider.py (DeepSeek/OpenAI/Anthropic/local/mock),
+  ai/               LLM layer: provider.py (DeepSeek/OpenAI/Anthropic/Kimi/
+                    local/mock), hunt.py (recon-grounded hypothesis planner),
                     analyze.py (triage + code review), prompts.py, redact.py, cache.py
   exploitability.py exploitability assessment (EPSS + CISA KEV + verdict + how-to)
   correlate.py      exploit-chain correlation (composes findings into attack paths)
