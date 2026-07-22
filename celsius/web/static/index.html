@@ -265,6 +265,13 @@
 
       <div id="scanStatus" class="status hidden" role="status" aria-live="polite"></div>
 
+      <!-- results charts — filled by charts.js (CELSIUS.charts.render) on loadScan -->
+      <div class="charts-row hidden" id="chartsRow">
+        <div class="chart-card" id="chartDonut"></div>
+        <div class="chart-card" id="chartCats"></div>
+        <div class="chart-card hidden" id="chartTrend"></div>
+      </div>
+
       <div id="results"></div>
     </section>
 
@@ -347,6 +354,7 @@
 
   <script src="/static/app.js?v=3" defer></script>
   <script src="/static/scan.js?v=3" defer></script>
+  <script src="/static/charts.js?v=3" defer></script>
   <script src="/static/dashboard.js?v=3" defer></script>
 </body>
 </html>

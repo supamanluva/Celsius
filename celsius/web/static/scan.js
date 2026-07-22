@@ -546,6 +546,7 @@
       if (scanId) res._scanId = scanId;
       C.state.currentScan = { id: scanId || null, result: res };
       C.renderFindings($("results"), res);
+      if (C.charts && C.charts.render) C.charts.render(res); // charts row above the findings
     }
 
     // Load a scan into the Results tab: either a stored scan id (fetched from the
