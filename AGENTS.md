@@ -96,8 +96,9 @@ celsius/
                     dynamic (Playwright), cohost, origin, wayback, robots, …
   active/           lab-mode active verification: harness.py is THE safety
                     chokepoint; verifiers.py has the non-destructive probes
-  ai/               LLM layer: provider.py (deepseek/openai/anthropic/local=Ollama/
-                    mock), agent.py (proof loop), analyze.py, prompts.py,
+  ai/               LLM layer: provider.py (deepseek/openai/anthropic/kimi/
+                    local=Ollama/mock), hunt.py (recon-grounded hypothesis
+                    planner), agent.py (proof loop), analyze.py, prompts.py,
                     redact.py (secret masking), cache.py
   web/              app.py (FastAPI backend: scan jobs + progress/cancel, history
                     with export/delete, code upload, AI status) + static/
@@ -164,7 +165,8 @@ packages hold the heavier implementations those plugins call.
   explicit scope entry.
 - Env vars: `CELSIUS_TOKEN` (web API auth token), `CELSIUS_CODE_ROOT` (restrict
   `/api/code` file reads), `DEEPSEEK_API_KEY` / `OPENAI_API_KEY` /
-  `ANTHROPIC_API_KEY`, `NVD_API_KEY`, `SHODAN_API_KEY`, `CENSYS_PAT` /
+  `ANTHROPIC_API_KEY`, `KIMI_API_KEY` / `MOONSHOT_API_KEY`, `NVD_API_KEY`,
+  `SHODAN_API_KEY`, `CENSYS_PAT` /
   `CENSYS_ORG_ID`. `docker-compose.yml` reads them from a gitignored `.env`
   (`.env.example` documents them). Never commit real keys or read `.env` into
   code — the app reads the environment directly.
