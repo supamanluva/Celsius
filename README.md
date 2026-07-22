@@ -83,9 +83,12 @@ exposure** — subdomains that resolve in *public* DNS to an RFC1918/private or
 leak that reveals internal/VPN topology.
 
 **🔌 Services, OS &amp; lifecycle** — service/version detection from headers + tech
-fingerprints + optional `nmap -sV`; **passive OS/runtime inference**
-(JSESSIONID→Java/Tomcat, ASP.NET→Windows/IIS, `Server`-header &amp; edge hints);
-**active OS/device fingerprint** (`nmap -O`); and **end-of-life** flagging for
+fingerprints + optional `nmap -sV`; **error-page version recovery** — when the
+`Server` header hides the version (e.g. bare `openresty`) a crafted request coaxes
+out the default nginx/OpenResty/Apache error page whose footer often still leaks the
+exact build, attributed to the origin or the fronting CDN; **passive OS/runtime
+inference** (JSESSIONID→Java/Tomcat, ASP.NET→Windows/IIS, `Server`-header &amp; edge
+hints); **active OS/device fingerprint** (`nmap -O`); and **end-of-life** flagging for
 software that no longer gets security patches (PHP, IIS, Apache, Tomcat, OpenSSL…).
 
 **🛡️ CVE &amp; dependency intelligence** — CVE lookup against **NVD + MITRE CNA** with

@@ -9,6 +9,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from celsius import http_analysis  # noqa: E402
 from celsius.http_analysis import HttpResult, audit_security_headers  # noqa: E402
 from celsius.models import Severity  # noqa: E402
 
@@ -98,8 +99,51 @@ def test_cookie_secure_flag_only_over_https():
     assert not any("Secure" in f.title for f in fs)
 
 
+# ── error-page version probe ────────────────────────────────────────────────
+_NGINX_414 = ("<html><head><title>414 Request-URI Too Large</title></head><body>"
+              "<center><h1>414</h1></center><hr><center>nginx/1.25.3</center></body></html>")
+
+
+def _stub_probe(monkeypatch, responses):
+    """responses: list of (status, body) returned in order per request."""
+    calls = {"i": 0}
+
+    def fake(url, *, method="GET", insecure=False, auth=None):
+        i = calls["i"]
+        calls["i"] += 1
+        return responses[i] if i < len(responses) else (None, "")
+    monkeypatch.setattr(http_analysis, "_fetch_body", fake)
+    return calls
+
+
+def test_probe_recovers_version_from_error_page(monkeypatch):
+    _stub_probe(monkeypatch, [(414, _NGINX_414)])
+    rec, notes = http_analysis.probe_server_version("https://x")
+    assert rec == ("nginx", "1.25.3")
+    assert any("1.25.3" in n for n in notes)
+
+
+def test_probe_tries_later_probes_until_a_version_leaks(monkeypatch):
+    # first probe returns a page with no version, second leaks it
+    _stub_probe(monkeypatch, [(404, "<h1>custom 404</h1>"), (405, _NGINX_414)])
+    rec, _ = http_analysis.probe_server_version("https://x")
+    assert rec == ("nginx", "1.25.3")
+
+
+def test_probe_returns_none_when_tokens_off(monkeypatch):
+    # bare product, no version anywhere — must recover nothing
+    _stub_probe(monkeypatch, [(414, "<hr><center>openresty</center>"),
+                              (405, "<hr><center>openresty</center>"),
+                              (404, "<hr><center>openresty</center>")])
+    rec, notes = http_analysis.probe_server_version("https://x")
+    assert rec is None
+    assert any("did not leak" in n for n in notes)
+
+
 if __name__ == "__main__":
-    fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
+    import inspect
+    fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)
+           and not inspect.signature(v).parameters]  # skip pytest-fixture tests
     failed = 0
     for fn in fns:
         try:
