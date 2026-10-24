@@ -138,27 +138,42 @@ class ServerVersionProbe(Plugin):
 
         product, version = recovered
         proxy = svc.extra.get("behind_proxy")
-        # OpenResty is nginx (nginx core + LuaJIT), so a `Server: openresty` origin
-        # whose error page footer reads `nginx/<ver>` is disclosing its own nginx
-        # core version — same layer, not a fronting box.
         family = {"nginx", "OpenResty"}
-        same_product = product == svc.name or {product, svc.name} <= family
-        # If the error page is the same server (same product/family) and no CDN sits
-        # in front, it's the origin — attach the version. Otherwise a different layer
-        # emitted it (a fronting proxy/edge); record it separately and do NOT
-        # overwrite the origin's identity.
-        same_layer = same_product and not proxy
+        linked_core = svc.name == "OpenResty" and product == "nginx"
+        same_layer = (product == svc.name or linked_core) and not proxy
         if same_layer:
-            svc.version = version
-            svc.extra["version_source"] = "error-page"
-            if product != svc.name:      # OpenResty origin, nginx core version
+            if linked_core:
                 svc.extra["core"] = f"{product} {version}"
+                core = next((s for s in ctx.result.services
+                             if s is not svc and s.name == product
+                             and not s.extra.get("behind_proxy")
+                             and s.extra.get("layer") in (None, "origin")
+                             and (s.extra.get("core_of") == svc.name
+                                  or not s.version or s.version == version)), None)
+                if core is None:
+                    core = Service(name=product, port=svc.port, protocol=svc.protocol)
+                    ctx.result.services.append(core)
+                core.version = version
+                core.source = "error-page"
+                if core.port is None:
+                    core.port = svc.port
+                if core.protocol is None:
+                    core.protocol = svc.protocol
+                core.extra.update({
+                    "raw": f"{product}/{version}", "layer": "origin",
+                    "version_source": "error-page", "core_of": svc.name,
+                    "note": f"nginx core recovered from the {svc.name} origin's error page",
+                })
+            else:
+                svc.version = version
+                svc.extra["version_source"] = "error-page"
+            tech_products = {product} if linked_core else family
             for t in ctx.result.recon.get("tech", []):
-                if t.get("name") in family and not t.get("version"):
+                if t.get("name") in tech_products and not t.get("version"):
                     t["version"] = version
             where = (f"the origin — its `Server: {svc.name.lower()}` header hid the "
                      f"version, but {svc.name} is built on {product}, whose error page "
-                     f"leaked the core version" if product != svc.name
+                     f"leaked the core version" if linked_core
                      else f"the origin {product}")
             recommendation = (
                 "Turn off version disclosure on error pages too — nginx/OpenResty: "
@@ -1645,6 +1660,7 @@ class CveVerification(Plugin):
             for c in ctx.result.cves:
                 if c.id in confirmed:
                     c.verified = True
+                    c.confidence = "firm"
             ctx.result.findings.append(Finding(
                 title=f"CVE(s) CONFIRMED on live target: {', '.join(sorted(confirmed))}",
                 severity=Severity.CRITICAL, category="cve-verify",

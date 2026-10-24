@@ -5,12 +5,15 @@ from __future__ import annotations
 
 import os
 import sys
+from types import SimpleNamespace
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from celsius.http_analysis import (  # noqa: E402
     HttpResult, detect_services, reconcile_server_identity,
 )
+from celsius.models import ScanResult, Service  # noqa: E402
+from celsius.plugins import builtin  # noqa: E402
 
 
 def _res(headers):
@@ -67,6 +70,83 @@ def test_vanity_x_served_by_is_not_fastly():
     assert finds == []
     origin = next(s for s in svcs if s.source == "http-header:server")
     assert "behind_proxy" not in origin.extra
+
+
+def _probe_ctx(services):
+    result = ScanResult(target="t", url="https://x/", services=services)
+    result.recon["tech"] = [{"name": "OpenResty"}, {"name": "nginx"}]
+    return SimpleNamespace(
+        result=result, http_result=None,
+        config=SimpleNamespace(insecure=False, auth=None),
+        target=SimpleNamespace(web_url=lambda: "https://x/"),
+    )
+
+
+def _mock_recovery(product, version):
+    builtin.http_analysis.probe_server_version = (
+        lambda *args, **kwargs: ((product, version), ["offline recovery"]))
+
+
+def test_openresty_origin_gets_separate_linked_nginx_core():
+    origin = Service(name="OpenResty", source="http-header:server", port=443, protocol="tcp")
+    ctx = _probe_ctx([origin])
+    _mock_recovery("nginx", "1.25.3")
+    builtin.ServerVersionProbe().run(ctx)
+    assert origin.version is None
+    assert origin.extra["core"] == "nginx 1.25.3"
+    cores = [s for s in ctx.result.services if s.name == "nginx"]
+    assert len(cores) == 1
+    core = cores[0]
+    assert core.version == "1.25.3"
+    assert core.source == "error-page"
+    assert core.extra["layer"] == "origin"
+    assert core.extra["version_source"] == "error-page"
+    assert core.extra["core_of"] == "OpenResty"
+    assert (core.port, core.protocol) == (443, "tcp")
+    tech = {t["name"]: t.get("version") for t in ctx.result.recon["tech"]}
+    assert tech == {"OpenResty": None, "nginx": "1.25.3"}
+    assert len(ctx.result.findings) == 1
+    assert "the origin" in ctx.result.findings[0].description
+
+
+def test_openresty_reuses_existing_core_without_duplicates():
+    origin = Service(name="OpenResty", source="http-header:server")
+    existing = Service(name="nginx", source="fingerprint")
+    ctx = _probe_ctx([origin, existing])
+    _mock_recovery("nginx", "1.25.3")
+    probe = builtin.ServerVersionProbe()
+    probe.run(ctx)
+    probe.run(ctx)
+    cores = [s for s in ctx.result.services if s.name == "nginx"]
+    assert cores == [existing]
+    assert existing.version == "1.25.3"
+    assert existing.source == "error-page"
+    assert existing.extra["core_of"] == "OpenResty"
+
+
+def test_same_product_recovery_still_updates_origin():
+    origin = Service(name="nginx", source="http-header:server")
+    ctx = _probe_ctx([origin])
+    _mock_recovery("nginx", "1.27.0")
+    builtin.ServerVersionProbe().run(ctx)
+    assert origin.version == "1.27.0"
+    assert origin.extra["version_source"] == "error-page"
+    assert len(ctx.result.services) == 1
+    assert len(ctx.result.findings) == 1
+
+
+def test_openresty_fronting_proxy_attribution_is_preserved():
+    origin = Service(name="OpenResty", source="http-header:server",
+                     extra={"behind_proxy": "Caddy"})
+    ctx = _probe_ctx([origin])
+    _mock_recovery("nginx", "1.25.3")
+    builtin.ServerVersionProbe().run(ctx)
+    assert origin.version is None and "core" not in origin.extra
+    assert len(ctx.result.services) == 2
+    edge = next(s for s in ctx.result.services if s.name == "nginx")
+    assert edge.extra["layer"] == "Caddy"
+    assert "not the OpenResty origin" in edge.extra["note"]
+    assert "Caddy" in ctx.result.findings[0].description
 
 
 if __name__ == "__main__":

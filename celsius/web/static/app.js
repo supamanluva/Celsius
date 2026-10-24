@@ -13,9 +13,10 @@ window.CELSIUS = (function () {
   // ---- shared state -----------------------------------------------------------
   // token: access token for CELSIUS_TOKEN-protected servers (mirrors the
   // #accessToken input). authorized: mirrors the #authorized checkbox.
-  // currentScan: {id, result} of the scan shown in the Results view.
+  // currentScan: the stored/completed result shown in the Results view.
+  // activeJob: the independently watched running job (owned by scan.js).
   // jobs: running/recent scan jobs (populated by the jobs drawer, Task 4+).
-  C.state = { token: "", authorized: false, currentScan: null, jobs: [] };
+  C.state = { token: "", authorized: false, currentScan: null, activeJob: null, jobs: [] };
 
   // ---- small utils --------------------------------------------------------------
   C.$ = (id) => document.getElementById(id);
@@ -33,6 +34,32 @@ window.CELSIUS = (function () {
   C.fmtElapsed = function (sec) {
     sec = Math.max(0, Math.round(sec));
     return Math.floor(sec / 60) + ":" + String(sec % 60).padStart(2, "0");
+  };
+
+  C.scrollBehavior = function () {
+    return window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches
+      ? "auto" : "smooth";
+  };
+  C.scrollIntoView = function (el, options) {
+    if (!el) return;
+    el.scrollIntoView(Object.assign({}, options, { behavior: C.scrollBehavior() }));
+  };
+
+  C.rovingKey = function (event, items, activate) {
+    const keys = ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"];
+    if (!keys.includes(event.key) || !items.length) return false;
+    const current = items.indexOf(event.target.closest("[role='tab'], [role='radio']"));
+    if (current < 0) return false;
+    event.preventDefault();
+    let next = current;
+    if (event.key === "Home") next = 0;
+    else if (event.key === "End") next = items.length - 1;
+    else {
+      const delta = event.key === "ArrowLeft" || event.key === "ArrowUp" ? -1 : 1;
+      next = (current + delta + items.length) % items.length;
+    }
+    activate(items[next]);
+    return true;
   };
 
   C.setStatus = function (id, msg, isErr) {
@@ -114,8 +141,10 @@ window.CELSIUS = (function () {
   C.api = async function (path, opts) {
     const r = await fetch(path, opts);
     if (!r.ok) {
-      const err = await r.json().catch(() => ({}));
-      throw new Error((err && err.detail) || r.statusText || ("HTTP " + r.status));
+      const body = await r.json().catch(() => ({}));
+      const err = new Error((body && body.detail) || r.statusText || ("HTTP " + r.status));
+      err.status = r.status;
+      throw err;
     }
     return r.json();
   };
@@ -152,18 +181,36 @@ window.CELSIUS = (function () {
   const _tabFns = [];
   C.onTab = (fn) => _tabFns.push(fn); // modules subscribe to tab switches
   C.showTab = function (name) {
-    document.querySelectorAll(".tab").forEach((x) => {
+    let selected = null;
+    document.querySelectorAll(".tabs > .tab").forEach((x) => {
       const on = x.dataset.tab === name;
       x.classList.toggle("active", on);
       x.setAttribute("aria-selected", on ? "true" : "false");
+      x.tabIndex = on ? 0 : -1;
+      if (on) selected = x;
     });
     document.querySelectorAll(".panel").forEach((x) =>
       x.classList.toggle("active", x.id === "tab-" + name));
+    C.scrollIntoView(selected, { block: "nearest", inline: "nearest" });
     _tabFns.forEach((fn) => fn(name));
   };
   C.onInit(() => {
-    document.querySelectorAll(".tab").forEach((t) => {
+    const tabs = [...document.querySelectorAll(".tabs > .tab")];
+    tabs.forEach((t) => {
+      t.tabIndex = t.getAttribute("aria-selected") === "true" ? 0 : -1;
       t.addEventListener("click", () => C.showTab(t.dataset.tab));
+      const panel = $(t.getAttribute("aria-controls"));
+      if (panel) {
+        panel.setAttribute("aria-labelledby", t.id);
+        panel.tabIndex = 0;
+      }
+    });
+    const list = document.querySelector(".tabs");
+    if (list) list.addEventListener("keydown", (e) => {
+      C.rovingKey(e, tabs, (tab) => {
+        C.showTab(tab.dataset.tab);
+        tab.focus();
+      });
     });
   });
 
@@ -172,6 +219,8 @@ window.CELSIUS = (function () {
     $("authorized").addEventListener("change", (e) => {
       C.state.authorized = !!e.target.checked;
       $("authbar").classList.toggle("ok", e.target.checked);
+      $("authState").textContent = e.target.checked
+        ? "Authorization confirmed" : "Authorization required";
       if (e.target.checked) $("authbar").classList.remove("attention");
     });
   });
@@ -183,7 +232,7 @@ window.CELSIUS = (function () {
     toast("Please confirm you own or have permission to scan this target.", "error");
     const bar = $("authbar");
     bar.classList.add("attention");
-    bar.scrollIntoView({ block: "center", behavior: "smooth" });
+    C.scrollIntoView(bar, { block: "center" });
     $("authorized").focus();
     setTimeout(() => bar.classList.remove("attention"), 3500);
     return false;

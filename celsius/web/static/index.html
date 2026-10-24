@@ -9,6 +9,7 @@
   <link rel="stylesheet" href="/static/style.css?v=3">
 </head>
 <body>
+  <a class="skip-link" href="#main-content">Skip to main content</a>
   <!-- ── App bar ─────────────────────────────────────────────── -->
   <header class="appbar">
     <a class="brand" href="/" aria-label="Celsius — local security scanner, home">
@@ -18,8 +19,9 @@
            alt="" aria-hidden="true" width="110" height="32">
     </a>
     <div class="appbar-right">
-      <button id="jobsBtn" class="jobs-btn" title="Scan jobs" aria-label="Scan jobs">
-        <span class="jobs-ico">◔</span><span id="jobsBadge" class="badge hidden">0</span>
+      <button id="jobsBtn" class="jobs-btn" title="Scan jobs" aria-label="Scan jobs"
+              aria-expanded="false" aria-controls="jobsDrawer">
+        <span class="jobs-ico" aria-hidden="true">◔</span><span id="jobsBadge" class="badge hidden">0</span>
       </button>
       <button id="themeToggle" class="theme-toggle" title="Switch between light and dark theme"
               aria-label="Toggle light / dark theme"></button>
@@ -27,20 +29,21 @@
   </header>
 
   <!-- jobs queue drawer -->
-  <div id="jobsDrawer" class="drawer hidden" role="dialog" aria-label="Scan jobs">
-    <div class="drawer-head"><h3 class="section-title">Scan jobs</h3>
+  <div id="jobsDrawer" class="drawer hidden" role="dialog" aria-labelledby="jobsDrawerTitle"
+       aria-hidden="true">
+    <div class="drawer-head"><h3 class="section-title" id="jobsDrawerTitle">Scan jobs</h3>
       <button id="jobsClose" class="linklike">Close</button></div>
     <div id="jobsList"></div>
   </div>
 
-  <main class="container">
+  <main class="container" id="main-content" tabindex="-1">
     <!-- ── Authorization + access token ──────────────────────── -->
     <div class="authbar" id="authbar">
       <label class="authbar-main">
         <input type="checkbox" id="authorized">
         <span class="authbar-text">I am <strong>authorized</strong> to test the targets I enter
           — I own them or have written permission.</span>
-        <span class="authbar-state">Confirm to enable scanning</span>
+        <span class="authbar-state" id="authState">Authorization required</span>
       </label>
       <label class="token-field" title="Required when the server runs with CELSIUS_TOKEN (e.g. LAN/Docker exposure). Printed by 'celsius serve'.">
         <span>Access token</span>
@@ -49,11 +52,16 @@
     </div>
 
     <nav class="tabs" role="tablist" aria-label="Scanner sections">
-      <button class="tab active" data-tab="dashboard" role="tab" aria-selected="true">Dashboard</button>
-      <button class="tab" data-tab="host" role="tab" aria-selected="false">Website &amp; host</button>
-      <button class="tab" data-tab="mail" role="tab" aria-selected="false">E-mail security</button>
-      <button class="tab" data-tab="code" role="tab" aria-selected="false">Code &amp; secrets</button>
-      <button class="tab" data-tab="history" role="tab" aria-selected="false">History</button>
+      <button id="tab-btn-dashboard" class="tab active" data-tab="dashboard" role="tab"
+              aria-selected="true" aria-controls="tab-dashboard" tabindex="0">Dashboard</button>
+      <button id="tab-btn-host" class="tab" data-tab="host" role="tab"
+              aria-selected="false" aria-controls="tab-host" tabindex="-1">Website &amp; host</button>
+      <button id="tab-btn-mail" class="tab" data-tab="mail" role="tab"
+              aria-selected="false" aria-controls="tab-mail" tabindex="-1">E-mail security</button>
+      <button id="tab-btn-code" class="tab" data-tab="code" role="tab"
+              aria-selected="false" aria-controls="tab-code" tabindex="-1">Code &amp; secrets</button>
+      <button id="tab-btn-history" class="tab" data-tab="history" role="tab"
+              aria-selected="false" aria-controls="tab-history" tabindex="-1">History</button>
     </nav>
 
     <!-- ══ DASHBOARD ══════════════════════════════════════════ -->
@@ -66,11 +74,13 @@
 
     <!-- ══ WEBSITE / HOST SCAN ════════════════════════════════ -->
     <section id="tab-host" class="panel" role="tabpanel">
-      <form id="scanForm" class="targetbar">
+      <form id="scanForm" class="targetbar" novalidate>
         <label class="visually-hidden" for="target">Target to scan</label>
-        <input type="text" id="target" placeholder="Enter a website or IP — e.g. https://example.com" autocomplete="off">
+        <input type="text" id="target" placeholder="Enter a website or IP — e.g. https://example.com"
+               autocomplete="off" aria-describedby="targetError" aria-invalid="false">
         <button type="submit" id="scanBtn" class="btn-primary">Scan</button>
       </form>
+      <p id="targetError" class="field-error hidden" role="alert"></p>
 
       <!-- Scan depth presets -->
       <div class="presets" role="radiogroup" aria-label="Scan depth">
@@ -145,9 +155,10 @@
           <label class="opt"><input type="checkbox" id="opt-topology">
             <span class="opt-body"><span class="opt-name">Infrastructure topology</span>
             <span class="opt-desc">Map where the site and its subdomains are hosted (VPS, home, SaaS).</span></span></label>
-          <label class="opt"><input type="checkbox" id="opt-dynamic">
+          <label class="opt"><input type="checkbox" id="opt-dynamic" aria-describedby="opt-dynamic-dependency">
             <span class="opt-body"><span class="opt-name">Render JavaScript apps</span>
-            <span class="opt-desc">Use a headless browser on single-page apps (needs the “dynamic” extra).</span></span></label>
+            <span class="opt-desc">Use a headless browser on single-page apps (needs the “dynamic” extra).</span>
+            <span class="opt-dependency hidden" id="opt-dynamic-dependency">Requires Site crawl &amp; JavaScript analysis.</span></span></label>
         </div>
 
         <div class="optgroup">
@@ -155,33 +166,42 @@
           <label class="opt"><input type="checkbox" id="opt-ports">
             <span class="opt-body"><span class="opt-name">Port scan (nmap)</span>
             <span class="opt-desc">Scan the most common network ports for running services.</span></span></label>
-          <label class="opt"><input type="checkbox" id="opt-udp">
+          <label class="opt"><input type="checkbox" id="opt-udp" aria-describedby="opt-udp-dependency">
             <span class="opt-body"><span class="opt-name">UDP services</span>
-            <span class="opt-desc">Also scan UDP ports (VPN, DNS). Needs root; slower.</span></span></label>
-          <label class="opt"><input type="checkbox" id="opt-osdetect">
+            <span class="opt-desc">Also scan UDP ports (VPN, DNS). Needs root; slower.</span>
+            <span class="opt-dependency hidden" id="opt-udp-dependency">Requires Port scan.</span></span></label>
+          <label class="opt"><input type="checkbox" id="opt-osdetect" aria-describedby="opt-osdetect-dependency">
             <span class="opt-body"><span class="opt-name">Operating-system detection</span>
-            <span class="opt-desc">Guess the OS and device type with nmap (needs root).</span></span></label>
-          <label class="opt"><input type="checkbox" id="opt-subbrute">
+            <span class="opt-desc">Guess the OS and device type with nmap (needs root).</span>
+            <span class="opt-dependency hidden" id="opt-osdetect-dependency">Requires Port scan.</span></span></label>
+          <label class="opt"><input type="checkbox" id="opt-subbrute" aria-describedby="opt-subbrute-dependency">
             <span class="opt-body"><span class="opt-name">Subdomain brute-force</span>
-            <span class="opt-desc">Guess extra subdomains from a wordlist via DNS queries.</span></span></label>
+            <span class="opt-desc">Guess extra subdomains from a wordlist via DNS queries.</span>
+            <span class="opt-dependency hidden" id="opt-subbrute-dependency">Requires Subdomain discovery.</span></span></label>
           <label class="opt"><input type="checkbox" id="opt-nuclei">
             <span class="opt-body"><span class="opt-name">Nuclei templates</span>
             <span class="opt-desc">Run the community nuclei vulnerability scanner when installed.</span></span></label>
-          <label class="opt"><input type="checkbox" id="opt-nucleifull">
+          <label class="opt"><input type="checkbox" id="opt-nucleifull" aria-describedby="opt-nucleifull-dependency">
             <span class="opt-body"><span class="opt-name">Full nuclei set</span>
-            <span class="opt-desc">Run the entire nuclei template collection (much slower).</span></span></label>
-          <label class="opt"><input type="checkbox" id="opt-cveverify">
+            <span class="opt-desc">Run the entire nuclei template collection (much slower).</span>
+            <span class="opt-dependency hidden" id="opt-nucleifull-dependency">Requires Nuclei templates.</span></span></label>
+          <label class="opt"><input type="checkbox" id="opt-cveverify" aria-describedby="opt-cveverify-dependency">
             <span class="opt-body"><span class="opt-name">Verify CVEs</span>
-            <span class="opt-desc">Confirm each detected CVE with a matching nuclei template.</span></span></label>
+            <span class="opt-desc">Confirm each detected CVE with a matching nuclei template.</span>
+            <span class="opt-dependency hidden" id="opt-cveverify-dependency">Requires Known vulnerabilities (CVEs).</span></span></label>
           <label class="opt"><input type="checkbox" id="opt-defaultcreds">
             <span class="opt-body"><span class="opt-name">Default logins</span>
             <span class="opt-desc">Try well-known vendor default credentials. Only on targets you own.</span></span></label>
           <label class="opt opt-field"><span class="opt-body"><span class="opt-name">Custom port range</span>
-            <span class="opt-desc">Overrides the top-100 list — e.g. 1-65535 or 22,80,443.</span></span>
-            <input type="text" id="opt-portrange" class="text-inp" placeholder="1-65535 or 22,80,443" autocomplete="off"></label>
+            <span class="opt-desc">Overrides the top-100 list — e.g. 1-65535 or 22,80,443.</span>
+            <span class="opt-dependency hidden" id="opt-portrange-dependency">Requires Port scan.</span></span>
+            <input type="text" id="opt-portrange" class="text-inp" placeholder="1-65535 or 22,80,443"
+                   autocomplete="off" aria-describedby="opt-portrange-dependency"></label>
           <label class="opt opt-field"><span class="opt-body"><span class="opt-name">Nuclei tags</span>
-            <span class="opt-desc">Limit templates by tag — e.g. cve,exposure.</span></span>
-            <input type="text" id="opt-nucleitags" class="text-inp" placeholder="cve,exposure" autocomplete="off"></label>
+            <span class="opt-desc">Limit templates by tag — e.g. cve,exposure.</span>
+            <span class="opt-dependency hidden" id="opt-nucleitags-dependency">Requires Nuclei templates.</span></span>
+            <input type="text" id="opt-nucleitags" class="text-inp" placeholder="cve,exposure"
+                   autocomplete="off" aria-describedby="opt-nucleitags-dependency"></label>
         </div>
 
         <div class="optgroup">
@@ -210,6 +230,9 @@
               <label class="ai-field"><span>Base URL <em>(local Ollama)</em></span>
                 <input type="text" id="opt-ai-base" class="text-inp" placeholder="http://localhost:11434/v1" autocomplete="off"></label>
             </div>
+            <label class="ai-remember"><input type="checkbox" id="opt-ai-remember">
+              <span>Remember API key in this browser</span></label>
+            <p class="ai-storage-note">Off by default. Only an explicit opt-in stores the key on this device.</p>
           </div>
         </div>
       </details>
@@ -219,15 +242,23 @@
         <p class="note">Attach a session so the crawler, secret scan, API discovery and active checks
           run as a logged-in user. Use a <strong>test / staging account</strong> — an authenticated
           scan can change state.</p>
-        <input type="text" id="opt-cookie" class="text-inp" placeholder="Cookie — e.g. session=abc; csrf=xyz" autocomplete="off">
-        <input type="password" id="opt-bearer" class="text-inp" placeholder="Bearer token (optional)" autocomplete="off">
-        <textarea id="opt-headers" class="text-inp" rows="2" placeholder="Extra headers, one per line — e.g. X-Api-Key: ..." autocomplete="off"></textarea>
+        <label class="auth-field"><span>Session cookie</span>
+          <input type="text" id="opt-cookie" class="text-inp" placeholder="session=abc; csrf=xyz" autocomplete="off"></label>
+        <label class="auth-field"><span>Bearer token</span>
+          <input type="password" id="opt-bearer" class="text-inp" placeholder="Optional bearer token" autocomplete="off"></label>
+        <label class="auth-field"><span>Extra headers</span>
+          <textarea id="opt-headers" class="text-inp" rows="2" placeholder="One per line — e.g. X-Api-Key: ..." autocomplete="off"></textarea></label>
         <p class="note">— or log in via a form —</p>
-        <input type="text" id="opt-login-url" class="text-inp" placeholder="Login URL (POST target, e.g. https://app.example.com/login)" autocomplete="off">
-        <input type="text" id="opt-login-user" class="text-inp" placeholder="Username" autocomplete="off">
-        <input type="password" id="opt-login-pass" class="text-inp" placeholder="Password" autocomplete="off">
-        <input type="text" id="opt-login-fuser" class="text-inp" placeholder="Username field name (default: username)" autocomplete="off">
-        <input type="text" id="opt-login-fpass" class="text-inp" placeholder="Password field name (default: password)" autocomplete="off">
+        <label class="auth-field"><span>Login URL</span>
+          <input type="text" id="opt-login-url" class="text-inp" placeholder="https://app.example.com/login" autocomplete="off"></label>
+        <label class="auth-field"><span>Login username</span>
+          <input type="text" id="opt-login-user" class="text-inp" placeholder="Username" autocomplete="off"></label>
+        <label class="auth-field"><span>Login password</span>
+          <input type="password" id="opt-login-pass" class="text-inp" placeholder="Password" autocomplete="off"></label>
+        <label class="auth-field"><span>Username form field</span>
+          <input type="text" id="opt-login-fuser" class="text-inp" placeholder="Default: username" autocomplete="off"></label>
+        <label class="auth-field"><span>Password form field</span>
+          <input type="text" id="opt-login-fpass" class="text-inp" placeholder="Default: password" autocomplete="off"></label>
       </details>
 
       <details id="labmode" class="disclosure disclosure-danger">
@@ -253,23 +284,27 @@
       </details>
 
       <!-- Live progress -->
-      <div id="scanProgress" class="progress-card hidden" role="status" aria-live="polite">
+      <div id="scanProgressStatus" class="visually-hidden" role="status"
+           aria-live="polite" aria-atomic="true"></div>
+      <div id="scanProgress" class="progress-card hidden">
         <div class="progress-head">
           <span id="progTitle" class="progress-title">Starting…</span>
-          <span id="progElapsed" class="progress-elapsed">0:00</span>
+          <span id="progElapsed" class="progress-elapsed" title="Elapsed time">0:00</span>
         </div>
         <div class="progress-sub">
           <span id="progPhase" class="progress-phase"></span>
           <span id="progPlugin" class="progress-plugin"></span>
         </div>
         <div class="progress-bar" role="progressbar" aria-label="Scan progress"
-             aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="progBar">
+             aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="progBar"
+             aria-describedby="progPhase">
           <div id="progFill" class="progress-fill"></div>
         </div>
         <div class="progress-foot">
+          <button type="button" id="reconnectJobBtn" class="btn-secondary hidden">Reconnect</button>
           <button type="button" id="cancelBtn" class="btn-ghost-danger">Cancel scan</button>
         </div>
-        <pre id="scanLog" class="console-log" aria-live="polite" aria-atomic="false"
+        <pre id="scanLog" class="console-log" tabindex="0" role="region"
              aria-label="Scan activity log"></pre>
       </div>
 
@@ -284,14 +319,16 @@
 
       <!-- results view toggle: findings list vs attack-surface graph (Task 6) -->
       <div id="resultsToggle" class="seg hidden" role="tablist" aria-label="Results view">
-        <button type="button" id="viewFindings" class="seg-btn active" role="tab" aria-selected="true">Findings</button>
-        <button type="button" id="viewSurface" class="seg-btn" role="tab" aria-selected="false">Attack surface</button>
+        <button type="button" id="viewFindings" class="seg-btn active" role="tab"
+                aria-selected="true" aria-controls="results" tabindex="0">Findings</button>
+        <button type="button" id="viewSurface" class="seg-btn" role="tab"
+                aria-selected="false" aria-controls="surfaceView" tabindex="-1">Attack surface</button>
       </div>
 
-      <div id="results"></div>
+      <div id="results" role="tabpanel" aria-labelledby="viewFindings" tabindex="0"></div>
 
       <!-- attack-surface graph view — filled lazily by surface.js (CELSIUS.surface) -->
-      <div id="surfaceView" class="hidden">
+      <div id="surfaceView" class="hidden" role="tabpanel" aria-labelledby="viewSurface" tabindex="0">
         <div id="surfaceGraph" class="graph-wrap"></div>
         <div id="surfaceDetail" class="surface-detail hidden"></div>
       </div>
@@ -299,11 +336,13 @@
 
     <!-- ══ E-MAIL SECURITY ════════════════════════════════════ -->
     <section id="tab-mail" class="panel" role="tabpanel">
-      <form id="mailForm" class="targetbar">
+      <form id="mailForm" class="targetbar" novalidate>
         <label class="visually-hidden" for="mailDomain">Domain to check</label>
-        <input type="text" id="mailDomain" placeholder="example.com — domain, URL or e-mail address" autocomplete="off">
+        <input type="text" id="mailDomain" placeholder="example.com — domain, URL or e-mail address"
+               autocomplete="off" aria-describedby="mailDomainError" aria-invalid="false">
         <button type="submit" id="mailBtn" class="btn-primary">Check</button>
       </form>
+      <p id="mailDomainError" class="field-error hidden" role="alert"></p>
       <p class="note">Passive check — SPF · DKIM · DMARC · MTA-STS · TLS-RPT · DNSSEC · BIMI.
         No packets are sent to the mail server.</p>
       <div id="mailStatus" class="status hidden" role="status" aria-live="polite"></div>
@@ -325,17 +364,21 @@
 
       <p class="divider-note">— or paste a snippet —</p>
       <label class="visually-hidden" for="codeText">Code to scan</label>
-      <textarea id="codeText" placeholder="Paste code or config to scan for secrets &amp; risky patterns"></textarea>
+      <textarea id="codeText" placeholder="Paste code or config to scan for secrets &amp; risky patterns"
+                aria-describedby="codeTextError" aria-invalid="false"></textarea>
+      <p id="codeTextError" class="field-error hidden" role="alert"></p>
       <button id="codeTextBtn" class="btn-secondary">Scan pasted text</button>
 
       <details class="disclosure">
         <summary>Scan a path on the server (advanced)</summary>
         <p class="note">Reads files on the machine running Celsius, under the configured code root.</p>
-        <form id="codeForm" class="targetbar">
+        <form id="codeForm" class="targetbar" novalidate>
           <label class="visually-hidden" for="codePath">Server path to scan</label>
-          <input type="text" id="codePath" placeholder="/path/to/repo" autocomplete="off">
+          <input type="text" id="codePath" placeholder="/path/to/repo" autocomplete="off"
+                 aria-describedby="codePathError" aria-invalid="false">
           <button type="submit" id="codeBtn" class="btn-primary">Scan path</button>
         </form>
+        <p id="codePathError" class="field-error hidden" role="alert"></p>
       </details>
 
       <div id="codeStatus" class="status hidden" role="status" aria-live="polite"></div>
@@ -360,10 +403,11 @@
   </main>
 
   <!-- PoC modal -->
-  <div id="pocModal" class="modal hidden" role="dialog" aria-modal="true" aria-label="Proof of concept" aria-hidden="true">
+  <div id="pocModal" class="modal hidden" role="dialog" aria-modal="true"
+       aria-labelledby="pocTitle" aria-hidden="true">
     <div class="modal-box">
-      <button class="modal-close" id="pocClose" aria-label="Close">×</button>
-      <div id="pocContent"></div>
+      <button class="modal-close" id="pocClose" aria-label="Close reproduction steps">×</button>
+      <div id="pocContent"><h2 id="pocTitle">Proof of concept</h2></div>
     </div>
   </div>
 

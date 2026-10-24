@@ -176,12 +176,12 @@ def _host_of(target: str) -> str:
 
 
 def _worst_severity(cves: list[dict], findings: list[dict]) -> str:
-    # Low-confidence CVEs (over-broad NVD match or distro-backported package) are
-    # reported but must not drive the headline severity — otherwise an unconfirmed
-    # legacy CVE makes every box look CRITICAL.
+    # Unverified low-confidence CVEs must not drive the headline severity; live
+    # verification supersedes a weak version-inference record in legacy data.
     # AI hypotheses are explicit "leads, not facts" — also kept out of the
     # headline so an unverified guess can't flip the box to CRITICAL.
-    firm_cves = [c for c in cves if c.get("confidence", "firm") != "weak"]
+    firm_cves = [c for c in cves
+                 if c.get("confidence", "firm") != "weak" or c.get("verified")]
     real_findings = [f for f in findings if f.get("category") != "ai-hypothesis"]
     worst, rank = "INFO", -1
     for item in list(firm_cves) + list(real_findings):

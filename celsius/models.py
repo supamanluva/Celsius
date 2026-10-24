@@ -87,8 +87,8 @@ class CVE:
     references: list[dict[str, Any]] = field(default_factory=list)  # PoC/exploit refs
     verified: bool = False  # confirmed via nuclei template against the live target
     confidence: str = "firm"  # "firm" | "weak" — weak = over-broad NVD match (no
-                              # version range) or distro-backported package; not a
-                              # confident hit and excluded from the headline severity
+                              # version range) or distro-backported package; excluded
+                              # from headline severity unless independently verified
     caveat: str = ""          # why a match is weak / how to confirm it
     exploitability: dict[str, Any] = field(default_factory=dict)  # M4: verdict/signals/howto
 
@@ -161,9 +161,8 @@ class ScanResult:
         }
 
     def all_severities_sorted(self) -> list[Severity]:
-        # Weak (low-confidence) CVEs and AI hypotheses ("leads, not facts") are
-        # reported but excluded from the headline severity / exit code, so an
-        # unconfirmed match can't flip the whole result to CRITICAL.
-        sev = {c.severity for c in self.cves if c.confidence != "weak"} \
+        # Unverified weak CVEs and AI hypotheses are excluded from the headline;
+        # live verification makes a legacy weak CVE confident.
+        sev = {c.severity for c in self.cves if c.confidence != "weak" or c.verified} \
             | {f.severity for f in self.findings if f.category != "ai-hypothesis"}
         return sorted(sev, key=lambda s: s.rank, reverse=True)

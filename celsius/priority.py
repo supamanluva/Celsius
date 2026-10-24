@@ -63,7 +63,8 @@ def score(*, severity: str, exploitability: Optional[dict] = None,
 
     # Confirmed-real issues should be actioned ahead of a same-or-one-tier-higher
     # "maybe" — a verified HIGH outranks an unverified CRITICAL.
-    if verified or sig.get("actively_verified") or sig.get("verified"):
+    is_verified = bool(verified or sig.get("actively_verified") or sig.get("verified"))
+    if is_verified:
         s += 18
         why.append("actively verified")
     elif sig.get("reachable"):
@@ -71,7 +72,7 @@ def score(*, severity: str, exploitability: Optional[dict] = None,
         why.append("reachable")
 
     # Unconfirmed matches shouldn't outrank confirmed problems.
-    if confidence == "weak":
+    if confidence == "weak" and not is_verified:
         s *= 0.5
         why.append("unconfirmed match")
 

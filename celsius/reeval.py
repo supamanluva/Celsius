@@ -33,7 +33,8 @@ class HostReeval:
     notes: list = field(default_factory=list)
 
     def firm_new(self) -> list:
-        return [c for c in self.new_cves if getattr(c, "confidence", "firm") != "weak"]
+        return [c for c in self.new_cves
+                if getattr(c, "confidence", "firm") != "weak" or getattr(c, "verified", False)]
 
 
 def _services_from(scan: dict) -> list[Service]:
@@ -52,12 +53,14 @@ def _services_from(scan: dict) -> list[Service]:
 
 def reevaluate_scan(scan: dict, *, scan_id: str = "", api_key: Optional[str] = None,
                     force_refresh: bool = True,
-                    progress: Optional[Callable[[str], None]] = None) -> HostReeval:
+                    progress: Optional[Callable[[str], None]] = None,
+                    discovery_cache: Optional[dict] = None) -> HostReeval:
     """Re-match one stored scan's fingerprints against current CVE data."""
     services = _services_from(scan)
     known = {c.get("id") for c in (scan.get("cves") or [])}
-    cves, notes = cve_mod.lookup_all(services, api_key=api_key,
-                                     force_refresh=force_refresh, progress=progress)
+    cves, notes = cve_mod.lookup_all(
+        services, api_key=api_key, force_refresh=force_refresh, progress=progress,
+        discovery_cache=discovery_cache)
     new = [c for c in cves if c.id not in known]
     target = scan.get("target", "")
     try:
@@ -75,7 +78,8 @@ def reevaluate_scan(scan: dict, *, scan_id: str = "", api_key: Optional[str] = N
 def reevaluate(store, *, target: Optional[str] = None, limit: int = 100,
                api_key: Optional[str] = None, force_refresh: bool = True,
                progress: Optional[Callable[[str], None]] = None,
-               log: Callable[[str], None] = lambda _m: None) -> list[HostReeval]:
+               log: Callable[[str], None] = lambda _m: None,
+               discovery_cache: Optional[dict] = None) -> list[HostReeval]:
     """Re-evaluate the LATEST stored scan per host (or just `target`).
 
     Skips scans with no versioned services (nothing to match). Returns one
@@ -83,6 +87,8 @@ def reevaluate(store, *, target: Optional[str] = None, limit: int = 100,
     metas = store.list_scans(target=target, limit=limit)
     results: list[HostReeval] = []
     seen: set = set()
+    if discovery_cache is None:
+        discovery_cache = {}
     for meta in metas:                       # newest first (created_at DESC)
         tgt = meta.get("target")
         if tgt in seen:
@@ -93,6 +99,7 @@ def reevaluate(store, *, target: Optional[str] = None, limit: int = 100,
             continue
         log(f"re-evaluating {tgt} (last scanned {meta.get('finished_at') or meta.get('started_at')}) ...")
         r = reevaluate_scan(full, scan_id=meta["id"], api_key=api_key,
-                            force_refresh=force_refresh, progress=progress)
+                            force_refresh=force_refresh, progress=progress,
+                            discovery_cache=discovery_cache)
         results.append(r)
     return results

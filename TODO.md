@@ -1,6 +1,6 @@
 # celsius — Backlog / future work
 
-Status as of **v1.1.0** — the full M0–M6 roadmap in [plan.md](plan.md) is shipped.
+Status as of **v1.2.0** — the full M0–M6 roadmap in [plan.md](plan.md) is shipped.
 This file tracks the *future* enhancements noted across milestones. None are
 blocking; pick by value.
 
@@ -41,7 +41,7 @@ blocking; pick by value.
 ## Done (kept for reference)
 - [x] CVE verification via nuclei templates (`--cve-verify`) — v1.1.0
 - [x] Public PoC links from NVD exploit-tagged references — v1.1.0
-- [x] AI API key field in the web UI (+ browser localStorage) — v1.1.0
+- [x] AI API key field in the web UI (+ optional browser localStorage) — v1.1.0
 - [x] False-positive hardening: secret label words + low-confidence chain weighting
 - [x] Web report-download buttons — export JSON / SARIF / Markdown / HTML from the
       result + History views (`/api/scans/{id}/export.{fmt}`, domain ZIP)
@@ -56,6 +56,12 @@ blocking; pick by value.
       map (target → hosts → services → endpoints → findings), finding pills
       pinned to the endpoint their evidence mentions, click-to-inspect detail
       pane (`celsius/web/static/surface.js`)
+- [x] Lossless verification enrichment, vendor-aware CVE identity/deduplication,
+      run-scoped NVD reuse, and paginated/concurrent OSV auditing — v1.2.0
+- [x] CVE/finding triage, visible coverage and auth-fallback states, resilient
+      scan-job reconnection, and review-before-rescan workflow — v1.2.0
+- [x] Keyboard/focus accessibility, readable contrast, reduced motion, and mobile
+      history/triage layouts; AI-key browser storage is explicitly opt-in — v1.2.0
 
 > Reminder: every new active capability stays behind scope/authorization + audit,
 > non-destructive by default. No weaponized/mass-exploitation features.

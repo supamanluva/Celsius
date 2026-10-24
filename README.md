@@ -92,19 +92,21 @@ hints); **active OS/device fingerprint** (`nmap -O`); and **end-of-life** flaggi
 software that no longer gets security patches (PHP, IIS, Apache, Tomcat, OpenSSL…).
 
 **🛡️ CVE &amp; dependency intelligence** — CVE lookup against **NVD + MITRE CNA** with
-client-side version-range matching (catches freshly-published CVEs) against a
-built-in product map covering servers, CMSs, self-hosted apps and frameworks
-(nginx…WordPress, Drupal, Grafana, GitLab, Nextcloud, Keycloak, MinIO…), with
-paginated NVD keyword search so high-volume products aren't cut off at the
-2000-result page cap; **public
-exploit-PoC enrichment** linking confirmed CVEs to working PoC repos
-([trickest/cve](https://github.com/trickest/cve)); **dependency audit (SCA)** of
-lockfiles/manifests (npm, PyPI, Packagist, RubyGems, Go, crates.io) via OSV.dev;
-and **exploitability** scoring (EPSS + CISA **KEV** + reachability → verdict,
-priority, and a "how to check" decision tree) — the top "likely-exploitable"
-tier requires corroboration (KEV, EPSS ≥ 0.5, a public PoC ref, or a verified
-nuclei template), so an unconfirmed scanner hit is honestly rated
-"conditions-needed".
+client-side, vendor-aware version-range matching (catches freshly-published CVEs)
+against a built-in product map covering servers, CMSs, self-hosted apps and
+frameworks (nginx…WordPress, Drupal, Grafana, GitLab, Nextcloud, Keycloak, MinIO…).
+Paginated NVD discovery uses persistent + run-scoped caches so repeated versions
+and multi-host rechecks don't repeat identical searches; fresh CNA candidates are
+checked newest-first. **Public exploit-PoC enrichment** links confirmed CVEs to
+working PoC repos ([trickest/cve](https://github.com/trickest/cve)). The
+**dependency audit (SCA)** covers npm, PyPI, Packagist, RubyGems, Go and crates.io
+via OSV.dev, with bounded pagination, concurrent advisory details, and explicit
+partial-coverage errors instead of silently dropping successful results.
+**Exploitability** scoring (EPSS + CISA **KEV** + reachability → verdict, priority,
+and a "how to check" decision tree) preserves confirmed evidence and remediation;
+the top "likely-exploitable" tier requires corroboration (KEV, EPSS ≥ 0.5, a public
+PoC ref, or a verified nuclei template), so an unconfirmed scanner hit is honestly
+rated "conditions-needed".
 
 **🌐 Web security** — security-header audit (CSP, HSTS, X-Frame-Options, version
 disclosure); **per-cookie** flag audit (Secure/HttpOnly/SameSite, graded by
@@ -225,7 +227,25 @@ ZIP). The History tab offers substring search, a grade column, delete, re-scan
 and pagination; the Code tab takes a path, pasted snippet, or a **drag-and-drop
 file upload** (2 MB max). Toasts replace blocking alerts. AI controls
 auto-enable only when a provider is configured (`GET /api/ai/status` reports
-which env keys are set; `mock` shows as "Demo mode").
+which env keys are set; `mock` shows as "Demo mode"). API keys entered in the
+browser stay in memory unless **Remember API key in this browser** is explicitly
+enabled.
+
+Results include dedicated **CVE and finding triage**: search, severity/category/
+confidence/verification filters, evidence filters for CISA KEV and public PoCs,
+and risk/CVSS/publication-date sorting. The **Fix these first** list jumps directly
+to the matching card, and full CVE descriptions expand inline. A **Coverage &
+confidence** summary separates checks that ran, intentionally disabled coverage,
+unverified leads, and actual check errors. If authenticated session setup fails,
+the report carries a persistent **Unauthenticated scan** warning instead of
+silently presenting reduced coverage as complete.
+
+The jobs drawer supports **Open progress**, cancellation, and reconnecting after a
+transient polling failure; opening an older report does not detach a running job.
+Rescan actions prefill **Review & rescan** rather than launching with unrelated
+current options. The interface includes keyboard-operable tabs/presets, managed
+modal/drawer focus, reduced-motion support, readable contrast, and mobile history
+cards for narrow screens.
 
 An authorization checkbox gates all
 host scanning; the API returns `403` without it. Advanced panels expose
@@ -555,17 +575,22 @@ Freshly published CVEs sit in NVD as *"Awaiting Analysis"* for days/weeks with
 version. A naive `cpeName=`/keyword query therefore **misses the recent,
 high-impact CVEs you care about most**. So celsius:
 
-1. **Discovers** candidate CVEs for a product via one cached NVD keyword search —
-   paginated past NVD's 2000-result page cap (up to 6000, with a truncation note
-   when even that isn't enough), so high-volume keywords like `php` or
-   `wordpress` aren't silently cut off.
+1. **Discovers** candidate CVEs via paginated NVD keyword search (up to 6000,
+   with a truncation note when needed), so high-volume keywords like `php` or
+   `wordpress` aren't silently cut off at the 2000-result page cap. Persistent
+   caching is complemented by a **run-scoped keyword cache**: different versions
+   and hosts reuse one discovery result, and a forced multi-host recheck refreshes
+   each keyword only once.
 2. **Version-matches each candidate client-side**:
-   - against NVD's CPE version ranges when the CVE is *enriched*; otherwise
+   - against NVD's CPE **vendor + product** and version ranges when the CVE is
+     *enriched*, rejecting same-name products from other vendors; otherwise
    - against the **MITRE CNA record's** structured `affected[].versions` semver
      ranges, available immediately on publication.
 3. Filters CNA candidates by **product** (accept/reject regexes) so unrelated
    products the keyword search drags in (e.g. `ingress-nginx`, WordPress
-   plugins) can't cause false positives.
+   plugins) can't cause false positives. Unenriched candidates are checked
+   **newest-first** before the bounded CNA detail pass, and duplicate CVEs retain
+   the strongest firm/verified evidence plus affected-service labels and references.
 
 Only authoritative sources (NVD + MITRE) are used — never search-engine results,
 which are increasingly polluted with AI-invented "CVEs". Product detection maps

@@ -12,7 +12,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from celsius import report  # noqa: E402
 from celsius.models import CVE, Finding, ScanResult, Severity  # noqa: E402
-from celsius.store import _host_of  # noqa: E402
+from celsius.store import _host_of, _worst_severity  # noqa: E402
 
 
 def test_host_of_variants():
@@ -71,6 +71,17 @@ def test_rollup_groups_shared_ip_cves_once():
     assert "203.0.113.50" not in section
     # headline still counts the shared CVE once (deduped per IP)
     assert "HIGH 1" in html
+
+
+def test_verified_weak_cve_counts_in_headline_store_and_rollup():
+    cve = CVE(id="CVE-verified-weak", severity=Severity.HIGH, cvss=8.0,
+              description="live confirmed", url="u", confidence="weak", verified=True)
+    data = cve.to_dict()
+    assert _worst_severity([data], []) == "HIGH"
+    assert _result(cves=[cve]).all_severities_sorted() == [Severity.HIGH]
+    html = report.domain_rollup_html("luhn.se", [_scan("luhn.se", cves=[data])])
+    assert "HIGH 1" in html
+    assert "UNCONFIRMED" not in html
 
 
 def test_rollup_empty_is_friendly():

@@ -187,9 +187,16 @@ class PocRequest(BaseModel):
 
 # ---- scan jobs ----------------------------------------------------------------
 
+_AUTH_FALLBACK_WARNING = (
+    "AUTH_FALLBACK: authenticated session setup failed; the scan continued "
+    "unauthenticated and may miss authenticated-only coverage."
+)
+
+
 def _run_job(job_id: str, config: ScanConfig, scope: "Optional[Scope]" = None,
              auth_params: "Optional[dict]" = None) -> None:
     t0 = time.monotonic()
+    initial_errors: list[str] = []
 
     def log(msg: str) -> None:
         _log.info("[job %s] %s", job_id, msg)
@@ -211,18 +218,27 @@ def _run_job(job_id: str, config: ScanConfig, scope: "Optional[Scope]" = None,
 
     # Authenticated scan: build the session here (form login does network I/O — keep
     # it off the request thread). Failures degrade to an unauthenticated scan.
-    if auth_params and any(auth_params.get(k) for k in
-                           ("cookie", "bearer", "headers", "login_url")):
+    auth_requested = bool(auth_params and any(
+        auth_params.get(k) for k in ("cookie", "bearer", "headers", "login_url")))
+    if auth_params and auth_requested:
         from .. import auth as auth_mod
         try:
             config.auth = auth_mod.build_session(**auth_params, log=log)
         except Exception as e:
-            log(f"auth: failed to build session ({e}) — continuing unauthenticated")
+            log(f"auth: failed to build session ({type(e).__name__}) — continuing unauthenticated")
+            initial_errors.append(_AUTH_FALLBACK_WARNING)
+        if not config.auth and _AUTH_FALLBACK_WARNING not in initial_errors:
+            initial_errors.append(_AUTH_FALLBACK_WARNING)
 
     _log.info("[job %s] scan starting: target=%s", job_id, config.target)
     try:
-        result = run_scan(config, log=log, store=_store, scope=scope,
-                          progress=progress, cancelled=cancelled)
+        if initial_errors:
+            result = run_scan(config, log=log, store=_store, scope=scope,
+                              progress=progress, cancelled=cancelled,
+                              initial_errors=initial_errors)
+        else:
+            result = run_scan(config, log=log, store=_store, scope=scope,
+                              progress=progress, cancelled=cancelled)
         if cancelled():
             # Engine aborted between plugins; the partial result is discarded
             # (never persisted — the engine skips the store on cancel).
@@ -252,8 +268,16 @@ def start_scan(req: ScanRequest) -> dict:
                             detail="You must confirm you are authorized to scan this target.")
     if not req.target.strip():
         raise HTTPException(status_code=400, detail="Target is required.")
+    try:
+        target = parse_target(req.target.strip())
+    except (ValueError, UnicodeError):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid target. Enter a valid hostname, IP address, or URL.") from None
+    if not target.host:
+        raise HTTPException(status_code=400, detail="Target must include a hostname or IP address.")
 
-    if _is_metadata_or_linklocal(parse_target(req.target.strip()).host):
+    if _is_metadata_or_linklocal(target.host):
         raise HTTPException(
             status_code=400,
             detail="Refusing to scan a link-local / cloud-metadata address.")
@@ -266,7 +290,7 @@ def start_scan(req: ScanRequest) -> dict:
             raise HTTPException(
                 status_code=400,
                 detail="Lab mode requires a meaningful authorization attestation (≥10 characters).")
-        host = parse_target(req.target.strip()).host.lower()
+        host = target.host.lower()
         scope = Scope(targets={host: {Mode.PASSIVE.value, Mode.SAFE_ACTIVE.value,
                                       Mode.EXPLOIT.value}})
 

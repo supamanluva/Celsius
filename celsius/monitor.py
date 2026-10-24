@@ -124,6 +124,7 @@ def run_monitor(store, *, targets: Optional[list] = None,
             if new:
                 changes.append(HostChange(host=apex, target=apex, new_lookalikes=new))
 
+    discovery_cache: dict = {}
     for tgt in hosts:
         if rescan and scan_config_factory is not None:
             from .engine import run_scan
@@ -139,7 +140,8 @@ def run_monitor(store, *, targets: Optional[list] = None,
             ch = HostChange(host=host, target=tgt, diff_findings=diff)
         else:
             results = reeval.reevaluate(store, target=tgt, api_key=api_key,
-                                        force_refresh=True, log=log)
+                                        force_refresh=True, log=log,
+                                        discovery_cache=discovery_cache)
             new_cves = []
             host = tgt
             for hr in results:

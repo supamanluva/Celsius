@@ -50,6 +50,17 @@ def test_weak_confidence_halves_score():
     assert "unconfirmed match" in " ".join(why)
 
 
+def test_verified_weak_confidence_has_no_weak_penalty():
+    expected, _ = priority.score(severity="HIGH", confidence="firm", verified=True)
+    verified, why = priority.score(severity="HIGH", confidence="weak", verified=True)
+    signal_verified, signal_why = priority.score(
+        severity="HIGH", confidence="weak",
+        exploitability={"signals": {"verified": True}})
+    assert verified == expected
+    assert signal_verified == expected
+    assert "unconfirmed match" not in " ".join(why + signal_why)
+
+
 def test_reason_line_is_compact():
     assert priority.reason_line(["a", "b", "c"]) == "a; b"
 

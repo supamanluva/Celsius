@@ -29,6 +29,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -97,8 +98,8 @@ _PRODUCT_MAP: dict[str, _Map] = {
     "grafana": _Map("grafana", "grafana", "grafana", r"\bgrafana\b"),
     "nextcloud": _Map("nextcloud", "nextcloud_server", "nextcloud", r"\bnextcloud\b"),
     "owncloud": _Map("owncloud", "owncloud", "owncloud", r"\bowncloud\b"),
-    "gitea": _Map("go-gitea", "gitea", "gitea", r"\bgitea\b", reject=r"forgejo"),
-    "forgejo": _Map("codeberg", "forgejo", "forgejo", r"\bforgejo\b"),
+    "gitea": _Map("gitea", "gitea", "gitea", r"\bgitea\b", reject=r"forgejo"),
+    "forgejo": _Map("forgejo", "forgejo", "forgejo", r"\bforgejo\b"),
     "gitlab": _Map("gitlab", "gitlab", "gitlab", r"\bgitlab\b"),
     "jellyfin": _Map("jellyfin", "jellyfin", "jellyfin", r"\bjellyfin\b"),
     # Emby's CPE is emby:emby_server; the keyword covers CNA-only records too.
@@ -422,8 +423,8 @@ def _extract_cvss(metrics: dict) -> tuple[Optional[float], Severity]:
 
 # ---- Version matching ---------------------------------------------------------
 
-def _matches_nvd_config(vuln: dict, product: str, version: str) -> Optional[str]:
-    """Match `version` against the CVE's NVD CPE configuration.
+def _matches_nvd_config(vuln: dict, mapping: _Map, version: str) -> Optional[str]:
+    """Match `version` against the CVE's NVD CPE vendor/product configuration.
 
     Returns:
       * ``None``   — no configuration (caller should fall back to the CNA record)
@@ -446,7 +447,8 @@ def _matches_nvd_config(vuln: dict, product: str, version: str) -> Optional[str]
                 criteria = m.get("criteria", "")
                 parts = criteria.split(":")
                 # cpe:2.3:a:<vendor>:<product>:<version>:...
-                if len(parts) < 6 or parts[4].lower() != product.lower():
+                if (len(parts) < 6 or parts[3].lower() != mapping.vendor.lower()
+                        or parts[4].lower() != mapping.product.lower()):
                     continue
                 cpe_version = parts[5]
                 bounds = (
@@ -590,14 +592,32 @@ def _build_cve(
     )
 
 
+def _published_sort_key(vuln: dict) -> float:
+    published = vuln.get("cve", {}).get("published")
+    if not isinstance(published, str) or not published:
+        return float("-inf")
+    text = published[:-1] + "+00:00" if published.endswith(("Z", "z")) else published
+    try:
+        parsed = datetime.fromisoformat(text)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.timestamp()
+    except (ValueError, TypeError, OverflowError, OSError):
+        return float("-inf")
+
+
+_DiscoveryResult = tuple[Optional[list[dict]], bool]
+_DiscoveryCache = dict[str, _DiscoveryResult]
+
+
 def lookup_for_service(
     svc: Service, *, api_key: Optional[str] = None, max_cna_fetch: int = 60,
-    force_refresh: bool = False
+    force_refresh: bool = False, discovery_cache: Optional[_DiscoveryCache] = None
 ) -> tuple[list[CVE], Optional[str]]:
     """Find CVEs affecting one detected service version. Returns (cves, note).
 
-    `force_refresh` bypasses the NVD discovery cache so a re-evaluation picks up
-    CVEs published since the entry was cached (used by `celsius recheck`)."""
+    `force_refresh` bypasses the persistent NVD discovery cache. A supplied
+    run-scoped cache still prevents duplicate keyword refreshes, including failures."""
     if not svc.version:
         return [], "no version detected — skipped CVE lookup (would be too noisy)"
 
@@ -606,9 +626,14 @@ def lookup_for_service(
         return [], (f"unknown product '{svc.name}' — no CPE/keyword mapping; "
                     "verify manually at nvd.nist.gov")
 
-    product = mapping.product
-    vulns, truncated = _nvd_search(mapping.keyword, api_key=api_key,
-                                   force_refresh=force_refresh)
+    if discovery_cache is None:
+        discovery_cache = {}
+    if mapping.keyword in discovery_cache:
+        vulns, truncated = discovery_cache[mapping.keyword]
+    else:
+        vulns, truncated = _nvd_search(mapping.keyword, api_key=api_key,
+                                       force_refresh=force_refresh)
+        discovery_cache[mapping.keyword] = (vulns, truncated)
     if vulns is None:
         return [], "NVD request failed (rate limit or network)"
 
@@ -617,7 +642,7 @@ def lookup_for_service(
     distro = _distro_build(svc.version)
 
     for vuln in vulns:
-        decision = _matches_nvd_config(vuln, product, svc.version)
+        decision = _matches_nvd_config(vuln, mapping, svc.version)
         if decision in ("firm", "weak"):
             conf, caveat = _confidence(decision, distro)
             cve = _build_cve(vuln, svc, confidence=conf, caveat=caveat)
@@ -632,8 +657,9 @@ def lookup_for_service(
         notes.append(f"keyword search returned more than {len(vulns)} CVEs; "
                      f"only the first {len(vulns)} were evaluated")
     if cna_candidates:
+        cna_candidates.sort(key=_published_sort_key, reverse=True)
         if len(cna_candidates) > max_cna_fetch:
-            notes.append(f"{len(cna_candidates)} un-enriched CVEs; checked first "
+            notes.append(f"{len(cna_candidates)} un-enriched CVEs; checked newest "
                          f"{max_cna_fetch} via CNA records")
             cna_candidates = cna_candidates[:max_cna_fetch]
 
@@ -654,46 +680,125 @@ def lookup_for_service(
     return _dedupe(matched), "; ".join(notes) if notes else None
 
 
+def _merge_cve_exploitability(group: list[CVE], winner: CVE) -> None:
+    records = [(c, c.exploitability or {}) for c in group]
+    primary = winner.exploitability or {}
+    merged = {k: v for k, v in primary.items()
+              if k not in ("signals", "verdict", "priority")}
+    signals: dict = {}
+    priorities: list[float] = []
+    fallback_verdict = ""
+    for c, record in records:
+        if record.get("verdict") and not fallback_verdict:
+            fallback_verdict = record["verdict"]
+        priority = record.get("priority")
+        if isinstance(priority, (int, float)):
+            priorities.append(priority)
+        for key, value in record.items():
+            if key not in ("signals", "verdict", "priority"):
+                merged.setdefault(key, value)
+        for key, value in (record.get("signals") or {}).items():
+            if key not in signals or (signals[key] is None and value is not None):
+                signals[key] = value
+            elif key in ("verified", "actively_verified", "reachable") and value is True:
+                signals[key] = True
+
+    verified = any(c.verified for c in group)
+    if verified:
+        for c, record in records:
+            if c.verified and record.get("verification") is not None:
+                merged["verification"] = record["verification"]
+        signals["verified"] = True
+        signals["reachable"] = True
+    winner.verified = verified
+    if any(record for _c, record in records) or verified:
+        merged["verdict"] = ("confirmed-exploitable" if verified
+                             else primary.get("verdict") or fallback_verdict)
+        merged["priority"] = max(priorities + ([95] if verified else [0]))
+        merged["signals"] = signals
+        winner.exploitability = merged
+
+
 def _dedupe(cves: list[CVE]) -> list[CVE]:
-    seen: set[str] = set()
-    out: list[CVE] = []
+    groups: dict[str, list[CVE]] = {}
     for c in sorted(cves, key=lambda x: (x.severity.rank, x.cvss or 0), reverse=True):
-        if c.id in seen:
-            continue
-        seen.add(c.id)
-        out.append(c)
+        groups.setdefault(c.id, []).append(c)
+
+    out: list[CVE] = []
+    for group in groups.values():
+        winner = max(group, key=lambda c: (c.confidence != "weak", c.verified))
+        if len(group) > 1:
+            _merge_cve_exploitability(group, winner)
+            labels: list[str] = []
+            for c in [winner] + [c for c in group if c is not winner]:
+                for label in c.affects.split("; "):
+                    if label and label not in labels:
+                        labels.append(label)
+            winner.affects = "; ".join(labels)
+
+            references = [dict(r) for r in winner.references]
+            by_url = {r.get("url"): r for r in references if r.get("url")}
+            for c in group:
+                if c is winner:
+                    continue
+                for ref in c.references:
+                    url = ref.get("url")
+                    if not url:
+                        continue
+                    existing = by_url.get(url)
+                    if existing is None:
+                        existing = dict(ref)
+                        references.append(existing)
+                        by_url[url] = existing
+                        continue
+                    existing["poc"] = bool(existing.get("poc") or ref.get("poc"))
+                    tags = list(dict.fromkeys(
+                        (existing.get("tags") or []) + (ref.get("tags") or [])))
+                    if tags:
+                        existing["tags"] = tags
+                    for key, value in ref.items():
+                        existing.setdefault(key, value)
+            winner.references = references
+        out.append(winner)
     return out
 
 
 def lookup_all(
     services: list[Service], *, api_key: Optional[str] = None, progress=None,
-    force_refresh: bool = False
+    force_refresh: bool = False, discovery_cache: Optional[_DiscoveryCache] = None
 ) -> tuple[list[CVE], list[str]]:
     """Look up CVEs for every versioned service. Returns (cves, notes).
 
-    `force_refresh` bypasses the NVD discovery cache (for re-evaluation)."""
+    `force_refresh` bypasses the persistent NVD discovery cache. The optional
+    discovery cache shares one run's keyword results and failures across services."""
     all_cves: list[CVE] = []
     notes: list[str] = []
-    cache: dict[str, list[CVE]] = {}
+    service_cache: dict[str, list[CVE]] = {}
+    if discovery_cache is None:
+        discovery_cache = {}
 
     for svc in services:
         if not svc.version:
             continue
         key = f"{(svc.product or svc.name).lower()}:{svc.version}"
-        if key in cache:
-            for c in cache[key]:
+        if key in service_cache:
+            for c in service_cache[key]:
                 clone = CVE(
                     id=c.id, severity=c.severity, cvss=c.cvss, description=c.description,
                     url=c.url, published=c.published, affects=svc.label(),
                     product=svc.product or svc.name, version=svc.version, port=svc.port,
-                    references=c.references, confidence=c.confidence, caveat=c.caveat,
+                    references=[dict(r) for r in c.references], verified=c.verified,
+                    confidence=c.confidence, caveat=c.caveat,
+                    exploitability=dict(c.exploitability or {}),
                 )
                 all_cves.append(clone)
             continue
         if progress:
             progress(f"  querying NVD for {svc.label()} ...")
-        cves, note = lookup_for_service(svc, api_key=api_key, force_refresh=force_refresh)
-        cache[key] = cves
+        cves, note = lookup_for_service(
+            svc, api_key=api_key, force_refresh=force_refresh,
+            discovery_cache=discovery_cache)
+        service_cache[key] = cves
         all_cves.extend(cves)
         if note:
             notes.append(f"{svc.label()}: {note}")

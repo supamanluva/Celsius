@@ -83,6 +83,36 @@ def test_verification_record_has_manual_repro():
     assert mr["public_poc"] == ["https://github.com/x/poc"]
 
 
+def test_live_confirmation_promotes_weak_cve_to_firm():
+    from types import SimpleNamespace
+    from celsius import cveverify
+    from celsius.plugins.builtin import CveVerification
+
+    c = _cve()
+    c.confidence = "weak"
+    c.caveat = "original distro-match caveat"
+    result = SimpleNamespace(url=_URL, cves=[c], errors=[], findings=[], recon={})
+    ctx = SimpleNamespace(
+        result=result, target=SimpleNamespace(host="luhn.se", web_url=lambda: _URL),
+        audit=SimpleNamespace(active_probe=lambda *args, **kwargs: None),
+        log=lambda _message: None,
+    )
+    original = cveverify.verify_cves
+
+    def confirmed(url, ids):
+        assert url == _URL and ids == [c.id]
+        return {c.id}, [{"cve": c.id, "matched_at": _URL}], []
+
+    try:
+        cveverify.verify_cves = confirmed
+        CveVerification().run(ctx)
+    finally:
+        cveverify.verify_cves = original
+    assert c.verified is True
+    assert c.confidence == "firm"
+    assert c.caveat == "original distro-match caveat"
+
+
 def test_schemas_expose_oracle_tier():
     assert "goal" in prompts.CVE_VERIFY_SCHEMA
     assert "reachable" in prompts.CVE_JUDGE_SCHEMA["status"]

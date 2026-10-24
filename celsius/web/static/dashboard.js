@@ -38,12 +38,15 @@
     return relTime(scan.finished_at || scan.started_at) || "unknown date";
   }
 
-  // Headline severity counts, same rules as the results view: low-confidence
+  // Headline severity counts, same rules as the results view: unconfirmed weak
   // CVEs and AI-hypothesis findings stay out of the totals.
   function sevCounts(res) {
     const counts = { CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0, INFO: 0 };
     (res.cves || []).forEach((c) => {
-      if (c.confidence !== "weak" && counts[c.severity] != null) counts[c.severity]++;
+      const confirmed = c.verified === true || confirmedByExploitability(c);
+      if ((c.confidence !== "weak" || confirmed) && counts[c.severity] != null) {
+        counts[c.severity]++;
+      }
     });
     (res.findings || []).forEach((f) => {
       if (f.category !== "ai-hypothesis" && counts[f.severity] != null) counts[f.severity]++;
@@ -51,11 +54,22 @@
     return counts;
   }
 
-  // CVEs / findings confirmed by active verification (nuclei / lab mode).
+  function confirmedByExploitability(item) {
+    if (item.category === "ai-hypothesis") return false;
+    const ex = item.exploitability || {};
+    const signals = ex.signals || {};
+    return ex.verdict === "confirmed-exploitable" || ex.verdict === "confirmed-exposed"
+      || signals.verified === true
+      || (signals.actively_verified === true && signals.corroborated === true);
+  }
+
+  // Target-confirmed CVEs / findings; confidence labels and AI leads do not qualify.
   function verifiedCount(res) {
     let n = 0;
-    (res.cves || []).forEach((c) => { if (c.verified) n++; });
-    (res.findings || []).forEach((f) => { if (f.verified) n++; });
+    (res.cves || []).forEach((c) => {
+      if (c.verified === true || confirmedByExploitability(c)) n++;
+    });
+    (res.findings || []).forEach((f) => { if (confirmedByExploitability(f)) n++; });
     return n;
   }
 
@@ -77,15 +91,16 @@
           <path d="M9 12l2 2 4-4" stroke="currentColor" stroke-width="1.5"
                 stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
-        <h3 class="dash-empty-title">No scans yet</h3>
+        <h3 class="dash-empty-title">${isError ? "History unavailable" : "No scans yet"}</h3>
         <p class="note">${isError
           ? "Scan history could not be loaded right now — you can still start a new scan."
           : "Run your first scan to see the security posture of your targets here."}</p>
-        <button type="button" id="dashEmptyCta" class="btn-primary">New scan</button>
+        <button type="button" id="dashEmptyCta" class="btn-primary">${isError ? "Retry" : "New scan"}</button>
       </div>`;
     $("dashTiles").innerHTML = "";
     $("dashRecent").innerHTML = "";
     $("dashEmptyCta").addEventListener("click", () => {
+      if (isError) { refresh(); return; }
       C.showTab("host");
       const t = $("target");
       if (t) t.focus();
@@ -112,7 +127,7 @@
           <div class="hero-target">${esc(row.url || "-")} · ${esc(row.ip || "-")}</div>
           <div class="hero-counts">${chips}</div>
           <div class="hero-actions">
-            <button type="button" id="dashRescan" class="btn-secondary">Rescan</button>
+            <button type="button" id="dashRescan" class="btn-secondary">Review &amp; rescan</button>
             <button type="button" id="dashView" class="btn-primary">View results</button>
           </div>
         </div>
@@ -145,7 +160,7 @@
       tile("med", "Medium", sev("MEDIUM"), "plan a fix") +
       tile("low", "Low", sev("LOW"), "when convenient") +
       tile(nCves ? "high" : "ok", "CVEs", nCves, "known vulnerabilities") +
-      tile(res && nVerified ? "ok" : "", "AI-verified", nVerified, "confirmed by verification");
+      tile(res && nVerified ? "ok" : "", "Verified", nVerified, "target-confirmed CVEs & findings");
   }
 
   function renderRecent(scans) {
@@ -166,16 +181,25 @@
 
   // ---- refresh -----------------------------------------------------------------
 
-  async function _refresh() {
+  let _refreshGeneration = 0;
+
+  async function _refresh(generation) {
     const data = await C.api("/api/scans?limit=" + LIST_LIMIT);
+    if (generation !== _refreshGeneration) return;
     const scans = (data && data.scans) || [];
     if (!scans.length) { renderEmpty(false); return; }
     const newest = scans[0];
     // Full scan for the hero + tiles (severity split, assessment); fall back to
     // the history row alone when the detail fetch fails.
     let full = null;
-    try { full = await C.api("/api/scans/" + encodeURIComponent(newest.id)); }
-    catch (_) { full = null; }
+    try {
+      full = await C.api("/api/scans/" + encodeURIComponent(newest.id));
+      if (generation !== _refreshGeneration) return;
+    } catch (_) {
+      if (generation !== _refreshGeneration) return;
+      full = null;
+    }
+    if (generation !== _refreshGeneration) return;
     renderHero(newest, full);
     renderTiles(newest, full);
     renderRecent(scans);
@@ -183,7 +207,10 @@
 
   function refresh() {
     if (!$("dashHero")) return Promise.resolve();
-    return _refresh().catch(() => renderEmpty(true));
+    const generation = ++_refreshGeneration;
+    return _refresh(generation).catch(() => {
+      if (generation === _refreshGeneration) renderEmpty(true);
+    });
   }
 
   C.dashboard = { refresh };

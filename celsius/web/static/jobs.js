@@ -3,7 +3,7 @@
 /* ============================================================================
    Celsius web UI — jobs queue module: appbar badge with the running-job count
    and a right-side drawer listing running/recent scan jobs (cancel running,
-   open finished results). Loaded after dashboard.js; shares window.CELSIUS
+   open live progress or finished results). Loaded after dashboard.js; shares window.CELSIUS
    (see app.js). Additive: scan.js keeps its own per-job polling for the live
    progress card — this module only mirrors GET /api/jobs into CELSIUS.state.jobs.
    Untrusted job data is always rendered through esc() — never raw HTML.
@@ -105,17 +105,23 @@
   function rowHtml(j) {
     const st = String(j.status || "");
     const chipCls = STATUS_CHIP[st] || "chip-info";
+    const target = j.target || "(unknown target)";
     let actions = "";
     if (st === "running") {
-      actions = _cancelling.has(j.job_id)
-        ? `<button type="button" class="btn-ghost-danger jobs-cancel" disabled>cancelling…</button>`
-        : `<button type="button" class="btn-ghost-danger jobs-cancel" data-job="${esc(j.job_id)}">Cancel</button>`;
+      const cancel = _cancelling.has(j.job_id)
+        ? `<button type="button" class="btn-ghost-danger jobs-cancel" data-action="cancel" disabled>cancelling…</button>`
+        : `<button type="button" class="btn-ghost-danger jobs-cancel" data-action="cancel"
+            data-job="${esc(j.job_id)}" aria-label="Cancel scan of ${esc(target)}">Cancel</button>`;
+      actions = `<button type="button" class="btn-secondary jobs-open" data-action="open"
+          data-job="${esc(j.job_id)}" aria-label="Open progress for ${esc(target)}">Open progress</button>`
+        + cancel;
     } else if (st === "done") {
-      actions = `<button type="button" class="btn-secondary jobs-view" data-job="${esc(j.job_id)}">View</button>`;
+      actions = `<button type="button" class="btn-secondary jobs-view" data-action="view"
+        data-job="${esc(j.job_id)}" aria-label="View results for ${esc(target)}">View</button>`;
     }
-    return `<div class="jobs-row" data-job="${esc(j.job_id)}">
+    return `<div class="jobs-row" data-job="${esc(j.job_id)}" aria-label="Scan job for ${esc(target)}">
       <div class="jobs-row-top">
-        <span class="mono jobs-target">${esc(j.target || "(unknown target)")}</span>
+        <span class="mono jobs-target">${esc(target)}</span>
         <span class="chip ${chipCls}">${esc(st || "?")}</span>
       </div>
       ${st === "running" ? progressHtml(j) : ""}
@@ -127,17 +133,45 @@
   function renderList() {
     const box = $("jobsList");
     if (!box) return;
+    const active = document.activeElement;
+    const focusedRow = active && box.contains(active) ? active.closest(".jobs-row") : null;
+    const focusIdentity = focusedRow ? {
+      job: focusedRow.dataset.job,
+      action: active.dataset ? active.dataset.action : null,
+    } : null;
+    const scrollTop = $("jobsDrawer").scrollTop;
     const list = jobs();
     box.innerHTML = list.length
       ? list.map(rowHtml).join("")
       : `<p class="jobs-empty">No jobs yet</p>`;
     box.querySelectorAll(".jobs-cancel").forEach((b) =>
       b.addEventListener("click", () => cancelJob(b.dataset.job)));
+    box.querySelectorAll(".jobs-open").forEach((b) =>
+      b.addEventListener("click", () => openJobProgress(b.dataset.job)));
     box.querySelectorAll(".jobs-view").forEach((b) =>
       b.addEventListener("click", () => viewJob(b.dataset.job)));
+    $("jobsDrawer").scrollTop = scrollTop;
+    if (focusIdentity) {
+      const row = [...box.querySelectorAll(".jobs-row")]
+        .find((el) => el.dataset.job === focusIdentity.job);
+      const same = row && focusIdentity.action
+        ? row.querySelector(`[data-action="${focusIdentity.action}"]:not(:disabled)`) : null;
+      const fallback = row && row.querySelector("button:not(:disabled)");
+      (same || fallback || $("jobsClose")).focus({ preventScroll: true });
+    }
   }
 
   // ---- actions ----------------------------------------------------------------
+
+  function openJobProgress(jobId) {
+    const job = jobs().find((j) => j.job_id === jobId);
+    closeDrawer(false);
+    C.showTab("host");
+    C.watchJob(jobId, { target: job && job.target, startedAt: job && job.started_at });
+    C.scrollIntoView($("scanProgress"), { block: "center" });
+    $("scanProgress").tabIndex = -1;
+    $("scanProgress").focus({ preventScroll: true });
+  }
 
   async function cancelJob(jobId) {
     _cancelling.add(jobId);
@@ -156,11 +190,12 @@
     try {
       const job = await C.api("/api/scan/" + encodeURIComponent(jobId));
       if (job && job.result) {
-        closeDrawer();
+        closeDrawer(false);
         // ScanResult.to_dict() drops scan_id; it lives on the job dict (set by
         // the backend, app.py) — hand it through so loadScan can render the
         // export links and the "scan {id}" meta line like the History path does.
-        C.loadScan(Object.assign({}, job.result, { scan_id: job.scan_id }));
+        await C.loadScan(Object.assign({}, job.result, { scan_id: job.scan_id }));
+        $("results").focus({ preventScroll: true });
       } else {
         C.toast("That job has no stored result — check the History tab.", "info");
       }
@@ -171,24 +206,96 @@
 
   // ---- drawer open/close ------------------------------------------------------------
 
+  let _drawerReturnFocus = null;
+  let _drawerHideTimer = null;
+  let _drawerMobile = false;
+  const _drawerBackground = new Map();
+  const _drawerMedia = window.matchMedia("(max-width: 720px)");
+
+  function setDrawerBackgroundInert(inert) {
+    if (inert) {
+      if (_drawerBackground.size) return;
+      [...document.body.children].forEach((el) => {
+        if (el.id === "jobsDrawer" || el.tagName === "SCRIPT") return;
+        _drawerBackground.set(el, el.inert);
+        el.inert = true;
+      });
+    } else {
+      _drawerBackground.forEach((wasInert, el) => { el.inert = wasInert; });
+      _drawerBackground.clear();
+    }
+  }
+
+  function syncDrawerModality() {
+    const drawer = $("jobsDrawer");
+    const mobile = _open && _drawerMedia.matches;
+    drawer.setAttribute("aria-modal", mobile ? "true" : "false");
+    if (mobile === _drawerMobile) return;
+    _drawerMobile = mobile;
+    setDrawerBackgroundInert(mobile);
+  }
+
   function openDrawer() {
     const drawer = $("jobsDrawer");
     if (!drawer || _open) return;
+    if (_drawerHideTimer) {
+      clearTimeout(_drawerHideTimer);
+      _drawerHideTimer = null;
+    }
+    _drawerReturnFocus = document.activeElement;
     _open = true;
+    $("jobsBtn").setAttribute("aria-expanded", "true");
+    drawer.setAttribute("aria-hidden", "false");
     drawer.classList.remove("hidden");
+    syncDrawerModality();
     void drawer.offsetWidth; // restart the slide-in transition
     drawer.classList.add("open");
     renderList();
+    $("jobsClose").focus({ preventScroll: true });
     schedule(FAST_MS);
   }
 
-  function closeDrawer() {
+  function closeDrawer(restoreFocus) {
     const drawer = $("jobsDrawer");
     if (!drawer || !_open) return;
     _open = false;
+    syncDrawerModality();
+    const returnFocus = _drawerReturnFocus;
+    _drawerReturnFocus = null;
+    const restore = restoreFocus !== false && returnFocus && returnFocus.isConnected;
+    const destination = (restore ? returnFocus : $("jobsBtn")) || $("main-content");
+    if (restoreFocus !== false || drawer.contains(document.activeElement)) {
+      destination.focus({ preventScroll: true });
+    }
+    $("jobsBtn").setAttribute("aria-expanded", "false");
+    drawer.setAttribute("aria-hidden", "true");
     drawer.classList.remove("open");
-    setTimeout(() => { if (!_open) drawer.classList.add("hidden"); }, 260);
+    if (_drawerHideTimer) clearTimeout(_drawerHideTimer);
+    _drawerHideTimer = setTimeout(() => {
+      _drawerHideTimer = null;
+      if (!_open) drawer.classList.add("hidden");
+    }, 260);
     schedule(anyRunning() ? FAST_MS : SLOW_MS);
+  }
+
+  function trapDrawerTab(e) {
+    if (e.key !== "Tab" || !_open || !_drawerMedia.matches) return;
+    const drawer = $("jobsDrawer");
+    const focusable = [...drawer.querySelectorAll(
+      'button, a[href], input, textarea, select, [tabindex]:not([tabindex="-1"])')]
+      .filter((el) => !el.disabled && el.getClientRects().length);
+    if (!focusable.length) {
+      e.preventDefault();
+      return;
+    }
+    const first = focusable[0], last = focusable[focusable.length - 1];
+    if (e.shiftKey && (document.activeElement === first || !drawer.contains(document.activeElement))) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && (document.activeElement === last || !drawer.contains(document.activeElement))) {
+      e.preventDefault();
+      first.focus();
+    }
   }
 
   function refresh() { schedule(0); }
@@ -206,10 +313,13 @@
     const btn = $("jobsBtn");
     const drawer = $("jobsDrawer");
     if (!btn || !drawer) return;
+    syncDrawerModality();
+    _drawerMedia.addEventListener("change", syncDrawerModality);
+    drawer.addEventListener("keydown", trapDrawerTab);
     btn.addEventListener("click", () => (_open ? closeDrawer() : openDrawer()));
-    $("jobsClose").addEventListener("click", closeDrawer);
+    $("jobsClose").addEventListener("click", () => closeDrawer());
     document.addEventListener("click", (e) => {
-      if (_open && !drawer.contains(e.target) && !btn.contains(e.target)) closeDrawer();
+      if (_open && !drawer.contains(e.target) && !btn.contains(e.target)) closeDrawer(false);
     });
     document.addEventListener("keydown", (e) => {
       if (e.key === "Escape" && _open) closeDrawer();

@@ -37,13 +37,17 @@ def _cve(cid, sev=Severity.CRITICAL, conf="firm"):
 
 def _patch_reeval(mapping):
     """reeval.reevaluate(store, target=t, ...) -> [HostReeval] with mapping[t] CVEs."""
+    calls = []
+
     def fake(store, *, target=None, api_key=None, force_refresh=True, limit=100,
-             progress=None, log=lambda m: None):
+             progress=None, log=lambda m: None, discovery_cache=None):
+        calls.append({"target": target, "discovery_cache": discovery_cache})
         cves = mapping.get(target, [])
         hr = reeval.HostReeval(scan_id=f"id-{target}", target=target, host=target,
                                last_scanned="2026-01-01", checked_services=1, new_cves=cves)
         return [hr]
     mon.reeval.reevaluate = fake
+    return calls
 
 
 # ---- watchlist ----------------------------------------------------------------
@@ -67,6 +71,16 @@ def test_new_cve_produces_a_change():
     assert report.checked == 2
     assert [c.host for c in report.changes] == ["a.com"]      # only a.com changed
     assert report.any_changes() is True
+
+
+def test_recheck_shares_one_discovery_cache_across_hosts():
+    store = FakeStore(["a.com", "b.com"])
+    calls = _patch_reeval({"a.com": [], "b.com": []})
+    report = mon.run_monitor(store)
+    assert report.checked == 2
+    assert [c["target"] for c in calls] == ["a.com", "b.com"]
+    assert isinstance(calls[0]["discovery_cache"], dict)
+    assert calls[0]["discovery_cache"] is calls[1]["discovery_cache"]
 
 
 def test_no_changes_when_nothing_new():

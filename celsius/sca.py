@@ -6,11 +6,12 @@ exact pinned versions. Returns finding dicts shaped for codescan.CodeFinding.
 
 Lockfiles (exact versions) are preferred; a bare package.json is used only as a
 fallback and its range-stripped versions are flagged as approximate. Network is
-required — offline or on error, it degrades to a note and no findings.
+required — errors are explicit, and successful partial results are retained.
 """
 
 from __future__ import annotations
 
+import concurrent.futures
 import json
 import os
 import re
@@ -26,6 +27,8 @@ USER_AGENT = "celsius/1.1 (+authorized dependency audit)"
 TIMEOUT = 15
 MAX_DEPS = 800           # cap queries on huge lockfiles
 MAX_DETAIL_FETCH = 80    # cap per-vuln detail lookups
+MAX_DETAIL_WORKERS = 8
+MAX_QUERY_PAGES = 10     # bound follow-up pages for each dependency query
 
 _SKIP_DIRS = {".git", "node_modules", "venv", ".venv", "__pycache__", "dist",
               "build", ".mypy_cache", ".pytest_cache", "vendor", ".idea", ".tox"}
@@ -303,63 +306,186 @@ def audit_deps(deps: list[Dep]) -> tuple[list[dict], list[str]]:
     if not deps:
         return [], []
 
-    # 1) batch query: which deps have vulns + their ids
     queries = [{"version": d.version, "package": {"name": d.name, "ecosystem": d.ecosystem}}
                for d in deps]
     vuln_ids_per_dep: list[list[str]] = [[] for _ in deps]
-    try:
-        for start in range(0, len(queries), 100):
-            chunk = queries[start:start + 100]
-            res = _post(OSV_BATCH, {"queries": chunk})
-            for i, r in enumerate(res.get("results") or []):
-                ids = [v.get("id") for v in (r.get("vulns") or []) if v.get("id")]
-                vuln_ids_per_dep[start + i] = ids
-    except (urllib.error.URLError, OSError, ValueError) as e:
-        return [], [f"sca: OSV query failed ({e}); skipped dependency audit"]
+    query_issues: list[list[str]] = [[] for _ in deps]
+    errors: list[str] = []
 
-    # 2) fetch details for the (capped) set of unique vuln ids
-    unique_ids = []
+    def dep_label(d: Dep) -> str:
+        return f"{d.ecosystem}:{d.name}@{d.version}"
+
+    def add_result(index: int, result: dict) -> None:
+        for vuln in result.get("vulns") or []:
+            vid = vuln.get("id")
+            if vid and vid not in vuln_ids_per_dep[index]:
+                vuln_ids_per_dep[index].append(vid)
+
+    def page_issue(index: int, issue: str, detail: str) -> None:
+        query_issues[index].append(issue)
+        errors.append(f"sca: OSV pagination for {dep_label(deps[index])}: {detail}; "
+                      "results are incomplete")
+
+    # Batch chunks are independent: a later failure must not discard earlier hits.
+    for start in range(0, len(queries), 100):
+        chunk = queries[start:start + 100]
+        end = start + len(chunk)
+        try:
+            res = _post(OSV_BATCH, {"queries": chunk})
+        except (urllib.error.URLError, OSError, ValueError) as e:
+            errors.append(f"sca: OSV query failed for batch dependencies {start + 1}-{end} "
+                          f"({e}); successful dependency results were retained")
+            continue
+        if not isinstance(res, dict) or not isinstance(res.get("results"), list):
+            errors.append(f"sca: OSV query returned no valid results for batch dependencies "
+                          f"{start + 1}-{end}; those dependencies were not assessed")
+            continue
+        results = res.get("results") or []
+        if len(results) < len(chunk):
+            errors.append(f"sca: OSV query returned {len(results)}/{len(chunk)} results for "
+                          f"batch dependencies {start + 1}-{end}; missing results were not assessed")
+        if len(results) > len(chunk):
+            errors.append(f"sca: OSV query returned extra results for batch dependencies "
+                          f"{start + 1}-{end}; extra results were ignored")
+
+        for i, initial in enumerate(results[:len(chunk)]):
+            index = start + i
+            if not isinstance(initial, dict):
+                page_issue(index, "query result missing", "invalid initial result")
+                continue
+            current = initial
+            pages = 1
+            seen_tokens: set[str] = set()
+            while True:
+                add_result(index, current)
+                token = current.get("next_page_token") or ""
+                if not token:
+                    break
+                if not isinstance(token, str):
+                    page_issue(index, "invalid page token", "invalid next_page_token")
+                    break
+                if pages >= MAX_QUERY_PAGES:
+                    page_issue(index, "page cap reached",
+                               f"page cap {MAX_QUERY_PAGES} reached")
+                    break
+                if token in seen_tokens:
+                    page_issue(index, "repeated page token", "repeated next_page_token")
+                    break
+                seen_tokens.add(token)
+                page_query = dict(queries[index])
+                page_query["page_token"] = token
+                try:
+                    page_res = _post(OSV_BATCH, {"queries": [page_query]})
+                except (urllib.error.URLError, OSError, ValueError) as e:
+                    page_issue(index, "later page failed",
+                               f"page {pages + 1} failed ({e}); earlier results were retained")
+                    break
+                page_results = (page_res.get("results") or []) if isinstance(page_res, dict) else []
+                if not page_results or not isinstance(page_results[0], dict):
+                    page_issue(index, "later page missing",
+                               f"page {pages + 1} returned no valid result")
+                    break
+                current = page_results[0]
+                pages += 1
+
+    unique_ids: list[str] = []
+    seen_ids: set[str] = set()
     for ids in vuln_ids_per_dep:
         for vid in ids:
-            if vid not in unique_ids:
+            if vid not in seen_ids:
+                seen_ids.add(vid)
                 unique_ids.append(vid)
-    details: dict[str, dict] = {}
-    errors: list[str] = []
-    for vid in unique_ids[:MAX_DETAIL_FETCH]:
-        try:
-            details[vid] = _get(OSV_VULN + vid)
-        except (urllib.error.URLError, OSError, ValueError):
-            continue
-    if len(unique_ids) > MAX_DETAIL_FETCH:
-        errors.append(f"sca: {len(unique_ids) - MAX_DETAIL_FETCH} more advisories not detailed (cap)")
 
-    # 3) one finding per vulnerable dependency
+    selected_ids = unique_ids[:MAX_DETAIL_FETCH]
+    capped_ids = unique_ids[MAX_DETAIL_FETCH:]
+    capped = set(capped_ids)
+    if capped_ids:
+        shown = ", ".join(capped_ids[:5])
+        remaining = len(capped_ids) - 5
+        suffix = f" (+{remaining} more)" if remaining > 0 else ""
+        errors.append(f"sca: {len(capped_ids)} advisories not detailed "
+                      f"(cap {MAX_DETAIL_FETCH}): {shown}{suffix}")
+
+    details: dict[str, dict] = {}
+    failed_details: set[str] = set()
+    missing_details: set[str] = set()
+
+    def fetch_detail(vid: str):
+        try:
+            return vid, _get(OSV_VULN + vid), None
+        except (urllib.error.URLError, OSError, ValueError) as e:
+            return vid, None, e
+
+    if selected_ids:
+        workers = min(MAX_DETAIL_WORKERS, len(selected_ids))
+        with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
+            for vid, data, error in ex.map(fetch_detail, selected_ids):
+                if error is not None:
+                    failed_details.add(vid)
+                    errors.append(f"sca: OSV advisory detail failed for {vid} ({error}); "
+                                  "affected findings are incomplete")
+                elif not isinstance(data, dict) or not data:
+                    missing_details.add(vid)
+                    errors.append(f"sca: OSV advisory detail missing for {vid}; "
+                                  "affected findings are incomplete")
+                else:
+                    details[vid] = data
+
+    def compact_ids(ids: list[str]) -> str:
+        shown = ", ".join(ids[:3])
+        return shown + (f" (+{len(ids) - 3} more)" if len(ids) > 3 else "")
+
     findings: list[dict] = []
-    for d, ids in zip(deps, vuln_ids_per_dep):
+    for index, (d, ids) in enumerate(zip(deps, vuln_ids_per_dep)):
         if not ids:
             continue
         vulns = [details[i] for i in ids if i in details]
-        sev = max((_severity_of(v) for v in vulns), default="MEDIUM", key=lambda s: severity_rank(s))
-        # prefer CVE aliases for display
-        labels = []
-        for i in ids:
-            v = details.get(i, {})
-            cve = next((a for a in v.get("aliases", []) if a.startswith("CVE-")), None)
-            labels.append(cve or i)
+        sev = max((_severity_of(v) for v in vulns), default="MEDIUM",
+                  key=lambda s: severity_rank(s))
+        labels: list[str] = []
+        for vid in ids:
+            vuln = details.get(vid, {})
+            cve = next((a for a in (vuln.get("aliases") or [])
+                        if isinstance(a, str) and a.startswith("CVE-")), None)
+            label = cve or vid
+            if label not in labels:
+                labels.append(label)
         fixed = sorted({fv for v in vulns for fv in _fixed_versions(v, d.name)})
         summary = next((v.get("summary") or v.get("details", "")[:120]
                         for v in vulns if v.get("summary") or v.get("details")), "")
         approx = " (version approximate — from a range, not a lockfile)" if d.approximate else ""
         rec = (f"Upgrade {d.name} to {', '.join(fixed)} or later."
                if fixed else f"Upgrade {d.name} to a patched release (see advisory).")
+
+        status: list[str] = []
+        if query_issues[index]:
+            issues = list(dict.fromkeys(query_issues[index]))
+            status.append(f"query incomplete ({', '.join(issues)})")
+        failed = [vid for vid in ids if vid in failed_details]
+        capped_for_dep = [vid for vid in ids if vid in capped]
+        missing = [vid for vid in ids
+                   if vid not in details and vid not in failed_details and vid not in capped]
+        if failed:
+            status.append(f"detail failed: {compact_ids(failed)}")
+        if capped_for_dep:
+            status.append(f"details not fetched (cap): {compact_ids(capped_for_dep)}")
+        if missing:
+            status.append(f"details missing: {compact_ids(missing)}")
+        if status or query_issues[index]:
+            rec += " Review all listed advisory IDs manually; OSV results or details are incomplete."
+
+        evidence = f"{d.ecosystem}: {', '.join(labels[:6])}" + approx
+        if status:
+            evidence += " — " + "; ".join(status)
+        if summary:
+            evidence += f" — {summary}"
         findings.append({
             "title": f"Vulnerable dependency: {d.name}@{d.version} "
                      f"({len(ids)} known {'vulnerability' if len(ids) == 1 else 'vulnerabilities'})",
             "severity": sev, "category": "dependency",
             "file": d.manifest, "line": 0,
             "rule_id": labels[0] if labels else "OSV",
-            "evidence": (f"{d.ecosystem}: {', '.join(labels[:6])}"
-                         + (f" — {summary}" if summary else "") + approx)[:300],
+            "evidence": evidence[:300],
             "recommendation": rec,
         })
     return findings, errors

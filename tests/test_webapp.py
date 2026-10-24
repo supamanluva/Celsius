@@ -22,11 +22,19 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 try:
+    import pytest
+except ImportError:  # standalone stdlib-only runner
+    pytest = None
+
+try:
     from fastapi import HTTPException
     from celsius.web import app as webapp
     HAVE_WEB = True
 except ImportError:  # stdlib-only environment (CI stdlib job) — nothing to test
     HAVE_WEB = False
+
+if not HAVE_WEB and pytest is not None:
+    pytestmark = pytest.mark.skip(reason="fastapi not installed (web extra)")
 
 if HAVE_WEB:
     from celsius import __version__, engine
@@ -162,6 +170,79 @@ def test_engine_cancel_does_not_persist():
 
 
 # ---- web jobs: progress + cancel -------------------------------------------------
+
+def test_malformed_target_returns_controlled_400():
+    with webapp._jobs_lock:
+        before = set(webapp._jobs)
+    for target in ("https://example.com:bad/", "http://[", "https://"):
+        _raises(lambda target=target: webapp.start_scan(
+            webapp.ScanRequest(target=target, authorized=True)), 400)
+    _raises(lambda: webapp.start_scan(
+        webapp.ScanRequest(target="https://example.com:bad/", authorized=False)), 403)
+    _raises(lambda: webapp.start_scan(
+        webapp.ScanRequest(target="169.254.169.254", authorized=True)), 400)
+    with webapp._jobs_lock:
+        assert set(webapp._jobs) == before
+
+
+def test_auth_fallback_reaches_job_result_and_store_without_credentials():
+    from celsius import auth as auth_mod
+
+    store = _fresh_store()
+    _engine_with_plugins([])
+    webapp.run_scan = engine.run_scan
+    original_build_session = auth_mod.build_session
+
+    def fail_session(**_kwargs):
+        raise RuntimeError("mock authentication failure")
+
+    auth_mod.build_session = fail_session
+    secret = "session=do-not-leak-this-value"
+    try:
+        job_id = webapp.start_scan(webapp.ScanRequest(
+            target="127.0.0.1", authorized=True, auth_cookie=secret))["job_id"]
+        job = _wait_done(job_id)
+    finally:
+        auth_mod.build_session = original_build_session
+
+    assert job["status"] == "done"
+    warning = next(e for e in job["result"]["errors"] if e.startswith("AUTH_FALLBACK:"))
+    assert "unauthenticated" in warning
+    assert secret not in json.dumps(job)
+    rows = store.list_scans()
+    assert len(rows) == 1
+    persisted = store.get_scan(rows[0]["id"])
+    assert warning in persisted["errors"]
+    assert secret not in json.dumps(persisted)
+
+
+def test_auth_no_session_also_persists_one_fallback_warning():
+    from celsius import auth as auth_mod
+
+    store = _fresh_store()
+    _engine_with_plugins([])
+    webapp.run_scan = engine.run_scan
+    original_build_session = auth_mod.build_session
+    auth_mod.build_session = lambda **_kwargs: None
+    secret = "normal-login-failure-must-not-leak"
+    try:
+        job_id = webapp.start_scan(webapp.ScanRequest(
+            target="127.0.0.1", authorized=True,
+            login_url="http://127.0.0.1/login", login_pass=secret))["job_id"]
+        job = _wait_done(job_id)
+    finally:
+        auth_mod.build_session = original_build_session
+
+    assert job["status"] == "done"
+    warnings = [e for e in job["result"]["errors"] if e.startswith("AUTH_FALLBACK:")]
+    assert len(warnings) == 1
+    assert secret not in json.dumps(job)
+    rows = store.list_scans()
+    assert len(rows) == 1
+    persisted = store.get_scan(rows[0]["id"])
+    assert persisted["errors"].count(warnings[0]) == 1
+    assert secret not in json.dumps(persisted)
+
 
 def _start_fake_job(fake_run_scan) -> str:
     webapp.run_scan = fake_run_scan

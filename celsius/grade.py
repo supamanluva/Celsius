@@ -2,10 +2,9 @@
 owner can read at a glance: a letter grade, a 0-100 score, and a prioritized
 "fix these first" list.
 
-Only CONFIDENT signals count toward the grade: firm CVEs (weak/over-broad and
-distro-backported matches are excluded) and confirmed findings (AI hypotheses
-are "leads, not facts" and INFO items are not problems). A clean grade therefore
-means something — it isn't dragged down by maybes.
+Only CONFIDENT signals count toward the grade: firm or live-verified CVEs and
+confirmed findings (unverified weak matches, AI hypotheses, and INFO items are
+excluded). A clean grade therefore means something — it isn't dragged down by maybes.
 """
 
 from __future__ import annotations
@@ -20,13 +19,20 @@ _GRADE = [(95, "A+"), (85, "A"), (75, "B"), (60, "C"), (40, "D"), (0, "F")]
 _SKIP_CATEGORIES = {"ai-hypothesis", "ai-summary"}
 
 
+def _confident_cve(c: dict) -> bool:
+    return c.get("confidence", "firm") != "weak" or bool(c.get("verified"))
+
+
 def _firm_cves(d: dict) -> list:
-    return [c for c in d.get("cves", []) if c.get("confidence", "firm") != "weak"]
+    return [c for c in d.get("cves", []) if _confident_cve(c)]
+
+
+def _real_finding(f: dict) -> bool:
+    return f.get("category") not in _SKIP_CATEGORIES and f.get("severity") != "INFO"
 
 
 def _real_findings(d: dict) -> list:
-    return [f for f in d.get("findings", [])
-            if f.get("category") not in _SKIP_CATEGORIES and f.get("severity") != "INFO"]
+    return [f for f in d.get("findings", []) if _real_finding(f)]
 
 
 def _cve_fix(c: dict) -> str:
@@ -38,29 +44,34 @@ def _cve_fix(c: dict) -> str:
 def assess(result_dict: dict) -> dict:
     """Return {grade, score, clean, counts, fix_first[...]} for one scan.
 
-    `fix_first` items: {kind, severity, verified, title, detail, fix} ordered
-    verified-first, then by severity, then exploit priority — the order a site
-    owner should work through.
+    `fix_first` items include kind and source_index (the original position in that
+    kind's list), plus severity, verification, title, detail, fix, and risk reasons.
     """
     items: list[dict] = []
-    for c in _firm_cves(result_dict):
+    for source_index, c in enumerate(result_dict.get("cves", [])):
+        if not _confident_cve(c):
+            continue
         risk, why = priority.score(
             severity=c.get("severity", "INFO"), exploitability=c.get("exploitability"),
             confidence=c.get("confidence", "firm"), verified=bool(c.get("verified")))
         items.append({
-            "kind": "cve", "severity": c.get("severity", "INFO"),
+            "kind": "cve", "source_index": source_index,
+            "severity": c.get("severity", "INFO"),
             "verified": bool(c.get("verified")),
             "title": c.get("id", "CVE"),
             "detail": (c.get("description") or "")[:160],
             "fix": _cve_fix(c),
             "why": priority.reason_line(why), "_risk": risk,
         })
-    for f in _real_findings(result_dict):
+    for source_index, f in enumerate(result_dict.get("findings", [])):
+        if not _real_finding(f):
+            continue
         risk, why = priority.score(
             severity=f.get("severity", "INFO"), exploitability=f.get("exploitability"),
             confidence=f.get("confidence", "firm"), verified=f.get("confidence") == "high")
         items.append({
-            "kind": "finding", "severity": f.get("severity", "INFO"),
+            "kind": "finding", "source_index": source_index,
+            "severity": f.get("severity", "INFO"),
             "verified": f.get("confidence") == "high",
             "title": f.get("title", ""),
             "detail": (f.get("description") or "")[:160],

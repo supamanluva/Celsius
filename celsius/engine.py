@@ -32,6 +32,7 @@ def run_scan(
     store=None,
     progress: "Optional[Callable[[dict], None]]" = None,
     cancelled: "Optional[Callable[[], bool]]" = None,
+    initial_errors: Optional[list[str]] = None,
 ) -> ScanResult:
     """Run a full scan. If `store` is given (a store.Store), the result is saved
     and its id is recorded in result.extra via errors/notes is avoided — the id is
@@ -40,10 +41,12 @@ def run_scan(
     `progress` (web UI) is called before each plugin runs with
     {phase, plugin, index, total}; `cancelled` is polled between plugins — when
     it returns True the scan aborts early and the partial result is returned
-    unpersisted. Both are optional; the CLI passes neither (no-op)."""
+    unpersisted. Both are optional; the CLI passes neither (no-op).
+    `initial_errors` seeds persistent result notes before any plugin or store work."""
     log = log or (lambda _m: None)
     target = parse_target(config.target)
-    result = ScanResult(target=config.target, started_at=_now())
+    result = ScanResult(target=config.target, started_at=_now(),
+                        errors=list(initial_errors or []))
 
     scope = scope or load_scope(config.scope_file)
     # Apply the scope's request-rate cap to the shared active-HTTP helpers.

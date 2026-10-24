@@ -9,4 +9,4 @@ Stdlib-only: the core needs no third-party packages. nmap and nuclei are called
 as external binaries when present.
 """
 
-__version__ = "1.1.0"
+__version__ = "1.2.0"

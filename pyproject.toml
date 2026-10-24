@@ -12,7 +12,7 @@ requires-python = ">=3.10"
 # Keep in sync with celsius/__init__.py:__version__ (uv_build needs a static
 # version; the source tree runs uninstalled, so __init__ stays authoritative at
 # runtime). tests/test_packaging.py guards against drift.
-version = "1.1.0"
+version = "1.2.0"
 authors = [{ name = "supamanluva" }]
 keywords = ["security", "scanner", "pentest", "recon", "cve", "vulnerability"]
 classifiers = [

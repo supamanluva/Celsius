@@ -23,13 +23,24 @@
   };
   const TREND_LIMIT = 10;
   const TOP_CATS = 6;
+  let _trendGeneration = 0;
+
+  function confirmedCve(c) {
+    const ex = c.exploitability || {};
+    const signals = ex.signals || {};
+    return c.verified === true || ex.verdict === "confirmed-exploitable"
+      || ex.verdict === "confirmed-exposed" || signals.verified === true
+      || (signals.actively_verified === true && signals.corroborated === true);
+  }
 
   // Headline severity counts — same convention as scan.js / dashboard.js:
-  // low-confidence ("weak") CVEs and AI-hypothesis findings stay out.
+  // unconfirmed weak CVEs and AI-hypothesis findings stay out.
   function sevCounts(res) {
     const counts = { CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0, INFO: 0 };
     (res.cves || []).forEach((c) => {
-      if (c.confidence !== "weak" && counts[c.severity] != null) counts[c.severity]++;
+      if ((c.confidence !== "weak" || confirmedCve(c)) && counts[c.severity] != null) {
+        counts[c.severity]++;
+      }
     });
     (res.findings || []).forEach((f) => {
       if (f.category !== "ai-hypothesis" && counts[f.severity] != null) counts[f.severity]++;
@@ -141,17 +152,19 @@
 
   // Fetches prior scans of the same target and draws oldest→newest CVE counts.
   // Any failure (offline API, no matching scans, no host) hides the card.
-  async function renderTrend(res, card) {
+  async function renderTrend(res, card, generation) {
     const host = hostOf(res.url || res.target);
     if (!host) return;
     let scans;
     try {
       const data = await C.api("/api/scans?target=" + encodeURIComponent(host)
         + "&limit=" + TREND_LIMIT);
+      if (generation !== _trendGeneration || !card.isConnected || $("chartTrend") !== card) return;
       scans = (data && data.scans) || [];
     } catch (_) {
       return; // card stays hidden — graceful degradation
     }
+    if (generation !== _trendGeneration || !card.isConnected || $("chartTrend") !== card) return;
     const vals = scans.slice(0, TREND_LIMIT).reverse()
       .map((s) => Math.max(0, parseInt(s.n_cves, 10) || 0));
     if (!vals.length) return;
@@ -170,6 +183,7 @@
     const catsCard = $("chartCats");
     const trendCard = $("chartTrend");
     if (!row || !donutCard || !catsCard || !trendCard) return;
+    const generation = ++_trendGeneration;
     const res = scanDict || {};
     const counts = sevCounts(res);
     donutCard.innerHTML = `<h3 class="chart-title">Findings by severity</h3>
@@ -178,7 +192,7 @@
     trendCard.innerHTML = "";
     trendCard.classList.add("hidden"); // shown only when the history fetch succeeds
     row.classList.remove("hidden");
-    renderTrend(res, trendCard);
+    renderTrend(res, trendCard, generation);
   }
 
   C.charts = { render };

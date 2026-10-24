@@ -55,10 +55,30 @@ def correlate(result: ScanResult) -> list[dict]:
     graphql = _has(F, title_contains="graphql introspection")
     endpoints = (result.recon.get("crawl", {}) or {}).get("endpoints", []) or []
     api_info = result.recon.get("api", {}) or {}
-    kev_cves = [c for c in result.cves
-                if (c.exploitability or {}).get("signals", {}).get("kev")]
-    likely_cves = [c for c in result.cves
-                   if (c.exploitability or {}).get("verdict") == "likely-exploitable"]
+    urgent_cves = []
+    seen_urgent = set()
+    for c in result.cves:
+        record = c.exploitability or {}
+        sig = record.get("signals", {})
+        eligible = (sig.get("kev") or c.verified
+                    or record.get("verdict") in ("likely-exploitable", "confirmed-exploitable"))
+        if ((c.confidence == "weak" and not c.verified)
+                or sig.get("reachable") is not True or not eligible or c.id in seen_urgent):
+            continue
+        seen_urgent.add(c.id)
+        urgent_cves.append(c)
+
+    def urgent_rank(c):
+        record = c.exploitability or {}
+        sig = record.get("signals", {})
+        verified = c.verified or record.get("verdict") == "confirmed-exploitable"
+        priority = record.get("priority")
+        epss = sig.get("epss")
+        return (bool(sig.get("kev")), bool(verified),
+                priority if isinstance(priority, (int, float)) else 0,
+                epss if isinstance(epss, (int, float)) else 0)
+
+    urgent_cves.sort(key=urgent_rank, reverse=True)
 
     # 1) Source-map disclosure -> leaked credential
     if sourcemaps and secrets:
@@ -130,17 +150,35 @@ def correlate(result: ScanResult) -> list[dict]:
             [graphql[0].title] + ([secrets[0].title] if secrets else []),
             "Disable introspection in production; enforce object-level authorization."))
 
-    # 6) KEV / likely-exploitable CVE on a reachable service -> urgent
-    for c in (kev_cves or likely_cves)[:3]:
+    # 6) KEV / verified / likely-exploitable CVE on a reachable service -> urgent
+    for c in urgent_cves[:3]:
         n += 1
-        sig = (c.exploitability or {}).get("signals", {})
-        why = "in CISA KEV (exploited in the wild)" if sig.get("kev") else "high EPSS"
+        record = c.exploitability or {}
+        sig = record.get("signals", {})
+        verified = c.verified or record.get("verdict") == "confirmed-exploitable"
+        epss = sig.get("epss")
+        if sig.get("kev"):
+            reason = ("It is listed in CISA KEV, confirming that it is known to be "
+                      "exploited in the wild.")
+            recommendation = ("Patch to the fixed version urgently; CISA has catalogued "
+                              "this CVE as known exploited.")
+        elif verified:
+            reason = "Its exploitability was actively verified on this authorized target."
+            recommendation = ("Remediate the confirmed vulnerability immediately and patch "
+                              "to the fixed version.")
+        elif isinstance(epss, (int, float)) and epss >= 0.5:
+            reason = (f"Its high EPSS score ({epss:.3f}) indicates elevated exploitation "
+                      "likelihood, but does not itself confirm exploitation in the wild.")
+            recommendation = ("Prioritize patching this Internet-reachable service; high "
+                              "EPSS is a probability signal, not proof of active exploitation.")
+        else:
+            reason = "It is assessed as likely exploitable from the available signals."
+            recommendation = ("Prioritize patching this Internet-reachable service and "
+                              "confirm that the affected feature is enabled.")
         chains.append(_chain(
             f"chain-{n}", f"Internet-reachable service vulnerable to {c.id}", "CRITICAL", 90,
-            f"{c.id} affects {c.affects}, which is exposed on the target, and the CVE is "
-            f"{why}. This is a prime, real-world exploitation path.",
-            [f"{c.affects}", c.id],
-            "Patch to the fixed version urgently; it is being exploited in the wild."))
+            f"{c.id} affects {c.affects}, which is Internet-reachable on the target. {reason}",
+            [f"{c.affects}", c.id], recommendation))
 
     chains.sort(key=lambda c: c["priority"], reverse=True)
     return chains

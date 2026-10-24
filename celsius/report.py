@@ -777,7 +777,7 @@ def write_html(result: ScanResult, path: str) -> None:
 def domain_rollup_html(domain: str, scans: list[dict]) -> str:
     """Aggregate report for one domain across many hosts (the host + subdomains).
 
-    Each item in `scans` is a ScanResult.to_dict() mapping. Low-confidence CVEs
+    Each item in `scans` is a ScanResult.to_dict() mapping. Unverified weak CVEs
     are excluded from headline counts/worst, matching the rest of the tool.
     """
     from .store import _host_of
@@ -787,7 +787,8 @@ def domain_rollup_html(domain: str, scans: list[dict]) -> str:
         return f'<span class="badge" style="background:{_SEV_BG.get(sev, "#888")}">{e(sev)}</span>'
 
     def firm(d):
-        return [c for c in d.get("cves", []) if c.get("confidence", "firm") != "weak"]
+        return [c for c in d.get("cves", [])
+                if c.get("confidence", "firm") != "weak" or c.get("verified")]
 
     def real_finds(d):  # confirmed findings (AI hypotheses are leads, not facts)
         return [f for f in d.get("findings", []) if f.get("category") != "ai-hypothesis"]
@@ -831,7 +832,7 @@ def domain_rollup_html(domain: str, scans: list[dict]) -> str:
         for f in real_finds(d):
             totals[f.get("severity", "INFO")] = totals.get(f.get("severity", "INFO"), 0) + 1
         for c in d.get("cves", []):
-            if c.get("confidence") == "weak":
+            if c.get("confidence") == "weak" and not c.get("verified"):
                 key = (ip, c.get("id"))
                 if key not in seen_weak:
                     seen_weak.add(key)

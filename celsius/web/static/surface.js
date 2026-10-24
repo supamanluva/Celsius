@@ -487,6 +487,12 @@
     sb.classList.toggle("active", isSurface);
     fb.setAttribute("aria-selected", isSurface ? "false" : "true");
     sb.setAttribute("aria-selected", isSurface ? "true" : "false");
+    fb.tabIndex = isSurface ? -1 : 0;
+    sb.tabIndex = isSurface ? 0 : -1;
+    const selected = isSurface ? sb : fb;
+    if (!$("resultsToggle").classList.contains("hidden")) {
+      C.scrollIntoView(selected, { block: "nearest", inline: "nearest" });
+    }
     if (isSurface && _dirty && _scan) {
       render(_scan);
       _dirty = false;
@@ -509,8 +515,16 @@
 
   C.onInit(function () {
     const fb = $("viewFindings"), sb = $("viewSurface");
+    const tabs = [fb, sb].filter(Boolean);
     if (fb) fb.addEventListener("click", () => setView("findings"));
     if (sb) sb.addEventListener("click", () => setView("surface"));
+    const list = $("resultsToggle");
+    if (list) list.addEventListener("keydown", (e) => {
+      C.rovingKey(e, tabs, (tab) => {
+        setView(tab === sb ? "surface" : "findings");
+        tab.focus();
+      });
+    });
   });
 
   C.surface = { render, onScan, buildGraph, setView };

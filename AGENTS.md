@@ -67,7 +67,8 @@ celsius/
   cli.py            CLI + subcommands + authorization gate (interactive prompt / --yes)
   engine.py         scan orchestration (run_scan) — plugin pipeline, scope/audit/persist;
                     optional progress=/cancelled= callbacks drive the web UI's
-                    progress bar and Cancel button (CLI unaffected)
+                    progress bar and Cancel button; initial_errors= seeds persistent
+                    web-job warnings before grading/persistence (CLI unaffected)
   config.py         ScanConfig dataclass (all scan toggles/flags)
   models.py         dataclasses: Service, CVE, Finding, ScanResult
   plugins/          plugin framework (base.py: Plugin, ScanContext, Phase, Mode,
@@ -79,7 +80,9 @@ celsius/
   http_analysis.py  header fetch, service detection, missing-CSP/header audit
   webchecks.py      CSP directive-quality evaluation (single authoritative evaluator)
   portscan.py       nmap -sV / -O wrapper (XML parsing, per-IP cache)
-  cve.py            NVD + MITRE CNA lookup, version-range matching, trickest PoCs
+  cve.py            NVD + MITRE CNA lookup, vendor/product + version-range matching,
+                    run-scoped keyword reuse, confidence-aware dedupe, trickest PoCs
+  sca.py            OSV dependency audit with bounded pagination/concurrent details
   version.py        pragmatic numeric version comparator (not full PEP 440/semver)
   nuclei_scan.py    optional nuclei wrapper
   secrets.py        secret signatures (regex) + Shannon entropy

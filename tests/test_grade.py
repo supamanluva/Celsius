@@ -33,6 +33,16 @@ def test_weak_cves_and_ai_leads_do_not_count():
     assert a["clean"] is True and a["grade"] == "A+"
 
 
+def test_verified_weak_cve_counts_as_confident():
+    a = grade.assess(_r(cves=[{
+        "id": "CVE-verified-weak", "severity": "HIGH", "confidence": "weak",
+        "verified": True,
+    }]))
+    assert not a["clean"] and a["counts"]["HIGH"] == 1
+    assert a["fix_first"][0]["verified"] is True
+    assert "unconfirmed match" not in a["fix_first"][0]["why"]
+
+
 def test_firm_critical_caps_to_F_or_D():
     a = grade.assess(_r(cves=[{"id": "CVE-1", "severity": "CRITICAL", "confidence": "firm"}]))
     assert a["score"] <= 40 and a["grade"] in ("D", "F")
@@ -50,6 +60,25 @@ def test_mediums_lower_but_not_fail():
         {"title": "No CSP", "severity": "MEDIUM", "category": "csp"},
         {"title": "No HSTS", "severity": "MEDIUM", "category": "headers"}]))
     assert a["grade"] in ("B", "C") and not a["clean"]
+
+
+def test_fix_first_preserves_original_source_indexes():
+    a = grade.assess(_r(
+        cves=[
+            {"id": "CVE-skipped", "severity": "CRITICAL", "confidence": "weak"},
+            {"id": "CVE-included", "severity": "HIGH", "confidence": "firm"},
+        ],
+        findings=[
+            {"title": "info", "severity": "INFO", "category": "headers"},
+            {"title": "Same title", "severity": "HIGH", "category": "headers"},
+            {"title": "Same title", "severity": "HIGH", "category": "ai-hypothesis"},
+            {"title": "Same title", "severity": "HIGH", "category": "headers"},
+        ]))
+    cve_item = next(it for it in a["fix_first"] if it["kind"] == "cve")
+    finding_indexes = [it["source_index"] for it in a["fix_first"]
+                       if it["kind"] == "finding" and it["title"] == "Same title"]
+    assert cve_item["source_index"] == 1
+    assert finding_indexes == [1, 3]
 
 
 def test_fix_first_orders_verified_then_severity():

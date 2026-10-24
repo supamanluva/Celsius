@@ -37,9 +37,10 @@ class FakeStore:
         return None
 
 
-def _cve(cid, sev=Severity.HIGH, conf="firm"):
+def _cve(cid, sev=Severity.HIGH, conf="firm", verified=False):
     return CVE(id=cid, severity=sev, cvss=7.5, url=f"https://nvd/{cid}",
-               description="x", confidence=conf, affects="nginx 1.20.0")
+               description="x", confidence=conf, affects="nginx 1.20.0",
+               verified=verified)
 
 
 def _scan(scan_id, target, version="1.20.0", known_cves=()):
@@ -55,9 +56,11 @@ def _patch_lookup(returns):
     """Patch cve.lookup_all to return a fixed CVE list (records force_refresh)."""
     calls = {}
 
-    def fake(services, *, api_key=None, progress=None, force_refresh=False):
+    def fake(services, *, api_key=None, progress=None, force_refresh=False,
+             discovery_cache=None):
         calls["force_refresh"] = force_refresh
         calls["services"] = services
+        calls.setdefault("discovery_caches", []).append(discovery_cache)
         return list(returns), []
 
     cve_mod.lookup_all = fake          # reeval calls cve_mod.lookup_all
@@ -114,12 +117,25 @@ def test_scan_without_versioned_services_is_skipped():
     assert results == []                        # nothing to match -> skipped
 
 
-def test_firm_new_filters_weak_leads():
+def test_firm_new_filters_only_unverified_weak_leads():
     store = FakeStore([_scan("s1", "a.com")])
-    _patch_lookup([_cve("CVE-2026-1", conf="firm"), _cve("CVE-2026-2", conf="weak")])
+    _patch_lookup([
+        _cve("CVE-2026-1", conf="firm"),
+        _cve("CVE-2026-2", conf="weak"),
+        _cve("CVE-2026-3", conf="weak", verified=True),
+    ])
     r = reeval.reevaluate(store)[0]
-    assert len(r.new_cves) == 2
-    assert [c.id for c in r.firm_new()] == ["CVE-2026-1"]
+    assert len(r.new_cves) == 3
+    assert [c.id for c in r.firm_new()] == ["CVE-2026-1", "CVE-2026-3"]
+
+
+def test_multi_host_reevaluate_shares_one_discovery_cache():
+    store = FakeStore([_scan("s1", "a.com"), _scan("s2", "b.com")])
+    calls = _patch_lookup([])
+    results = reeval.reevaluate(store)
+    caches = calls["discovery_caches"]
+    assert len(results) == 2 and len(caches) == 2
+    assert isinstance(caches[0], dict) and caches[0] is caches[1]
 
 
 if __name__ == "__main__":
