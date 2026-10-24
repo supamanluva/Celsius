@@ -938,7 +938,7 @@
         const h = (s || "").toLowerCase();
         if (h && h !== scanned && !byHost.has(h)) byHost.set(h, h);
       });
-      // co-hosted siblings on the same IP (cert SANs + reverse-IP)
+      // co-hosted hostname candidates on the same IP (cert SANs + PTR + reverse-IP)
       ((recon.cohosted || {}).siblings || []).forEach((s) => {
         const h = (s || "").toLowerCase();
         if (h && h !== scanned && !byHost.has(h)) byHost.set(h, h);
@@ -1556,12 +1556,33 @@
       }
       if (recon.dns && recon.dns.records) {
         const r = recon.dns.records;
-        const line = ["A", "AAAA", "MX", "NS"].filter((k) => r[k]).map((k) => `${k}: ${r[k].slice(0, 3).join(", ")}`).join(" · ");
+        const line = ["A", "AAAA", "MX", "NS", "PTR"].filter((k) => r[k]).map((k) => `${k}: ${r[k].slice(0, 3).join(", ")}`).join(" · ");
         minis.push(`<div class="mini"><h5>DNS</h5><p class="mono">${esc(line)}</p></div>`);
       }
       if (recon.subdomains && recon.subdomains.length) {
         minis.push(`<div class="mini"><h5>Subdomains (${recon.subdomains.length})</h5>
           <p class="mono">${recon.subdomains.slice(0, 12).map(esc).join(", ")}${recon.subdomains.length > 12 ? " …" : ""}</p></div>`);
+      }
+      if (recon.cohosted) {
+        const co = recon.cohosted;
+        const hosts = Array.isArray(co.siblings) ? co.siblings : [];
+        const checked = co.checked || {};
+        const sources = [];
+        if (checked.certificate_san) sources.push("certificate SANs");
+        if (checked.reverse_dns) sources.push("PTR");
+        if (checked.reverse_ip) sources.push("reverse-IP");
+        if (hosts.length || sources.length || co.error) {
+          const status = hosts.length
+            ? hosts.slice(0, 12).map(esc).join(", ") + (hosts.length > 12 ? " …" : "")
+            : co.error
+              ? "No hostnames found; reverse-IP lookup failed."
+              : "No public hostnames found in the checked sources.";
+          minis.push(`<div class="mini cohost-status"><h5>Co-hosted hostname candidates (${hosts.length})</h5>
+            <p>${status}</p>
+            ${sources.length ? `<p class="mono">Checked: ${sources.join(" · ")}</p>` : ""}
+            ${co.error ? `<p class="meta">${esc(co.error)}</p>` : ""}
+            <p class="note">Candidates are not confirmed websites or authorization to scan.</p></div>`);
+        }
       }
       if (recon.crawl) {
         const c = recon.crawl;

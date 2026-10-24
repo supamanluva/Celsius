@@ -21,12 +21,13 @@ def assess_coverage(result: ScanResult, config: ScanConfig) -> dict:
         (ran if on else skipped).append(name)
 
     mark("web-headers", config.web)
-    mark("dns", config.dns and not _is_ip(result))
+    mark("dns", config.dns)
     mark("tls", config.tls)
     mark("robots/sitemap", config.robots and not _is_ip(result))
     mark("favicon", config.favicon)
     mark("fingerprint", config.fingerprint)
-    mark("subdomains", config.subdomains)
+    mark("subdomains", config.subdomains and not _is_ip(result))
+    mark("co-host-discovery", config.tls or config.dns or config.subdomains)
     mark("wayback", config.wayback and not _is_ip(result))
     mark("port-scan", config.ports)
     mark("crawl+js", config.crawl)
@@ -50,7 +51,10 @@ def assess_coverage(result: ScanResult, config: ScanConfig) -> dict:
     if not config.crawl:
         suggestions.append("crawl client code (--crawl) for hidden endpoints/source maps")
     if not config.subdomains:
-        suggestions.append("enumerate subdomains (--subdomains) for wider attack surface")
+        if _is_ip(result):
+            suggestions.append("enable passive reverse-IP host discovery (--subdomains)")
+        else:
+            suggestions.append("enumerate subdomains (--subdomains) for wider attack surface")
     if not config.content_discovery:
         suggestions.append("probe for exposed files (--content-discovery): .git/.env/backups")
     if not config.wayback:

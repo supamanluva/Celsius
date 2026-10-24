@@ -158,7 +158,12 @@ def _resolve_mapping(name: str) -> Optional[_Map]:
     if key in _PRODUCT_MAP:
         return _PRODUCT_MAP[key]
     tokens = {t for t in re.split(r"[^a-z0-9.+-]+", key) if t}
+    if {"microsoft", "iis"}.issubset(tokens):
+        return _PRODUCT_MAP["microsoft-iis"]
     for mk, mapping in _PRODUCT_MAP.items():
+        # A suffix such as Microsoft HTTPAPI httpd is not evidence of Apache.
+        if mk == "httpd" and "apache" not in tokens:
+            continue
         if " " not in mk and mk in tokens:
             return mapping
     return None

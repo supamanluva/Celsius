@@ -41,6 +41,20 @@ def test_exact_names_still_resolve():
     assert _prod("OpenSSH") == "openssh"
 
 
+def test_httpd_suffix_does_not_override_product_vendor():
+    assert _prod("Microsoft IIS httpd") == "internet_information_services"
+    assert _prod("Microsoft HTTPAPI httpd") is None
+    assert _prod("IBM HTTP Server httpd") is None
+    assert _prod("Apache httpd (Windows)") == "http_server"
+    assert _prod("httpd") == "http_server"
+
+    svc = Service(name="Microsoft HTTPAPI httpd", product="Microsoft HTTPAPI httpd", version="2.0")
+    matches, note = cve.lookup_for_service(
+        svc, discovery_cache={"apache http server": ([], False)})
+    assert matches == []
+    assert note and "unknown product" in note
+
+
 def test_no_false_substring_match():
     # "bind" must match only as a whole token, not inside another word
     assert _prod("rebind-helper") is None

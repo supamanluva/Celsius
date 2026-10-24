@@ -249,10 +249,11 @@ class DnsRecon(Plugin):
     category = "dns"
 
     def enabled(self, ctx: ScanContext) -> bool:
-        return ctx.config.dns and not ctx.target.is_ip
+        return ctx.config.dns
 
     def run(self, ctx: ScanContext) -> None:
-        dns = dns_mod.lookup(ctx.target.host)
+        dns = (dns_mod.lookup_ip(ctx.target.host) if ctx.target.is_ip
+               else dns_mod.lookup(ctx.target.host))
         ctx.result.recon["dns"] = dns
         summary = dns_mod.summarize(dns)
         if summary:
@@ -903,18 +904,20 @@ class WordPressChecks(Plugin):
 @register
 class CoHostDiscovery(Plugin):
     id = "cohost"
-    title = "co-hosted hosts on the same IP (cert SANs + reverse-IP)"
-    phase = Phase.DETECT      # after TLS (SANs) + IP resolution
-    mode = Mode.PASSIVE       # cert already fetched; reverse-IP is a passive 3rd-party lookup
+    title = "co-hosted host candidates (cert SANs + PTR + reverse-IP)"
+    phase = Phase.DETECT      # after DNS/TLS + IP resolution
+    mode = Mode.PASSIVE       # reuse SAN/PTR; reverse-IP is a passive 3rd-party lookup
     category = "cohost"
 
     def run(self, ctx: ScanContext) -> None:
-        sans = (ctx.result.recon.get("tls") or {}).get("san", [])
+        recon = ctx.result.recon
+        sans = (recon.get("tls") or {}).get("san", [])
+        ptr_hosts = list((recon.get("dns") or {}).get("reverse", {}).values())
         # reverse-IP is an external lookup — tie it to the "enumerate more hosts"
-        # intent (subdomains opt-in); cert-SAN harvest is free and always runs. Skip
+        # intent (subdomains opt-in); cert-SAN and PTR data reuse earlier checks. Skip
         # it behind a shared CDN, where the resolved IP is an edge serving thousands
         # of unrelated tenants (e.g. Cloudflare) — the "siblings" would be noise.
-        cdn = _fronting_cdn(ctx.result.recon)
+        cdn = _fronting_cdn(recon)
         do_rip = ctx.config.subdomains and not cdn and bool(ctx.result.ip)
         if ctx.config.subdomains and cdn:
             ctx.result.errors.append(
@@ -922,26 +925,34 @@ class CoHostDiscovery(Plugin):
                 "skipped; co-tenants on a CDN edge are unrelated to this host. Cert-SAN "
                 "siblings still reported.")
         info = cohost_mod.discover(ctx.target.host, ctx.result.ip or "", sans,
-                                   do_reverse_ip=do_rip)
+                                   do_reverse_ip=do_rip, ptr_hosts=ptr_hosts)
+        info["checked"] = {
+            "certificate_san": ctx.config.tls,
+            "reverse_dns": ctx.config.dns,
+            "reverse_ip": do_rip,
+        }
+        recon["cohosted"] = info
         if info.get("error"):
             ctx.result.errors.append(f"cohost: {info['error']}")
         sibs = info.get("siblings", [])
-        if sibs:
-            ctx.result.recon["cohosted"] = info
-            shown = ", ".join(sibs[:25]) + (" …" if len(sibs) > 25 else "")
-            srcs = []
-            if info.get("from_san"):
-                srcs.append("cert SAN")
-            if info.get("from_reverse_ip"):
-                srcs.append("reverse-IP")
-            ctx.result.findings.append(Finding(
-                title=f"Co-hosted hostnames on {ctx.result.ip or 'this IP'} ({len(sibs)})",
-                severity=Severity.INFO, category="cohost",
-                description=f"Other hostnames served from the same IP (via {', '.join(srcs)}): {shown}. "
-                            "Each is a separate service on the same box — scan the ones in scope.",
-                recommendation="Queue scans of these hosts too; one reverse proxy often fronts many apps.",
-                evidence=", ".join(sibs[:40]),
-            ))
+        if not sibs:
+            return
+        shown = ", ".join(sibs[:25]) + (" …" if len(sibs) > 25 else "")
+        srcs = []
+        if info.get("from_san"):
+            srcs.append("cert SAN")
+        if info.get("from_ptr"):
+            srcs.append("PTR")
+        if info.get("from_reverse_ip"):
+            srcs.append("reverse-IP")
+        ctx.result.findings.append(Finding(
+            title=f"Co-hosted hostname candidates on {ctx.result.ip or 'this IP'} ({len(sibs)})",
+            severity=Severity.INFO, category="cohost",
+            description=f"Hostnames associated with the same IP (via {', '.join(srcs)}): {shown}. "
+                        "These are candidates, not confirmed websites or authorization to scan.",
+            recommendation="Verify each hostname and scan only systems you are authorized to test.",
+            evidence=", ".join(sibs[:40]),
+        ))
 
 
 @register

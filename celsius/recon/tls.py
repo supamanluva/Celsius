@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import socket
 import ssl
+import tempfile
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Optional
 
 from ..models import Finding, Severity
@@ -20,6 +22,21 @@ TIMEOUT = 8
 def _connect(host: str, port: int, context: ssl.SSLContext):
     raw = socket.create_connection((host, port), timeout=TIMEOUT)
     return context.wrap_socket(raw, server_hostname=host)
+
+
+def _decode_certificate(der: bytes) -> dict:
+    """Decode DER through CPython's stdlib certificate decoder when available."""
+    decoder = getattr(getattr(ssl, "_ssl", None), "_test_decode_cert", None)
+    if not der or decoder is None:
+        return {}
+    try:
+        with tempfile.TemporaryDirectory(prefix="celsius-cert-") as directory:
+            pem = Path(directory) / "certificate.pem"
+            pem.write_text(ssl.DER_cert_to_PEM_cert(der), encoding="ascii")
+            decoded = decoder(str(pem))
+        return decoded if isinstance(decoded, dict) else {}
+    except (OSError, ValueError, ssl.SSLError):
+        return {}
 
 
 def analyze(host: str, port: int = 443) -> tuple[dict, list[Finding], list[str]]:
@@ -46,7 +63,8 @@ def analyze(host: str, port: int = 443) -> tuple[dict, list[Finding], list[str]]
             title = "TLS certificate expired"
         elif "self signed" in reason or "self-signed" in reason:
             title = "Self-signed TLS certificate"
-        elif "hostname mismatch" in reason or "doesn't match" in reason:
+        elif ("hostname mismatch" in reason or "ip address mismatch" in reason
+              or "doesn't match" in reason or "not valid for" in reason):
             title = "TLS certificate hostname mismatch"
         else:
             title = "TLS certificate not trusted"
@@ -71,7 +89,9 @@ def analyze(host: str, port: int = 443) -> tuple[dict, list[Finding], list[str]]
             if cph:
                 info.setdefault("cipher", cph[0])
             if cert is None:
-                cert = s.getpeercert()  # empty under CERT_NONE, but harmless
+                der = s.getpeercert(binary_form=True)
+                if der:
+                    cert = _decode_certificate(der) or None
     except (ssl.SSLError, OSError):
         pass
 

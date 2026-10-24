@@ -1,7 +1,8 @@
-"""DNS reconnaissance via DNS-over-HTTPS (no third-party dependency).
+"""DNS reconnaissance via DNS-over-HTTPS and PTR (no third-party dependency).
 
 stdlib has no MX/TXT/NS resolver, so we query a DoH JSON endpoint (dns.google).
 Returns a dict of record-type -> [values], plus reverse-DNS for resolved IPs.
+Bare IP targets skip forward enumeration and query their PTR record directly.
 """
 
 from __future__ import annotations
@@ -42,6 +43,15 @@ def reverse_dns(ip: str) -> Optional[str]:
         return None
 
 
+def lookup_ip(ip: str) -> dict:
+    """Return PTR data for a bare IP in the same shape as hostname lookups."""
+    ptr = reverse_dns(ip)
+    return {
+        "records": {"PTR": [ptr]} if ptr else {},
+        "reverse": {ip: ptr} if ptr else {},
+    }
+
+
 def lookup(host: str) -> dict:
     """Return {records: {type: [..]}, reverse: {ip: ptr}}."""
     records: dict[str, list[str]] = {}
@@ -62,7 +72,7 @@ def lookup(host: str) -> dict:
 def summarize(dns: dict) -> str:
     rec = dns.get("records", {})
     parts = []
-    for t in ("A", "AAAA", "MX", "NS"):
+    for t in ("A", "AAAA", "MX", "NS", "PTR"):
         if rec.get(t):
             parts.append(f"{t}: {', '.join(rec[t][:4])}")
     return " | ".join(parts)

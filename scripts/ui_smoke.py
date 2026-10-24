@@ -670,6 +670,13 @@ def main() -> int:
                               "routes": ["/app"]},
                     "tech": [{"name": "nginx", "version": "1.18",
                               "category": "web-server"}],
+                    "cohosted": {
+                        "ip": "93.184.216.34", "siblings": [],
+                        "from_san": [], "from_ptr": [], "from_reverse_ip": [],
+                        "error": None,
+                        "checked": {"certificate_san": True, "reverse_dns": True,
+                                    "reverse_ip": True},
+                    },
                 },
                 "cves": [
                     {"id": "CVE-2021-0001", "severity": "CRITICAL", "cvss": 9.8,
@@ -731,6 +738,14 @@ def main() -> int:
             # 1 firm CRITICAL CVE + 3 real findings (weak CVE + AI lead excluded)
             check((page.locator("#chartDonut .chart-donut-total").text_content() or "") == "4",
                   "#chartDonut center total is not 4 (exclusion convention broken)")
+            cohost_card = page.locator("#results .cohost-status")
+            cohost_text = cohost_card.inner_text().lower()
+            check(cohost_card.count() == 1 and
+                  "co-hosted hostname candidates (0)" in cohost_text and
+                  "no public hostnames found in the checked sources." in cohost_text and
+                  all(source in cohost_text for source in
+                      ("certificate sans", "ptr", "reverse-ip")),
+                  f"empty co-host state or checked sources are not visible: {cohost_text}")
             service_table = page.locator("#results table.svc")
             check(service_table.locator("caption").inner_text().strip()
                   == "Detected services for https://example.com" and

@@ -49,7 +49,8 @@ auto-discovered binaries, and the web app adds only FastAPI/uvicorn.
 
 **Contents:**
 [Why Celsius](#why-celsius) · [What it does](#what-it-does) ·
-[Run in Docker](#run-in-docker) · [Install](#install) · [Web app](#web-app) ·
+[Run in Docker](#run-in-docker) · [Install](#install) · [Update](#update) ·
+[Web app](#web-app) ·
 [CLI usage](#cli-usage) · [AI layer](#ai-layer-m2) · [Governance](#governance-m0) ·
 [Lab mode](#lab-mode-m5--active-verification) ·
 [CVE matching](#how-cve-matching-works-and-why-its-not-just-one-api-call) ·
@@ -84,6 +85,11 @@ hid (a leak to firewall behind the CDN's ranges). It also flags **internal-addre
 exposure** — subdomains that resolve in *public* DNS to an RFC1918/private or
 **Tailscale** (`100.64.0.0/10`) address, or a `*.ts.net` CNAME: an infrastructure
 leak that reveals internal/VPN topology.
+
+**Hosted-site discovery** — bare IP scans use PTR/reverse DNS; certificate SANs
+and passive reverse-IP lookups add candidate hostnames on the same address. The
+UI reports checked sources, empty results and lookup failures separately. These
+candidates are not proof of a website or authorization to scan it.
 
 **🔌 Services, OS &amp; lifecycle** — service/version detection from headers + tech
 fingerprints + optional `nmap -sV`; **error-page version recovery** — when the
@@ -173,6 +179,32 @@ port or pin one interface (e.g. `"192.168.1.102:8011:8000"`).
 
 ## Install
 
+### Full local setup
+
+On Debian, Ubuntu, Pop!_OS, and other apt-based Linux systems (x86_64 or arm64):
+
+```bash
+./install.sh
+./run.sh                       # http://127.0.0.1:8000
+```
+
+The installer provisions the complete local runtime: managed Python 3.12 with
+locked web/dynamic dependencies, Chromium and its system libraries, `nmap`,
+`nuclei` plus vulnerability templates, and `gitleaks`/`semgrep`/`trufflehog`
+for code scans. It installs the project in `.venv`; user-local tools go in
+`~/.local/bin`, while apt manages system packages. Existing scanner commands
+are preserved, and official binary releases are pinned and checked against
+their published SHA-256 sums.
+
+Run it as a normal user, **not root**. It needs internet access and uses `sudo`
+only for system packages and Chromium libraries. Ordinary nmap service scans
+work as the normal user; OS fingerprinting (`-O`) still needs root or the
+recommended Docker deployment. The installer does not start or restart the
+server; after an upgrade, restart an existing one with `./kill.sh && ./run.sh`.
+Optional API-backed features still require their own account credentials.
+
+### Manual setup
+
 Managed with [uv](https://docs.astral.sh/uv/). The CLI is stdlib-only, so for a
 quick run you don't even need to install anything:
 
@@ -196,6 +228,25 @@ uv run --extra dynamic playwright install chromium
 No uv? The stdlib core still runs with plain Python — `python3 -m celsius
 <target>` — and the web app works under a classic venv:
 `python3 -m venv .venv && .venv/bin/pip install -e '.[web]'`.
+
+## Update
+
+Fetch new code from the current branch's configured GitHub remote (or any other
+Git upstream) and apply it safely:
+
+```bash
+./update.sh
+```
+
+If the branch is behind, the updater requires a clean worktree and performs a
+**fast-forward-only** merge. Tracked modifications and untracked files stop the
+update rather than being stashed, deleted, or overwritten. Up-to-date and ahead
+branches are left alone; diverged history requires manual reconciliation. The
+script never commits or pushes.
+
+When dependency or installer files change, it recommends running `./install.sh`.
+It does not run the installer or restart the server automatically. After an
+update, restart Celsius when it is idle with `./kill.sh && ./run.sh`.
 
 ## Web app
 
@@ -631,12 +682,18 @@ never on a version string alone.
 
 ## Requirements
 
-- **Docker** (recommended for the web app + working OS detection) — everything
-  else is bundled in the image; just `docker compose up -d --build`.
-- Python 3.10+
-- [uv](https://docs.astral.sh/uv/) (recommended) — `curl -LsSf https://astral.sh/uv/install.sh | sh`
+- **Docker** (recommended for the web app + working OS detection) — `nmap` and
+  `nuclei` are bundled; just `docker compose up -d --build`.
+- **Full local setup** on apt-based Linux — `./install.sh` installs all of the
+  local web, browser, network-scanner, and code-scanner requirements below.
+- Python 3.10+ for a manual installation.
+- [uv](https://docs.astral.sh/uv/) (recommended for manual installation) —
+  `curl -LsSf https://astral.sh/uv/install.sh | sh`
 - `nmap` (optional, for `--ports`/OS detect; OS detect needs root or a container)
 - `nuclei` (optional, for `--nuclei`) — `go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest`
+- Chromium (optional, for dynamic JavaScript-rendered analysis) — installed with
+  `uv run --extra dynamic playwright install chromium` during manual setup.
+- `gitleaks`, `semgrep`, and `trufflehog` (optional external code scanners).
 
 ## Layout
 

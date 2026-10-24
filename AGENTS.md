@@ -34,6 +34,13 @@ Managed with [uv](https://docs.astral.sh/uv/) (build backend: `uv_build`). Plain
 Python also works for the core.
 
 ```bash
+# Full local runtime on apt-based Linux (web/dynamic, Chromium, nmap/nuclei,
+# and the gitleaks/semgrep/trufflehog code scanners); uses sudo for system deps
+./install.sh
+
+# Fetch upstream and apply only a clean fast-forward; never overwrite local work
+./update.sh
+
 # Run the CLI straight from a checkout (stdlib-only, no install needed)
 python3 -m celsius https://example.com
 uv run celsius https://example.com
@@ -93,10 +100,11 @@ celsius/
   exploitability.py EPSS + CISA KEV scoring → verdict/priority/how-to
   correlate.py      exploit-chain correlation (findings → attack paths)
   completeness.py   completeness critic + blue-team detection rules
-  recon/            attack surface & client-side: dns (DoH), subdomains (crt.sh),
+  recon/            attack surface & client-side: dns (DoH + PTR), subdomains (crt.sh),
                     tls, fingerprint, crawler, jsintel, sourcemaps, apidisco,
                     wpcheck (WordPress checks, safe-active), content_discovery,
-                    dynamic (Playwright), cohost, origin, wayback, robots, …
+                    dynamic (Playwright), cohost (SAN/PTR/reverse-IP), origin,
+                    wayback, robots, …
   active/           lab-mode active verification: harness.py is THE safety
                     chokepoint; verifiers.py has the non-destructive probes
   ai/               LLM layer: provider.py (deepseek/openai/anthropic/kimi/

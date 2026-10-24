@@ -12,6 +12,8 @@ RELOAD_ARG=""
 PIDFILE="$DIR/.celsius-serve.pid"
 LOGFILE="$DIR/celsius-serve.log"
 
+export PATH="$HOME/.local/bin:$HOME/go/bin:$PATH"
+
 # Launch command: prefer uv (`uv run` syncs the web + dynamic extras on demand —
 # dynamic adds Playwright for SPA rendering; run `uv run playwright install
 # chromium` once to fetch the browser). Fall back to a classic .venv. Override
@@ -23,8 +25,8 @@ elif command -v uv >/dev/null 2>&1; then
 elif [ -x "$DIR/.venv/bin/python" ]; then
     RUN=("$DIR/.venv/bin/python" -m celsius)
 else
-    echo "no launcher found — install uv (https://docs.astral.sh/uv/) then re-run," >&2
-    echo "or: python3 -m venv .venv && .venv/bin/pip install -e '.[web]'" >&2
+    echo "no launcher found — run ./install.sh or install uv, then re-run;" >&2
+    echo "classic venv: python3 -m venv .venv && .venv/bin/pip install -e '.[web]'" >&2
     exit 1
 fi
 

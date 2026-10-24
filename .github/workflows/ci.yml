@@ -44,6 +44,9 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Shell script syntax
+        run: bash -n install.sh update.sh run.sh kill.sh
+
       - name: Lint (ruff — blocking)
         run: uv run --group dev ruff check celsius/
 

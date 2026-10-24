@@ -1,15 +1,17 @@
-"""Co-hosted host discovery: other hostnames served from the same IP.
+"""Co-hosted host candidate discovery: hostnames associated with the same IP.
 
 A reverse proxy serves many vhosts on one IP, routed by Host header / TLS SNI —
-so scanning one hostname only ever sees that one vhost. This surfaces sibling
-hostnames from two public signals:
+so scanning one hostname only ever sees that one vhost. This surfaces candidate
+hostnames from three public signals:
 
-  1. the TLS certificate's SAN list (already fetched during the scan), and
-  2. a passive reverse-IP lookup (HackerTarget — free, rate-limited, no key).
+  1. the TLS certificate's SAN list (already fetched during the scan),
+  2. PTR reverse-DNS records (already fetched during DNS recon), and
+  3. a passive reverse-IP lookup (HackerTarget — free, rate-limited, no key).
 
 The point: a site owner can then queue scans of the *other* services on the same
 box. Honest limit — these are PUBLIC signals; a purely internal/unannounced vhost
-won't appear and must be entered by hand.
+won't appear and must be entered by hand. An association is not proof of a
+website or authorization to scan it.
 """
 
 from __future__ import annotations
@@ -61,14 +63,16 @@ def reverse_ip(ip: str, *, timeout: int = TIMEOUT) -> tuple[list[str], str | Non
     return sorted(hosts), None
 
 
-def discover(host: str, ip: str, sans, *, do_reverse_ip: bool = True) -> dict:
-    """Combine cert-SAN + reverse-IP into a deduped sibling-host list (≠ scanned host)."""
+def discover(host: str, ip: str, sans, *, do_reverse_ip: bool = True,
+             ptr_hosts=()) -> dict:
+    """Combine cert-SAN, PTR and reverse-IP candidates, excluding the scanned host."""
     san_hosts = from_san(sans, host)
+    ptr = from_san(ptr_hosts, host)
     rip_hosts: list[str] = []
     err = None
     if do_reverse_ip:
         rip_hosts, err = reverse_ip(ip)
     sh = _norm(host)
-    siblings = sorted({h for h in set(san_hosts) | set(rip_hosts) if h and h != sh})
-    return {"ip": ip, "siblings": siblings, "from_san": san_hosts,
+    siblings = sorted({h for h in set(san_hosts) | set(ptr) | set(rip_hosts) if h and h != sh})
+    return {"ip": ip, "siblings": siblings, "from_san": san_hosts, "from_ptr": ptr,
             "from_reverse_ip": rip_hosts, "error": err}
