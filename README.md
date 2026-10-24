@@ -26,13 +26,16 @@ CORS/JWT/takeover checks · email security · an **agentic AI proof loop** —
 
 ## Screenshots
 
+*Interface previews use simulated results, reserved example domains, and
+documentation-only IP addresses. No live targets were scanned.*
+
 <p align="center">
-  <img src="docs/screenshot-home.png" alt="Celsius web UI" width="820">
+  <img src="docs/screenshot-home.png" alt="Celsius dashboard — latest scan, severity metrics and recent history" width="820">
 </p>
 <table>
 <tr>
-  <td width="50%"><img src="docs/screenshot-scan.png" alt="Scan results"><br><em>Scan results — grade, fix-first plan, AI advisor, findings, JSON/MD/SARIF/HTML export</em></td>
-  <td width="50%"><img src="docs/screenshot-mail.png" alt="Email security scorecard"><br><em>Email security — SPF/DKIM/DMARC/MTA-STS graded A–F with exact fixes</em></td>
+  <td width="50%"><img src="docs/screenshot-scan.png" alt="Celsius scan results with filterable CVE triage"><br><em>Scan results — risk charts, coverage &amp; confidence, prioritized fixes, and searchable CVE/finding triage</em></td>
+  <td width="50%"><img src="docs/screenshot-mail.png" alt="Email security scorecard"><br><em>Email security — passive SPF/DKIM/DMARC/MTA-STS checks with grades and exact fixes</em></td>
 </tr>
 </table>
 
